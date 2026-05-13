@@ -1,29 +1,23 @@
 # FirstFinder
 
-A Next.js prototype for a rare book collector assistant.
+FirstFinder is a collectible inventory app for tracking books and other collectibles.
 
-## Setup
+## Current features
 
-```bash
-npm install
-cp .env.example .env.local
-# Add your real OpenAI API key to .env.local
-npm run dev
-```
+- Google login with Supabase Auth
+- Add inventory quickly
+- Tutorial-style add flow
+- View inventory as cards or records
+- Active and sold tabs
+- Edit items
+- Mark sold and restore
+- CSV template download and bulk upload
+- Cost basis and estimated value tracking
 
-Then open:
+## Tech stack
 
-```bash
-http://localhost:3000
-```
-
-## How chat works
-
-The browser calls:
-
-```js
-POST /api/chat
-```
-
-The backend route at `app/api/chat/route.js` calls the OpenAI Responses API securely on the server.
-Do not put your OpenAI API key in frontend React code.
+- Next.js
+- React
+- Tailwind CSS
+- Supabase Auth
+- Supabase database
