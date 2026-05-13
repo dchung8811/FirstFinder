@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
+import { sendGAEvent } from "@next/third-parties/google";
 import { motion } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
 
@@ -216,6 +217,17 @@ function Icon({ name, size = 20, className = "" }) {
       {icons[name] || icons.box}
     </svg>
   );
+}
+
+
+function trackEvent(eventName, params = {}) {
+  try {
+    sendGAEvent("event", eventName, params);
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("GA event failed:", eventName, error);
+    }
+  }
 }
 
 function toNumber(value) {
@@ -604,6 +616,14 @@ export default function FirstFinderApp() {
       return;
     }
 
+    trackEvent("inventory_item_submitted", {
+      entry_type: "tutorial",
+      category: item.category || "Other",
+      status: item.status || "Owned",
+      has_item_photo: itemPhotos.length > 0,
+      has_receipt_photo: receiptPhotos.length > 0
+    });
+
     setInventory((items) => [fromDbItem(data), ...items]);
     setItem({ ...emptyItem });
     setItemPhotos([]);
@@ -630,6 +650,14 @@ export default function FirstFinderApp() {
       alert(error.message);
       return;
     }
+
+    trackEvent("inventory_item_submitted", {
+      entry_type: "quick_add",
+      category: quickItem.category || "Other",
+      status: quickItem.status || "Owned",
+      has_item_photo: quickItemPhotos.length > 0,
+      has_receipt_photo: quickReceiptPhotos.length > 0
+    });
 
     setInventory((items) => [fromDbItem(data), ...items]);
     setQuickItem({ ...emptyItem, purchaseDate: "2026-05-12" });
@@ -668,6 +696,13 @@ export default function FirstFinderApp() {
       return;
     }
 
+    const previousItem = inventory.find((entry) => entry.id === id);
+
+    trackEvent("item_marked_sold", {
+      category: previousItem?.category || "Other",
+      status_before: previousItem?.status || "Owned"
+    });
+
     setInventory((items) => items.map((entry) => (entry.id === id ? fromDbItem(data) : entry)));
   }
 
@@ -684,6 +719,12 @@ export default function FirstFinderApp() {
       alert(error.message);
       return;
     }
+
+    const previousItem = inventory.find((entry) => entry.id === id);
+
+    trackEvent("item_restored", {
+      category: previousItem?.category || "Other"
+    });
 
     setInventory((items) => items.map((entry) => (entry.id === id ? fromDbItem(data) : entry)));
     setInventoryStatusView("active");
@@ -756,6 +797,11 @@ export default function FirstFinderApp() {
         return;
       }
 
+      trackEvent("csv_uploaded", {
+        source_page: "add_inventory",
+        imported_count: (data || []).length
+      });
+
       setInventory((items) => [...(data || []).map(fromDbItem), ...items]);
       setBulkMessage(`Imported ${(data || []).length} item${(data || []).length === 1 ? "" : "s"} from ${file.name}.`);
       setActiveView("inventory");
@@ -778,12 +824,12 @@ export default function FirstFinderApp() {
               <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Add Inventory</TabButton>
               <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>View Inventory ({activeInventory.length})</TabButton>
               <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Tutorial</TabButton>
-              <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
+              <TabButton active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: isLoggedIn ? "logged_in" : "logged_out" }); setActiveView("roadmap"); }}>Roadmap</TabButton>
             </>
           ) : (
             <>
               <TabButton active={activeView === "home"} onClick={() => setActiveView("home")}>Get Started</TabButton>
-              <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
+              <TabButton active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: isLoggedIn ? "logged_in" : "logged_out" }); setActiveView("roadmap"); }}>Roadmap</TabButton>
             </>
           )}
         </div>
@@ -872,7 +918,7 @@ function LoginPage({ loginMode, setLoginMode, loginForm, setLoginForm, onGoogleL
               </p>
               <button
                 type="button"
-                onClick={onGoogleLogin}
+                onClick={() => { trackEvent("google_login_clicked", { source_page: "login" }); onGoogleLogin(); }}
                 className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-[#cdbb9c] bg-white px-6 text-base font-semibold text-[#123f38] shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]"
               >
                 <Icon name="google" size={20} />
@@ -912,6 +958,10 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
           <Button
             type="button"
             onClick={() => {
+              trackEvent("quick_add_clicked", {
+                location: "add_inventory_header"
+              });
+
               const quickAddForm = document.getElementById("quick-add-form");
               if (quickAddForm) {
                 quickAddForm.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1021,8 +1071,8 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
         </div>
 
         <div className="mt-[10px] flex h-[48px] items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
-          <TabButton active={viewMode === "cards"} onClick={() => setViewMode("cards")}>Cards</TabButton>
-          <TabButton active={viewMode === "records"} onClick={() => setViewMode("records")}>Records</TabButton>
+          <TabButton active={viewMode === "cards"} onClick={() => { trackEvent("inventory_view_changed", { view_mode: "cards" }); setViewMode("cards"); }}>Cards</TabButton>
+          <TabButton active={viewMode === "records"} onClick={() => { trackEvent("inventory_view_changed", { view_mode: "records" }); setViewMode("records"); }}>Records</TabButton>
         </div>
       </div>
 
@@ -1150,7 +1200,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
 
 function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkMessage }) {
   return (
-    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import inventory by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Photos can be added later item-by-item.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={onDownloadTemplate} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className="flex h-11 cursor-pointer items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="upload" size={17} className="mr-2" /> Upload CSV<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import inventory by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Photos can be added later item-by-item.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className="flex h-11 cursor-pointer items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="upload" size={17} className="mr-2" /> Upload CSV<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
   );
 }
 
