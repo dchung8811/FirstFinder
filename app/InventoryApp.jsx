@@ -364,6 +364,33 @@ function runRuntimeTests() {
   ];
 }
 
+
+function FirstFinderLogoMark({ className = "h-6 w-6" }) {
+  return (
+    <svg
+      viewBox="0 0 120 120"
+      className={className}
+      aria-hidden="true"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M28 91C20 91 15 86 15 79C15 70 22 64 33 64H43C48 64 50 61 51 56L60 22C62 13 68 9 78 9H104C106 9 107 11 106 13C104 25 94 34 81 34H72C68 34 66 36 65 40L53 78C50 87 42 91 28 91Z"
+        fill="currentColor"
+      />
+      <path
+        d="M54 101C62 98 67 91 70 80L76 58C78 50 84 46 93 46H109C111 46 112 48 111 50C109 60 101 67 90 67H86C82 67 80 69 79 73L76 83C73 95 64 101 54 101Z"
+        fill="currentColor"
+      />
+      <path
+        d="M76 82H102C104 82 105 84 104 86C102 95 94 101 84 101H71C68 101 66 98 67 95L70 86C71 83 73 82 76 82Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+
 export default function FirstFinderApp() {
   const [activeView, setActiveView] = useState("home");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -742,14 +769,23 @@ export default function FirstFinderApp() {
     <main className="min-h-screen bg-[#f6efe3] text-[#201a14]">
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <button onClick={() => navigate(isLoggedIn ? "dashboard" : "home")} className="flex items-center gap-3 text-left">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#123f38] text-[#fff7ea]"><Icon name="box" size={21} /></div>
-          <div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Collectible inventory</div></div>
+          <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 rounded-xl object-cover" /><div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Collectible inventory</div></div>
         </button>
 
         <div className="hidden items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1 md:flex">
-          {isLoggedIn && <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Add Inventory</TabButton>}
-          {isLoggedIn && <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>View Inventory ({activeInventory.length})</TabButton>}
-          {isLoggedIn && <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Tutorial</TabButton>}
+          {isLoggedIn ? (
+            <>
+              <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Add Inventory</TabButton>
+              <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>View Inventory ({activeInventory.length})</TabButton>
+              <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Tutorial</TabButton>
+              <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
+            </>
+          ) : (
+            <>
+              <TabButton active={activeView === "home"} onClick={() => setActiveView("home")}>Get Started</TabButton>
+              <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -758,6 +794,7 @@ export default function FirstFinderApp() {
       </nav>
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "dashboard" : "login")} />}
+      {activeView === "roadmap" && <RoadmapPage />}
       {activeView === "login" && <LoginPage loginMode={loginMode} setLoginMode={setLoginMode} loginForm={loginForm} setLoginForm={setLoginForm} onGoogleLogin={handleGoogleLogin} onPasswordLogin={handlePasswordLogin} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkMessage={bulkMessage} />}
       {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
@@ -771,13 +808,24 @@ export default function FirstFinderApp() {
         />
       )}
 
-      <section className="mx-auto max-w-6xl px-6 pb-16">
-        <div className="mt-6 rounded-[2rem] border border-[#d8c7ad] bg-[#fff8ee] p-5">
-          <div className="mb-3 flex items-center justify-between gap-4"><div className="font-semibold">Prototype checks</div><div className="text-sm text-[#665746]">{passingTests}/{runtimeTests.length} passing</div></div>
-          <div className="grid gap-2 md:grid-cols-2">{runtimeTests.map((test) => <div key={test.name} className="flex items-center gap-2 text-sm text-[#665746]"><span className={`h-2.5 w-2.5 rounded-full ${test.pass ? "bg-[#123f38]" : "bg-red-700"}`} />{test.name}</div>)}</div>
-        </div>
-      </section>
     </main>
+  );
+}
+
+
+function RoadmapPage() {
+  return (
+    <section className="mx-auto max-w-6xl px-6 py-16 md:py-24">
+      <div className="rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-10 text-center shadow-sm">
+        <div className="mx-auto mb-5 inline-flex rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-sm font-medium text-[#655644]">
+          Roadmap
+        </div>
+        <h1 className="text-4xl font-semibold tracking-tight md:text-6xl">Coming soon!</h1>
+        <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-[#665746]">
+          We’ll share upcoming FirstFinder features and improvements here.
+        </p>
+      </div>
+    </section>
   );
 }
 
