@@ -959,7 +959,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
           </div>
         </div>
 
-        <div className="flex items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
+        <div className="mt-[10px] flex h-[48px] items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
           <TabButton active={viewMode === "cards"} onClick={() => setViewMode("cards")}>Cards</TabButton>
           <TabButton active={viewMode === "records"} onClick={() => setViewMode("records")}>Records</TabButton>
         </div>
