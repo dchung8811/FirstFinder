@@ -905,11 +905,22 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
     <section className="mx-auto max-w-6xl px-6 py-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-sm text-[#655644]"><Icon name="home" size={16} /> Add Inventory</div>
-          <h1 className="mt-5 text-5xl font-semibold tracking-tight">Add something quickly.</h1>
+          <h1 className="text-5xl font-semibold tracking-tight">Add something quickly.</h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">Use quick add for most items. Upload a photo to mock-autofill fields, use CSV for bulk import, or open the tutorial for the guided flow.</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
+          <Button
+            type="button"
+            onClick={() => {
+              const quickAddForm = document.getElementById("quick-add-form");
+              if (quickAddForm) {
+                quickAddForm.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            }}
+            className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"
+          >
+            Quick Add
+          </Button>
           <Button onClick={onInventory} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">View Inventory</Button>
           <Button onClick={onFullAdd} variant="outline" className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Tutorial</Button>
         </div>
@@ -921,15 +932,13 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
         <DashboardCard icon="dollar" label="Est. gain/loss" value={formatCurrency(totalGain)} />
       </div>
 
-      <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
-        <CardContent className="p-6 md:p-8">
-          <form onSubmit={onSave}>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Quick add</div>
-                <h2 className="mt-1 text-3xl font-semibold">New collectible</h2>
-              </div>
-              <Button type="submit" className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> Save</Button>
+      <div id="quick-add-form" className="scroll-mt-24">
+        <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
+          <CardContent className="p-6 md:p-8">
+            <form onSubmit={onSave}>
+            <div>
+              <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Quick add</div>
+              <h2 className="mt-1 text-3xl font-semibold">New collectible</h2>
             </div>
 
             {autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}
@@ -953,9 +962,14 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
               <CompactUploader title="Item photo + autofill" icon="camera" photos={quickItemPhotos} onUpload={(event) => onUpload(event, "quickItem", true)} onRemove={(id) => onRemove(id, "quickItem")} />
               <CompactUploader title="Receipt proof + autofill" icon="receipt" photos={quickReceiptPhotos} onUpload={(event) => onUpload(event, "quickReceipt", true)} onRemove={(id) => onRemove(id, "quickReceipt")} />
             </div>
-          </form>
-        </CardContent>
-      </Card>
+
+            <Button type="submit" className="mt-6 h-11 w-full rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] hover:bg-[#0f332d]">
+              Submit
+            </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="mt-8">
         <BulkUploadCard onDownloadTemplate={onDownloadTemplate} onBulkUpload={onBulkUpload} bulkMessage={bulkMessage} />
@@ -967,7 +981,7 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
 function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRemove, onSave, onReset, onLoadSample, autofillMessage }) {
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:py-16">
-      <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-sm text-[#655644]"><Icon name="plus" size={16} /> Tutorial</div><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
+      <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
       <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} /><Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} /><SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem({ ...item, status: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label="Estimated value" type="number" value={item.estimatedValue} onChange={(value) => setItem({ ...item, estimatedValue: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and an estimated value of {formatCurrency(item.estimatedValue)}. Current estimated gain/loss is {formatCurrency(calculateGain(item))}.</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatCurrency(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">est. gain/loss</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> Save to inventory</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
     </section>
   );
@@ -980,8 +994,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
     <section className="mx-auto max-w-6xl px-6 py-12">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-sm text-[#655644]"><Icon name="box" size={16} /> View Inventory</div>
-          <h1 className="mt-5 text-5xl font-semibold tracking-tight">{statusView === "sold" ? "Sold collectibles" : "Your active collectibles"}</h1>
+          <h1 className="text-5xl font-semibold tracking-tight">{statusView === "sold" ? "Sold collectibles" : "Your active collectibles"}</h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
             {statusView === "sold"
               ? "Sold items stay preserved here for reporting, resale history, and cost-basis records."
