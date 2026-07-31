@@ -290,6 +290,10 @@ async function fetchSignedPhotoUrls(photos) {
   return photos.map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) : photo.url }));
 }
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function toNumber(value) {
   const parsed = Number.parseFloat(String(value).replace(/[^0-9.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -478,7 +482,7 @@ export default function FirstFinderApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [item, setItem] = useState(sampleItems[0]);
-  const [quickItem, setQuickItem] = useState({ ...emptyItem, purchaseDate: "2026-05-12" });
+  const [quickItem, setQuickItem] = useState({ ...emptyItem, purchaseDate: todayIso() });
   const [inventory, setInventory] = useState([]);
   const [itemPhotos, setItemPhotos] = useState([]);
   const [receiptPhotos, setReceiptPhotos] = useState([]);
@@ -490,6 +494,7 @@ export default function FirstFinderApp() {
   const [editingItem, setEditingItem] = useState(null);
   const [autofillMessage, setAutofillMessage] = useState("");
   const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkUploading, setBulkUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const loadedUserIdRef = useRef(null);
@@ -765,7 +770,7 @@ export default function FirstFinderApp() {
 
     clearPhotoUrls(quickItemPhotos);
     clearPhotoUrls(quickReceiptPhotos);
-    setQuickItem({ ...emptyItem, purchaseDate: "2026-05-12" });
+    setQuickItem({ ...emptyItem, purchaseDate: todayIso() });
     setQuickItemPhotos([]);
     setQuickReceiptPhotos([]);
     setAutofillMessage("");
@@ -948,28 +953,34 @@ export default function FirstFinderApp() {
         return;
       }
 
-      const importedItems = parseCsvInventory(String(reader.result || ""));
-      const rows = importedItems.map((entry) => toDbItem(entry, currentUser.id, 0, 0));
+      setBulkUploading(true);
 
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .insert(rows)
-        .select();
+      try {
+        const importedItems = parseCsvInventory(String(reader.result || ""));
+        const rows = importedItems.map((entry) => toDbItem(entry, currentUser.id, 0, 0));
 
-      if (error) {
-        console.error("Bulk import error:", error.message);
-        alert(error.message);
-        return;
+        const { data, error } = await supabase
+          .from("inventory_items")
+          .insert(rows)
+          .select();
+
+        if (error) {
+          console.error("Bulk import error:", error.message);
+          alert(error.message);
+          return;
+        }
+
+        trackEvent("csv_uploaded", {
+          source_page: "add_inventory",
+          imported_count: (data || []).length
+        });
+
+        setInventory((items) => [...(data || []).map(fromDbItem), ...items]);
+        setBulkMessage(`Imported ${(data || []).length} item${(data || []).length === 1 ? "" : "s"} from ${file.name}.`);
+        setActiveView("inventory");
+      } finally {
+        setBulkUploading(false);
       }
-
-      trackEvent("csv_uploaded", {
-        source_page: "add_inventory",
-        imported_count: (data || []).length
-      });
-
-      setInventory((items) => [...(data || []).map(fromDbItem), ...items]);
-      setBulkMessage(`Imported ${(data || []).length} item${(data || []).length === 1 ? "" : "s"} from ${file.name}.`);
-      setActiveView("inventory");
     };
 
     reader.readAsText(file);
@@ -1008,7 +1019,7 @@ export default function FirstFinderApp() {
       {activeView === "roadmap" && <RoadmapPage />}
       {activeView === "login" && <LoginPage />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
-      {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkMessage={bulkMessage} />}
+      {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
       {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} bulkMessage={bulkMessage} />}
 
@@ -1371,7 +1382,7 @@ function ResetPasswordPage({ onDone }) {
   );
 }
 
-function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, autofillMessage, onDownloadTemplate, onBulkUpload, bulkMessage }) {
+function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, autofillMessage, onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
   return (
     <section className="mx-auto max-w-6xl px-6 py-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -1447,7 +1458,7 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
       </div>
 
       <div className="mt-8">
-        <BulkUploadCard onDownloadTemplate={onDownloadTemplate} onBulkUpload={onBulkUpload} bulkMessage={bulkMessage} />
+        <BulkUploadCard onDownloadTemplate={onDownloadTemplate} onBulkUpload={onBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />
       </div>
     </section>
   );
@@ -1464,6 +1475,38 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
 
 function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onDelete, onMarkSold, onRestoreSold, onEdit, bulkMessage }) {
   const [photoViewer, setPhotoViewer] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await onDelete(pendingDelete.id);
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleMarkSold(id) {
+    setBusyId(id);
+    try {
+      await onMarkSold(id);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleRestoreSold(id) {
+    setBusyId(id);
+    try {
+      await onRestoreSold(id);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
@@ -1555,11 +1598,11 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                       <div className="flex gap-2">
                         <Button variant="outline" onClick={() => onEdit(entry)} className="px-4 py-2">Edit</Button>
                         {entry.status === "Sold" ? (
-                          <Button variant="outline" onClick={() => onRestoreSold(entry.id)} className="px-4 py-2">Restore</Button>
+                          <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleRestoreSold(entry.id)} className="px-4 py-2">{busyId === entry.id ? "Restoring..." : "Restore"}</Button>
                         ) : (
-                          <Button variant="outline" onClick={() => onMarkSold(entry.id)} className="px-4 py-2">Sold</Button>
+                          <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleMarkSold(entry.id)} className="px-4 py-2">{busyId === entry.id ? "Saving..." : "Sold"}</Button>
                         )}
-                        <button onClick={() => onDelete(entry.id)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "inventory item"}`}><Icon name="trash" size={17} /></button>
+                        <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "inventory item"}`}><Icon name="trash" size={17} /></button>
                       </div>
                     </td>
                   </tr>
@@ -1582,7 +1625,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                     <h2 className="mt-3 text-2xl font-semibold">{entry.name || "Untitled item"}</h2>
                     <p className="text-[#665746]">{entry.maker || "Unknown maker"}</p>
                   </div>
-                  <button onClick={() => onDelete(entry.id)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "inventory item"}`}><Icon name="trash" size={17} /></button>
+                  <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "inventory item"}`}><Icon name="trash" size={17} /></button>
                 </div>
 
                 <div className="mt-5 grid gap-3 md:grid-cols-3">
@@ -1607,9 +1650,9 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                 <div className="mt-5 flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => onEdit(entry)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Edit</Button>
                   {entry.status === "Sold" ? (
-                    <Button variant="outline" onClick={() => onRestoreSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Restore to active</Button>
+                    <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleRestoreSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">{busyId === entry.id ? "Restoring..." : "Restore to active"}</Button>
                   ) : (
-                    <Button variant="outline" onClick={() => onMarkSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Mark sold</Button>
+                    <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleMarkSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">{busyId === entry.id ? "Saving..." : "Mark sold"}</Button>
                   )}
                 </div>
               </CardContent>
@@ -1619,13 +1662,44 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
       )}
 
       {photoViewer && <PhotoViewerModal entry={photoViewer} onClose={() => setPhotoViewer(null)} />}
+
+      {pendingDelete && (
+        <DeleteConfirmDialog
+          entry={pendingDelete}
+          deleting={deleting}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </section>
   );
 }
 
-function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkMessage }) {
+function DeleteConfirmDialog({ entry, deleting, onCancel, onConfirm }) {
   return (
-    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import inventory by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Photos can be added later item-by-item.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className="flex h-11 cursor-pointer items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="upload" size={17} className="mr-2" /> Upload CSV<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-[2rem] bg-[#fff9f0] p-6 shadow-2xl">
+        <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Delete item</div>
+        <h2 className="mt-1 text-2xl font-semibold">Delete "{entry.name || "Untitled item"}"?</h2>
+        <p className="mt-3 leading-7 text-[#665746]">
+          This removes the item and its saved photos permanently. This can't be undone.
+        </p>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={deleting} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+            Cancel
+          </Button>
+          <Button type="button" onClick={onConfirm} disabled={deleting} className="h-11 rounded-full bg-[#8a3b22] px-6 text-[#fff7ea] hover:bg-[#7a331d]">
+            {deleting ? "Deleting..." : "Delete item"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
+  return (
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import inventory by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Photos can be added later item-by-item.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className={`flex h-11 items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] ${bulkUploading ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}><Icon name="upload" size={17} className="mr-2" /> {bulkUploading ? "Importing..." : "Upload CSV"}<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} disabled={bulkUploading} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
   );
 }
 
