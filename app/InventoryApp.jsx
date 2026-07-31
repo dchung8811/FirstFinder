@@ -1681,7 +1681,9 @@ function PhotoViewerModal({ entry, onClose }) {
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {allPhotos.map((photo) => (
               <div key={photo.id} className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-white">
-                <img src={photo.url} alt={photo.name} className="h-72 w-full object-cover" />
+                <div className="flex h-72 w-full items-center justify-center bg-[#f3ece0]">
+                  <img src={photo.url} alt={photo.name} className="h-full w-full object-contain" />
+                </div>
                 <div className="p-4">
                   <div className="font-semibold">{photo.label}</div>
                   <div className="truncate text-sm text-[#665746]">{photo.name}</div>
