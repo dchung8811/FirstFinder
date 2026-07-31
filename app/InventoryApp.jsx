@@ -610,14 +610,24 @@ export default function FirstFinderApp() {
     setReceiptPhotos([]);
   }
 
+  // Only fills fields the user hasn't already entered, so attaching a photo
+  // after typing real details never clobbers what was already there.
+  function fillEmptyFields(current, inferred) {
+    const next = { ...current };
+    Object.keys(inferred).forEach((key) => {
+      if (!next[key]) next[key] = inferred[key];
+    });
+    return next;
+  }
+
   function applyAutofill(fileName, photoType) {
     const inferred = pickMockAutofill(fileName, photoType);
     if (photoType.startsWith("quick")) {
-      setQuickItem((current) => ({ ...current, ...inferred, name: current.name || inferred.name }));
+      setQuickItem((current) => fillEmptyFields(current, inferred));
     } else {
-      setItem((current) => ({ ...current, ...inferred, name: current.name || inferred.name }));
+      setItem((current) => fillEmptyFields(current, inferred));
     }
-    setAutofillMessage(`Autofilled fields from ${fileName || "uploaded photo"}. Review before saving.`);
+    setAutofillMessage(`Autofilled empty fields from ${fileName || "uploaded photo"}. Review before saving.`);
   }
 
   function handlePhotoUpload(event, photoType, shouldAutofill = false) {
