@@ -230,6 +230,51 @@ function trackEvent(eventName, params = {}) {
   }
 }
 
+const PHOTO_BUCKET = "item-photos";
+
+// Shrink an image before upload so photos stay ~200-400KB instead of
+// multi-MB phone originals. Falls back to the original file if the browser
+// can't decode it (e.g. HEIC in some browsers).
+async function compressImage(file, maxDimension = 1600, quality = 0.82) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (blob && blob.size < file.size) return blob;
+    return file;
+  } catch (error) {
+    return file;
+  }
+}
+
+async function uploadPhotoList(userId, itemId, photos, kind) {
+  const uploaded = [];
+  const failures = [];
+
+  for (const photo of photos) {
+    if (!photo.file) continue;
+    const blob = await compressImage(photo.file);
+    const safeName = String(photo.name || "photo").replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60);
+    const path = `${userId}/${itemId}/${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+    const { error } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .upload(path, blob, { contentType: blob.type || "image/jpeg" });
+
+    if (error) {
+      console.error("Photo upload error:", error.message);
+      failures.push(photo.name);
+    } else {
+      uploaded.push({ path, name: photo.name });
+    }
+  }
+
+  return { uploaded, failures };
+}
+
 function toNumber(value) {
   const parsed = Number.parseFloat(String(value).replace(/[^0-9.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -282,7 +327,17 @@ function toDbItem(item, userId, itemPhotoCount = 0, receiptPhotoCount = 0) {
   };
 }
 
+function fromDbPhotoList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((photo) => photo && photo.path)
+    .map((photo) => ({ id: photo.path, path: photo.path, name: photo.name || "photo" }));
+}
+
 function fromDbItem(row) {
+  const itemPhotos = fromDbPhotoList(row.item_photos);
+  const receiptPhotos = fromDbPhotoList(row.receipt_photos);
+
   return {
     id: row.id,
     name: row.name || "",
@@ -295,10 +350,10 @@ function fromDbItem(row) {
     purchasePrice: String(row.purchase_price ?? ""),
     estimatedValue: String(row.estimated_value ?? ""),
     notes: row.notes || "",
-    itemPhotoCount: row.item_photo_count || 0,
-    receiptPhotoCount: row.receipt_photo_count || 0,
-    itemPhotos: [],
-    receiptPhotos: [],
+    itemPhotoCount: itemPhotos.length || row.item_photo_count || 0,
+    receiptPhotoCount: receiptPhotos.length || row.receipt_photo_count || 0,
+    itemPhotos,
+    receiptPhotos,
     savedAt: row.created_at || row.updated_at || new Date().toISOString()
   };
 }
@@ -420,6 +475,7 @@ export default function FirstFinderApp() {
   const [editingItem, setEditingItem] = useState(null);
   const [autofillMessage, setAutofillMessage] = useState("");
   const [bulkMessage, setBulkMessage] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const loadedUserIdRef = useRef(null);
 
@@ -570,7 +626,8 @@ export default function FirstFinderApp() {
       id: `${photoType}-${file.name}-${Date.now()}-${Math.random()}`,
       name: file.name,
       url: URL.createObjectURL(file),
-      type: file.type || "image"
+      type: file.type || "image",
+      file
     }));
 
     if (photoType === "item") setItemPhotos((photos) => [...photos, ...nextPhotos]);
@@ -591,33 +648,84 @@ export default function FirstFinderApp() {
     });
   }
 
-  async function saveItem() {
+  // Inserts the item row, uploads its photos to Supabase Storage, then stores
+  // the photo paths back on the row. Returns the final row, or null on failure.
+  async function insertItemWithPhotos(sourceItem, itemPhotoList, receiptPhotoList, entryType) {
     if (!currentUser) {
       alert("Please log in before saving inventory.");
-      return;
+      return null;
     }
 
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .insert(toDbItem(item, currentUser.id, itemPhotos.length, receiptPhotos.length))
-      .select()
-      .single();
+    setSaving(true);
 
-    if (error) {
-      console.error("Save item error:", error.message);
-      alert(error.message);
-      return;
+    try {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .insert(toDbItem(sourceItem, currentUser.id, itemPhotoList.length, receiptPhotoList.length))
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Save item error:", error.message);
+        alert(error.message);
+        return null;
+      }
+
+      let finalRow = data;
+      const failures = [];
+
+      if (itemPhotoList.length > 0 || receiptPhotoList.length > 0) {
+        const itemResult = await uploadPhotoList(currentUser.id, data.id, itemPhotoList, "item");
+        const receiptResult = await uploadPhotoList(currentUser.id, data.id, receiptPhotoList, "receipt");
+        failures.push(...itemResult.failures, ...receiptResult.failures);
+
+        const { data: updated, error: updateError } = await supabase
+          .from("inventory_items")
+          .update({
+            item_photos: itemResult.uploaded,
+            receipt_photos: receiptResult.uploaded,
+            item_photo_count: itemResult.uploaded.length,
+            receipt_photo_count: receiptResult.uploaded.length,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", data.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error("Photo record update error:", updateError.message);
+          failures.push("(photo records could not be saved)");
+        } else {
+          finalRow = updated;
+        }
+      }
+
+      trackEvent("inventory_item_submitted", {
+        entry_type: entryType,
+        category: sourceItem.category || "Other",
+        status: sourceItem.status || "Owned",
+        has_item_photo: itemPhotoList.length > 0,
+        has_receipt_photo: receiptPhotoList.length > 0
+      });
+
+      setInventory((items) => [fromDbItem(finalRow), ...items]);
+
+      if (failures.length > 0) {
+        alert(`Item saved, but some photos failed to upload: ${failures.join(", ")}. Make sure the item-photos storage bucket is set up, then re-add the photos.`);
+      }
+
+      return finalRow;
+    } finally {
+      setSaving(false);
     }
+  }
 
-    trackEvent("inventory_item_submitted", {
-      entry_type: "tutorial",
-      category: item.category || "Other",
-      status: item.status || "Owned",
-      has_item_photo: itemPhotos.length > 0,
-      has_receipt_photo: receiptPhotos.length > 0
-    });
+  async function saveItem() {
+    const saved = await insertItemWithPhotos(item, itemPhotos, receiptPhotos, "tutorial");
+    if (!saved) return;
 
-    setInventory((items) => [fromDbItem(data), ...items]);
+    clearPhotoUrls(itemPhotos);
+    clearPhotoUrls(receiptPhotos);
     setItem({ ...emptyItem });
     setItemPhotos([]);
     setReceiptPhotos([]);
@@ -627,32 +735,11 @@ export default function FirstFinderApp() {
   async function saveQuickItem(event) {
     event.preventDefault();
 
-    if (!currentUser) {
-      alert("Please log in before saving inventory.");
-      return;
-    }
+    const saved = await insertItemWithPhotos(quickItem, quickItemPhotos, quickReceiptPhotos, "quick_add");
+    if (!saved) return;
 
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .insert(toDbItem(quickItem, currentUser.id, quickItemPhotos.length, quickReceiptPhotos.length))
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Save quick item error:", error.message);
-      alert(error.message);
-      return;
-    }
-
-    trackEvent("inventory_item_submitted", {
-      entry_type: "quick_add",
-      category: quickItem.category || "Other",
-      status: quickItem.status || "Owned",
-      has_item_photo: quickItemPhotos.length > 0,
-      has_receipt_photo: quickReceiptPhotos.length > 0
-    });
-
-    setInventory((items) => [fromDbItem(data), ...items]);
+    clearPhotoUrls(quickItemPhotos);
+    clearPhotoUrls(quickReceiptPhotos);
     setQuickItem({ ...emptyItem, purchaseDate: "2026-05-12" });
     setQuickItemPhotos([]);
     setQuickReceiptPhotos([]);
@@ -661,6 +748,8 @@ export default function FirstFinderApp() {
   }
 
   async function deleteItem(id) {
+    const entry = inventory.find((current) => current.id === id);
+
     const { error } = await supabase
       .from("inventory_items")
       .delete()
@@ -670,6 +759,16 @@ export default function FirstFinderApp() {
       console.error("Delete item error:", error.message);
       alert(error.message);
       return;
+    }
+
+    // Best-effort cleanup of the item's stored photos; the row is already gone.
+    const photoPaths = [...(entry?.itemPhotos || []), ...(entry?.receiptPhotos || [])]
+      .map((photo) => photo.path)
+      .filter(Boolean);
+
+    if (photoPaths.length > 0) {
+      const { error: storageError } = await supabase.storage.from(PHOTO_BUCKET).remove(photoPaths);
+      if (storageError) console.error("Photo cleanup error:", storageError.message);
     }
 
     setInventory((items) => items.filter((entry) => entry.id !== id));
@@ -836,8 +935,8 @@ export default function FirstFinderApp() {
       {activeView === "roadmap" && <RoadmapPage />}
       {activeView === "login" && <LoginPage />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
-      {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkMessage={bulkMessage} />}
-      {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
+      {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkMessage={bulkMessage} />}
+      {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
       {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} bulkMessage={bulkMessage} />}
 
       {editingItem && (
@@ -1198,7 +1297,7 @@ function ResetPasswordPage({ onDone }) {
   );
 }
 
-function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, autofillMessage, onDownloadTemplate, onBulkUpload, bulkMessage }) {
+function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, autofillMessage, onDownloadTemplate, onBulkUpload, bulkMessage }) {
   return (
     <section className="mx-auto max-w-6xl px-6 py-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -1265,8 +1364,8 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
               <CompactUploader title="Receipt proof + autofill" icon="receipt" photos={quickReceiptPhotos} onUpload={(event) => onUpload(event, "quickReceipt", true)} onRemove={(id) => onRemove(id, "quickReceipt")} />
             </div>
 
-            <Button type="submit" className="mt-6 h-11 w-full rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] hover:bg-[#0f332d]">
-              Submit
+            <Button type="submit" disabled={saving} className="mt-6 h-11 w-full rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] hover:bg-[#0f332d]">
+              {saving ? "Saving photos..." : "Submit"}
             </Button>
             </form>
           </CardContent>
@@ -1280,11 +1379,11 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
   );
 }
 
-function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRemove, onSave, onReset, onLoadSample, autofillMessage }) {
+function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRemove, onSave, saving, onReset, onLoadSample, autofillMessage }) {
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:py-16">
       <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
-      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} /><Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} /><SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem({ ...item, status: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label="Estimated value" type="number" value={item.estimatedValue} onChange={(value) => setItem({ ...item, estimatedValue: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and an estimated value of {formatCurrency(item.estimatedValue)}. Current estimated gain/loss is {formatCurrency(calculateGain(item))}.</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatCurrency(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">est. gain/loss</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> Save to inventory</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
+      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} /><Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} /><SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem({ ...item, status: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label="Estimated value" type="number" value={item.estimatedValue} onChange={(value) => setItem({ ...item, estimatedValue: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and an estimated value of {formatCurrency(item.estimatedValue)}. Current estimated gain/loss is {formatCurrency(calculateGain(item))}.</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatCurrency(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">est. gain/loss</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to inventory"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
     </section>
   );
 }
@@ -1506,12 +1605,46 @@ function EditItemModal({ item, onClose, onSave }) {
 }
 
 function PhotoViewerModal({ entry, onClose }) {
-  const itemPhotos = entry.itemPhotos || [];
-  const receiptPhotos = entry.receiptPhotos || [];
-  const allPhotos = [
-    ...itemPhotos.map((photo) => ({ ...photo, label: "Item photo" })),
-    ...receiptPhotos.map((photo) => ({ ...photo, label: "Receipt proof" }))
-  ];
+  const [allPhotos, setAllPhotos] = useState(null);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    const photos = [
+      ...(entry.itemPhotos || []).map((photo) => ({ ...photo, label: "Item photo" })),
+      ...(entry.receiptPhotos || []).map((photo) => ({ ...photo, label: "Receipt proof" }))
+    ];
+
+    const savedPaths = photos.filter((photo) => photo.path).map((photo) => photo.path);
+
+    if (savedPaths.length === 0) {
+      // Nothing stored remotely (or photos are still local blob previews).
+      setAllPhotos(photos.filter((photo) => photo.url));
+      return;
+    }
+
+    let cancelled = false;
+
+    supabase.storage
+      .from(PHOTO_BUCKET)
+      .createSignedUrls(savedPaths, 3600)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+
+        if (error) {
+          console.error("Signed URL error:", error.message);
+          setLoadError("Could not load photos. Check that the item-photos storage bucket is set up.");
+          setAllPhotos([]);
+          return;
+        }
+
+        const urlByPath = new Map((data || []).map((row) => [row.path, row.signedUrl]));
+        setAllPhotos(photos.map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) : photo.url })).filter((photo) => photo.url));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entry]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1526,9 +1659,13 @@ function PhotoViewerModal({ entry, onClose }) {
           </button>
         </div>
 
-        {allPhotos.length === 0 ? (
+        {allPhotos === null ? (
           <div className="mt-6 rounded-2xl bg-[#f7efe3] p-6 text-center text-[#665746]">
-            No saved photos for this item yet.
+            Loading photos...
+          </div>
+        ) : allPhotos.length === 0 ? (
+          <div className="mt-6 rounded-2xl bg-[#f7efe3] p-6 text-center text-[#665746]">
+            {loadError || "No saved photos for this item yet."}
           </div>
         ) : (
           <div className="mt-6 grid gap-4 md:grid-cols-2">

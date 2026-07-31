@@ -21,3 +21,10 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 - Tailwind CSS
 - Supabase Auth
 - Supabase database
+- Supabase Storage for item and receipt photos
+
+## One-time setup
+
+Photo uploads need a storage bucket and two columns. Run
+`supabase/photo-storage-setup.sql` in the Supabase dashboard SQL Editor once
+per project.
