@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
@@ -407,8 +407,6 @@ export default function FirstFinderApp() {
   const [activeView, setActiveView] = useState("home");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [loginMode, setLoginMode] = useState("password");
-  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [item, setItem] = useState(sampleItems[0]);
   const [quickItem, setQuickItem] = useState({ ...emptyItem, purchaseDate: "2026-05-12" });
   const [inventory, setInventory] = useState([]);
@@ -422,6 +420,8 @@ export default function FirstFinderApp() {
   const [editingItem, setEditingItem] = useState(null);
   const [autofillMessage, setAutofillMessage] = useState("");
   const [bulkMessage, setBulkMessage] = useState("");
+
+  const loadedUserIdRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
@@ -438,15 +438,37 @@ export default function FirstFinderApp() {
         setCurrentUser(data.session.user);
         setIsLoggedIn(true);
         setActiveView("dashboard");
-        loadInventory(data.session.user.id);
+        if (loadedUserIdRef.current !== data.session.user.id) {
+          loadedUserIdRef.current = data.session.user.id;
+          loadInventory(data.session.user.id);
+        }
       }
     });
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      setCurrentUser(session?.user ?? null);
       setIsLoggedIn(Boolean(session));
-      setActiveView(session ? "dashboard" : "home");
+
+      if (event === "PASSWORD_RECOVERY") {
+        setActiveView("resetPassword");
+        return;
+      }
+
+      if (!session) {
+        loadedUserIdRef.current = null;
+        setActiveView("home");
+        return;
+      }
+
+      // Only load inventory and navigate on a genuinely new login, so token
+      // refreshes and tab refocus events don't yank the user off their page.
+      if (loadedUserIdRef.current !== session.user.id) {
+        loadedUserIdRef.current = session.user.id;
+        loadInventory(session.user.id);
+        setActiveView("dashboard");
+      }
     });
 
     return () => {
@@ -499,36 +521,6 @@ export default function FirstFinderApp() {
     setActiveView(view);
   }
 
-  async function handleGoogleLogin() {
-    setLoginMode("google");
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: window.location.origin
-      }
-    });
-
-    if (error) {
-      console.error("Google login error:", error.message);
-      alert(error.message);
-    }
-  }
-
-  async function handlePasswordLogin(event) {
-    event.preventDefault();
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email: loginForm.email,
-      password: loginForm.password
-    });
-
-    if (error) {
-      console.error("Password login error:", error.message);
-      alert(error.message);
-    }
-  }
-
   async function logout() {
     const { error } = await supabase.auth.signOut();
 
@@ -538,6 +530,7 @@ export default function FirstFinderApp() {
       return;
     }
 
+    loadedUserIdRef.current = null;
     setCurrentUser(null);
     setInventory([]);
     setIsLoggedIn(false);
@@ -841,7 +834,8 @@ export default function FirstFinderApp() {
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "dashboard" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
-      {activeView === "login" && <LoginPage loginMode={loginMode} setLoginMode={setLoginMode} loginForm={loginForm} setLoginForm={setLoginForm} onGoogleLogin={handleGoogleLogin} onPasswordLogin={handlePasswordLogin} />}
+      {activeView === "login" && <LoginPage />}
+      {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkMessage={bulkMessage} />}
       {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
       {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} bulkMessage={bulkMessage} />}
@@ -893,32 +887,202 @@ function HomePage({ onGetStarted }) {
   );
 }
 
-function LoginPage({ loginMode, setLoginMode, loginForm, setLoginForm, onGoogleLogin, onPasswordLogin }) {
+const authModeCopy = {
+  signin: {
+    heading: "Log in to your collection.",
+    sub: "Sign in with Google or use your email and password to access your collectible inventory.",
+    formTitle: "Email and password",
+    formSub: "Log in with the email and password you signed up with.",
+    submit: "Log in",
+    submitting: "Logging in..."
+  },
+  signup: {
+    heading: "Start your collection.",
+    sub: "Create a free account to track item photos, receipts, cost basis, and estimated values.",
+    formTitle: "Create your account",
+    formSub: "Sign up with your email and a password of at least 8 characters.",
+    submit: "Create account",
+    submitting: "Creating account..."
+  },
+  forgot: {
+    heading: "Reset your password.",
+    sub: "Enter your account email and we'll send you a link to choose a new password.",
+    formTitle: "Forgot your password?",
+    formSub: "We'll email you a secure link to reset it.",
+    submit: "Send reset link",
+    submitting: "Sending..."
+  }
+};
+
+function AuthMessage({ message }) {
+  if (!message) return null;
+  return (
+    <div className={`mt-5 rounded-2xl p-4 text-sm leading-6 ${message.type === "error" ? "bg-[#fbe9e2] text-[#8a3b22]" : "bg-[#edf4f2] text-[#123f38]"}`}>
+      {message.text}
+    </div>
+  );
+}
+
+function AuthLink({ children, onClick }) {
+  return (
+    <button type="button" onClick={onClick} className="font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+      {children}
+    </button>
+  );
+}
+
+function LoginPage() {
+  const [method, setMethod] = useState("password");
+  const [mode, setMode] = useState("signin");
+  const [form, setForm] = useState({ email: "", password: "", confirmPassword: "" });
+  const [message, setMessage] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const copy = authModeCopy[mode];
+
+  function switchMode(nextMode) {
+    setMode(nextMode);
+    setMessage(null);
+  }
+
+  async function handleGoogleLogin() {
+    trackEvent("google_login_clicked", { source_page: "login" });
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin
+      }
+    });
+
+    if (error) {
+      console.error("Google login error:", error.message);
+      setMessage({ type: "error", text: error.message });
+    }
+  }
+
+  async function handleSignIn(event) {
+    event.preventDefault();
+    setMessage(null);
+    setLoading(true);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: form.email.trim(),
+      password: form.password
+    });
+
+    setLoading(false);
+
+    if (error) {
+      const text = /invalid login credentials/i.test(error.message)
+        ? "Incorrect email or password. If you just signed up, confirm your email first."
+        : error.message;
+      setMessage({ type: "error", text });
+      return;
+    }
+
+    trackEvent("login_submitted", { method: "password" });
+    // Success: the auth state listener loads inventory and navigates to the dashboard.
+  }
+
+  async function handleSignUp(event) {
+    event.preventDefault();
+    setMessage(null);
+
+    if (form.password.length < 8) {
+      setMessage({ type: "error", text: "Password must be at least 8 characters." });
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      setMessage({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+
+    setLoading(true);
+
+    const { data, error } = await supabase.auth.signUp({
+      email: form.email.trim(),
+      password: form.password,
+      options: {
+        emailRedirectTo: window.location.origin
+      }
+    });
+
+    setLoading(false);
+
+    if (error) {
+      setMessage({ type: "error", text: error.message });
+      return;
+    }
+
+    trackEvent("signup_submitted", { method: "password" });
+
+    // Supabase returns a user with no identities when the email is already registered.
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setMessage({ type: "error", text: "An account with this email already exists. Try logging in instead." });
+      return;
+    }
+
+    // With email confirmation disabled Supabase returns a live session and the
+    // auth listener takes over; otherwise the user needs to confirm first.
+    if (!data.session) {
+      setMessage({ type: "success", text: `Almost there — we sent a confirmation link to ${form.email.trim()}. Open it to activate your account, then log in here.` });
+      setMode("signin");
+    }
+  }
+
+  async function handleForgotPassword(event) {
+    event.preventDefault();
+    setMessage(null);
+
+    const email = form.email.trim();
+    if (!email) {
+      setMessage({ type: "error", text: "Enter your email address first." });
+      return;
+    }
+
+    setLoading(true);
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin
+    });
+
+    setLoading(false);
+
+    if (error) {
+      setMessage({ type: "error", text: error.message });
+      return;
+    }
+
+    trackEvent("password_reset_requested", { source_page: "login" });
+    setMessage({ type: "success", text: `If an account exists for ${email}, a reset link is on its way. Open it to choose a new password.` });
+  }
+
+  const submitHandler = mode === "signup" ? handleSignUp : mode === "forgot" ? handleForgotPassword : handleSignIn;
+
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-12 md:grid-cols-[0.9fr_1.1fr] md:items-start">
       <div>
-        <h1 className="text-5xl font-semibold tracking-tight">Log in to your collection.</h1>
-        <p className="mt-5 max-w-xl text-lg leading-8 text-[#665746]">
-          Sign in with Google or use your email and password to access your collectible inventory.
-        </p>
+        <h1 className="text-5xl font-semibold tracking-tight">{copy.heading}</h1>
+        <p className="mt-5 max-w-xl text-lg leading-8 text-[#665746]">{copy.sub}</p>
       </div>
 
       <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
         <CardContent className="p-7">
           <div className="mb-6 grid grid-cols-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
-            <TabButton active={loginMode === "password"} onClick={() => setLoginMode("password")}>Email</TabButton>
-            <TabButton active={loginMode === "google"} onClick={() => setLoginMode("google")}>Google</TabButton>
+            <TabButton active={method === "password"} onClick={() => setMethod("password")}>Email</TabButton>
+            <TabButton active={method === "google"} onClick={() => setMethod("google")}>Google</TabButton>
           </div>
 
-          {loginMode === "google" ? (
+          {method === "google" ? (
             <div>
               <h2 className="text-2xl font-semibold">Continue with Google</h2>
               <p className="mt-3 leading-7 text-[#665746]">
-                Continue with your Google account to access your collection.
+                Continue with your Google account to access your collection. New here? This also creates your account.
               </p>
+              <AuthMessage message={message} />
               <button
                 type="button"
-                onClick={() => { trackEvent("google_login_clicked", { source_page: "login" }); onGoogleLogin(); }}
+                onClick={handleGoogleLogin}
                 className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-[#cdbb9c] bg-white px-6 text-base font-semibold text-[#123f38] shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]"
               >
                 <Icon name="google" size={20} />
@@ -926,17 +1090,105 @@ function LoginPage({ loginMode, setLoginMode, loginForm, setLoginForm, onGoogleL
               </button>
             </div>
           ) : (
-            <form onSubmit={onPasswordLogin}>
-              <h2 className="text-2xl font-semibold">Email and password</h2>
-              <p className="mt-3 leading-7 text-[#665746]">
-                Log in with the email and password connected to your Supabase account.
-              </p>
+            <form onSubmit={submitHandler}>
+              <h2 className="text-2xl font-semibold">{copy.formTitle}</h2>
+              <p className="mt-3 leading-7 text-[#665746]">{copy.formSub}</p>
+              <AuthMessage message={message} />
               <div className="mt-6 grid gap-4">
-                <Field label="Email" type="email" value={loginForm.email} onChange={(value) => setLoginForm({ ...loginForm, email: value })} />
-                <Field label="Password" type="password" value={loginForm.password} onChange={(value) => setLoginForm({ ...loginForm, password: value })} />
+                <Field label="Email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
+                {mode !== "forgot" && (
+                  <Field label="Password" type="password" value={form.password} onChange={(value) => setForm({ ...form, password: value })} />
+                )}
+                {mode === "signup" && (
+                  <Field label="Confirm password" type="password" value={form.confirmPassword} onChange={(value) => setForm({ ...form, confirmPassword: value })} />
+                )}
               </div>
-              <Button type="submit" className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
-                Log in
+              <Button type="submit" disabled={loading} className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+                {loading ? copy.submitting : copy.submit}
+              </Button>
+
+              <div className="mt-5 flex flex-col gap-2 text-sm text-[#665746]">
+                {mode === "signin" && (
+                  <>
+                    <div>New to FirstFinder? <AuthLink onClick={() => switchMode("signup")}>Create an account</AuthLink></div>
+                    <div><AuthLink onClick={() => switchMode("forgot")}>Forgot your password?</AuthLink></div>
+                  </>
+                )}
+                {mode === "signup" && (
+                  <div>Already have an account? <AuthLink onClick={() => switchMode("signin")}>Log in</AuthLink></div>
+                )}
+                {mode === "forgot" && (
+                  <div>Remembered it? <AuthLink onClick={() => switchMode("signin")}>Back to log in</AuthLink></div>
+                )}
+              </div>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function ResetPasswordPage({ onDone }) {
+  const [form, setForm] = useState({ password: "", confirmPassword: "" });
+  const [message, setMessage] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setMessage(null);
+
+    if (form.password.length < 8) {
+      setMessage({ type: "error", text: "Password must be at least 8 characters." });
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      setMessage({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+
+    setLoading(true);
+
+    const { error } = await supabase.auth.updateUser({ password: form.password });
+
+    setLoading(false);
+
+    if (error) {
+      setMessage({ type: "error", text: error.message });
+      return;
+    }
+
+    setDone(true);
+    setMessage({ type: "success", text: "Password updated. You're logged in and ready to go." });
+  }
+
+  return (
+    <section className="mx-auto grid max-w-6xl gap-8 px-6 py-12 md:grid-cols-[0.9fr_1.1fr] md:items-start">
+      <div>
+        <h1 className="text-5xl font-semibold tracking-tight">Choose a new password.</h1>
+        <p className="mt-5 max-w-xl text-lg leading-8 text-[#665746]">
+          You followed a password reset link. Set a new password below to finish.
+        </p>
+      </div>
+
+      <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
+        <CardContent className="p-7">
+          <h2 className="text-2xl font-semibold">New password</h2>
+          <p className="mt-3 leading-7 text-[#665746]">Use at least 8 characters.</p>
+          <AuthMessage message={message} />
+          {done ? (
+            <Button onClick={onDone} className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+              Go to my collection
+            </Button>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              <div className="mt-6 grid gap-4">
+                <Field label="New password" type="password" value={form.password} onChange={(value) => setForm({ ...form, password: value })} />
+                <Field label="Confirm new password" type="password" value={form.confirmPassword} onChange={(value) => setForm({ ...form, confirmPassword: value })} />
+              </div>
+              <Button type="submit" disabled={loading} className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+                {loading ? "Updating..." : "Update password"}
               </Button>
             </form>
           )}
