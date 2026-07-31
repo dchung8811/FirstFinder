@@ -275,6 +275,21 @@ async function uploadPhotoList(userId, itemId, photos, kind) {
   return { uploaded, failures };
 }
 
+// Resolves {path, name} photo records to short-lived, viewable signed URLs.
+async function fetchSignedPhotoUrls(photos) {
+  const paths = photos.filter((photo) => photo.path).map((photo) => photo.path);
+  if (paths.length === 0) return photos;
+
+  const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, 3600);
+  if (error) {
+    console.error("Signed URL error:", error.message);
+    return photos;
+  }
+
+  const urlByPath = new Map((data || []).map((row) => [row.path, row.signedUrl]));
+  return photos.map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) : photo.url }));
+}
+
 function toNumber(value) {
   const parsed = Number.parseFloat(String(value).replace(/[^0-9.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -832,34 +847,82 @@ export default function FirstFinderApp() {
     setInventoryStatusView("active");
   }
 
-  async function updateInventoryItem(updatedItem) {
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .update({
-        name: updatedItem.name || "",
-        category: updatedItem.category || "Other",
-        maker: updatedItem.maker || "",
-        edition: updatedItem.edition || "",
-        status: updatedItem.status || "Owned",
-        purchase_date: updatedItem.purchaseDate || null,
-        source: updatedItem.source || "",
-        purchase_price: toNumber(updatedItem.purchasePrice),
-        estimated_value: toNumber(updatedItem.estimatedValue),
-        notes: updatedItem.notes || "",
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", updatedItem.id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Update item error:", error.message);
-      alert(error.message);
+  async function updateInventoryItem({ draft, newItemPhotos, newReceiptPhotos, removedItemPhotoPaths, removedReceiptPhotoPaths }) {
+    if (!currentUser) {
+      alert("Please log in before saving inventory.");
       return;
     }
 
-    setInventory((items) => items.map((entry) => (entry.id === updatedItem.id ? fromDbItem(data) : entry)));
-    setEditingItem(null);
+    setSaving(true);
+
+    try {
+      const currentEntry = inventory.find((entry) => entry.id === draft.id);
+      const keptItemPhotos = (currentEntry?.itemPhotos || []).filter((photo) => !removedItemPhotoPaths.includes(photo.path));
+      const keptReceiptPhotos = (currentEntry?.receiptPhotos || []).filter((photo) => !removedReceiptPhotoPaths.includes(photo.path));
+      const failures = [];
+
+      let uploadedItemPhotos = [];
+      let uploadedReceiptPhotos = [];
+
+      if (newItemPhotos.length > 0) {
+        const result = await uploadPhotoList(currentUser.id, draft.id, newItemPhotos, "item");
+        uploadedItemPhotos = result.uploaded;
+        failures.push(...result.failures);
+      }
+
+      if (newReceiptPhotos.length > 0) {
+        const result = await uploadPhotoList(currentUser.id, draft.id, newReceiptPhotos, "receipt");
+        uploadedReceiptPhotos = result.uploaded;
+        failures.push(...result.failures);
+      }
+
+      const finalItemPhotos = [...keptItemPhotos, ...uploadedItemPhotos];
+      const finalReceiptPhotos = [...keptReceiptPhotos, ...uploadedReceiptPhotos];
+
+      const removedPaths = [...removedItemPhotoPaths, ...removedReceiptPhotoPaths];
+      if (removedPaths.length > 0) {
+        const { error: removeError } = await supabase.storage.from(PHOTO_BUCKET).remove(removedPaths);
+        if (removeError) console.error("Photo removal error:", removeError.message);
+      }
+
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .update({
+          name: draft.name || "",
+          category: draft.category || "Other",
+          maker: draft.maker || "",
+          edition: draft.edition || "",
+          status: draft.status || "Owned",
+          purchase_date: draft.purchaseDate || null,
+          source: draft.source || "",
+          purchase_price: toNumber(draft.purchasePrice),
+          estimated_value: toNumber(draft.estimatedValue),
+          notes: draft.notes || "",
+          item_photos: finalItemPhotos,
+          receipt_photos: finalReceiptPhotos,
+          item_photo_count: finalItemPhotos.length,
+          receipt_photo_count: finalReceiptPhotos.length,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", draft.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Update item error:", error.message);
+        alert(error.message);
+        return;
+      }
+
+      setInventory((items) => items.map((entry) => (entry.id === draft.id ? fromDbItem(data) : entry)));
+      setEditingItem(null);
+
+      if (failures.length > 0) {
+        alert(`Changes saved, but some new photos failed to upload: ${failures.join(", ")}. Re-add them from Edit.`);
+      }
+    } finally {
+      setSaving(false);
+    }
   }
 
   function downloadTemplate() {
@@ -954,6 +1017,7 @@ export default function FirstFinderApp() {
           item={editingItem}
           onClose={() => setEditingItem(null)}
           onSave={updateInventoryItem}
+          saving={saving}
         />
       )}
 
@@ -1565,12 +1629,83 @@ function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkMessage }) {
   );
 }
 
-function EditItemModal({ item, onClose, onSave }) {
+function EditItemModal({ item, onClose, onSave, saving }) {
   const [draft, setDraft] = useState({ ...item });
+  const [existingItemPhotos, setExistingItemPhotos] = useState((item.itemPhotos || []).map((photo) => ({ ...photo })));
+  const [existingReceiptPhotos, setExistingReceiptPhotos] = useState((item.receiptPhotos || []).map((photo) => ({ ...photo })));
+  const [newItemPhotos, setNewItemPhotos] = useState([]);
+  const [newReceiptPhotos, setNewReceiptPhotos] = useState([]);
+
+  const originalItemPhotoPaths = (item.itemPhotos || []).map((photo) => photo.path).filter(Boolean);
+  const originalReceiptPhotoPaths = (item.receiptPhotos || []).map((photo) => photo.path).filter(Boolean);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.all([fetchSignedPhotoUrls(existingItemPhotos), fetchSignedPhotoUrls(existingReceiptPhotos)]).then(
+      ([itemResult, receiptResult]) => {
+        if (cancelled) return;
+        setExistingItemPhotos((current) =>
+          current.map((photo) => ({ ...photo, url: itemResult.find((entry) => entry.path === photo.path)?.url || photo.url }))
+        );
+        setExistingReceiptPhotos((current) =>
+          current.map((photo) => ({ ...photo, url: receiptResult.find((entry) => entry.path === photo.path)?.url || photo.url }))
+        );
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+    // Only load signed URLs once, for the photos this modal opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleNewPhotoUpload(event, kind) {
+    const files = Array.from(event.target.files || []);
+    const nextPhotos = files.map((file) => ({
+      id: `${kind}-${file.name}-${Date.now()}-${Math.random()}`,
+      name: file.name,
+      url: URL.createObjectURL(file),
+      file
+    }));
+
+    if (kind === "item") setNewItemPhotos((photos) => [...photos, ...nextPhotos]);
+    else setNewReceiptPhotos((photos) => [...photos, ...nextPhotos]);
+    event.target.value = "";
+  }
+
+  function removeNewPhoto(id, kind) {
+    const setter = kind === "item" ? setNewItemPhotos : setNewReceiptPhotos;
+    setter((photos) => {
+      const photo = photos.find((entry) => entry.id === id);
+      if (photo) URL.revokeObjectURL(photo.url);
+      return photos.filter((entry) => entry.id !== id);
+    });
+  }
+
+  function removeExistingPhoto(path, kind) {
+    const setter = kind === "item" ? setExistingItemPhotos : setExistingReceiptPhotos;
+    setter((photos) => photos.filter((photo) => photo.path !== path));
+  }
+
+  function handleClose() {
+    clearPhotoUrls(newItemPhotos);
+    clearPhotoUrls(newReceiptPhotos);
+    onClose();
+  }
 
   function handleSubmit(event) {
     event.preventDefault();
-    onSave(draft);
+
+    const removedItemPhotoPaths = originalItemPhotoPaths.filter(
+      (path) => !existingItemPhotos.some((photo) => photo.path === path)
+    );
+    const removedReceiptPhotoPaths = originalReceiptPhotoPaths.filter(
+      (path) => !existingReceiptPhotos.some((photo) => photo.path === path)
+    );
+
+    onSave({ draft, newItemPhotos, newReceiptPhotos, removedItemPhotoPaths, removedReceiptPhotoPaths });
   }
 
   return (
@@ -1581,7 +1716,7 @@ function EditItemModal({ item, onClose, onSave }) {
             <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Edit record</div>
             <h2 className="mt-1 text-3xl font-semibold">{item.name || "Untitled item"}</h2>
           </div>
-          <button onClick={onClose} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label="Close edit modal">
+          <button onClick={handleClose} disabled={saving} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Close edit modal">
             <Icon name="x" size={18} />
           </button>
         </div>
@@ -1600,16 +1735,79 @@ function EditItemModal({ item, onClose, onSave }) {
             <Field label="Notes" value={draft.notes} onChange={(value) => setDraft({ ...draft, notes: value })} />
           </div>
 
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <EditPhotoSection
+              title="Item photos"
+              icon="camera"
+              existingPhotos={existingItemPhotos}
+              newPhotos={newItemPhotos}
+              onUpload={(event) => handleNewPhotoUpload(event, "item")}
+              onRemoveExisting={(path) => removeExistingPhoto(path, "item")}
+              onRemoveNew={(id) => removeNewPhoto(id, "item")}
+            />
+            <EditPhotoSection
+              title="Receipt proof"
+              icon="receipt"
+              existingPhotos={existingReceiptPhotos}
+              newPhotos={newReceiptPhotos}
+              onUpload={(event) => handleNewPhotoUpload(event, "receipt")}
+              onRemoveExisting={(path) => removeExistingPhoto(path, "receipt")}
+              onRemoveNew={(id) => removeNewPhoto(id, "receipt")}
+            />
+          </div>
+
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" onClick={onClose} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+            <Button type="button" variant="outline" onClick={handleClose} disabled={saving} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
               Cancel
             </Button>
-            <Button type="submit" className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
-              Save changes
+            <Button type="submit" disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+              {saving ? "Saving..." : "Save changes"}
             </Button>
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function EditPhotoSection({ title, icon, existingPhotos, newPhotos, onUpload, onRemoveExisting, onRemoveNew }) {
+  const total = existingPhotos.length + newPhotos.length;
+
+  return (
+    <div className="rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 font-semibold"><Icon name={icon} size={17} /> {title}</div>
+        <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs text-[#123f38]">{total}</span>
+      </div>
+      <label className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">
+        Add photos
+        <input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" />
+      </label>
+      {total > 0 && (
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {existingPhotos.map((photo) => (
+            <div key={photo.path} className="group relative overflow-hidden rounded-2xl border border-[#e0d2bc] bg-white shadow-sm">
+              {photo.url ? (
+                <img src={photo.url} alt={photo.name} className="h-20 w-full object-cover" />
+              ) : (
+                <div className="flex h-20 w-full items-center justify-center text-xs text-[#7d6c5a]">Loading...</div>
+              )}
+              <button type="button" onClick={() => onRemoveExisting(photo.path)} className="absolute right-2 top-2 rounded-full bg-[#201a14]/75 p-2 text-white opacity-100 transition hover:bg-[#201a14] sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove ${photo.name}`}>
+                <Icon name="x" size={15} />
+              </button>
+            </div>
+          ))}
+          {newPhotos.map((photo) => (
+            <div key={photo.id} className="group relative overflow-hidden rounded-2xl border border-[#e0d2bc] bg-white shadow-sm">
+              <img src={photo.url} alt={photo.name} className="h-20 w-full object-cover" />
+              <span className="absolute left-2 top-2 rounded-full bg-[#123f38] px-2 py-0.5 text-[10px] font-medium text-[#fff7ea]">New</span>
+              <button type="button" onClick={() => onRemoveNew(photo.id)} className="absolute right-2 top-2 rounded-full bg-[#201a14]/75 p-2 text-white opacity-100 transition hover:bg-[#201a14] sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove ${photo.name}`}>
+                <Icon name="x" size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1681,7 +1879,9 @@ function PhotoViewerModal({ entry, onClose }) {
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {allPhotos.map((photo) => (
               <div key={photo.id} className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-white">
-                <img src={photo.url} alt={photo.name} className="h-72 w-full object-cover" />
+                <div className="flex h-72 w-full items-center justify-center bg-[#f3ece0]">
+                  <img src={photo.url} alt={photo.name} className="h-full w-full object-contain" />
+                </div>
                 <div className="p-4">
                   <div className="font-semibold">{photo.label}</div>
                   <div className="truncate text-sm text-[#665746]">{photo.name}</div>
