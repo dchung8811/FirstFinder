@@ -4,23 +4,46 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 
 ## Current features
 
-- Google login with Supabase Auth
-- Add inventory quickly
-- Tutorial-style add flow
-- View inventory as cards or records
-- Active and sold tabs
-- Edit items
-- Mark sold and restore
-- CSV template download and bulk upload
-- Cost basis and estimated value tracking
-- Sale price/date capture, with realized gain shown once an item is sold
-- Category filter on the inventory list
-- "Find similar copies" links out to AbeBooks/eBay search results
-- Printable collection report for insurance/estate records
-- In-app feedback form (logged-in users only) with optional photo attachments
-- My Account page: member since, editable name, first collectible loaded
-- Delete-account (self-service, permanently removes the account, its data, and its photos)
-- About page
+### Accounts and navigation
+
+- Sign in with Google or with an email and password through Supabase Auth.
+- Create an account, reset a forgotten password, and stay signed in across sessions.
+- Use the responsive desktop or mobile navigation, with clear in-app success, warning, and error notifications.
+- Manage a profile from **My Account**, including the display name, member-since date, and first-collectible date.
+- Permanently delete an account and its associated inventory, feedback, and stored photos without contacting support.
+
+### Cataloging and photos
+
+- Add a collectible through either a fast **Quick Add** form or a guided, tutorial-style flow.
+- Track books, trading cards, sports memorabilia, and other collectible categories.
+- Record an item's title, creator or maker, edition, status, purchase date, source, purchase price, estimated value, and notes.
+- Capture book-specific genre, edition, and printing details.
+- Upload item and receipt photos, view uncropped full images, and add or remove photos while editing an existing item.
+- Store photos privately in Supabase Storage, with browser-side compression to keep uploads manageable.
+- Protect destructive and duplicate actions with delete confirmation and in-progress submission states.
+
+### Inventory management and valuation
+
+- Browse the collection in card or record view, search across item details, and filter by category.
+- Switch between active and sold inventory, with item counts and totals scoped to the selected view.
+- Edit or delete entries, mark items as sold, and restore sold items to their previous status.
+- Track total cost basis and estimated value for active items.
+- Capture the sold price and sold date from the sell action, edit form, Quick Add flow, guided flow, or CSV import.
+- Show realized gain for sold collectibles using the actual sale price rather than the previous estimate.
+- Open targeted AbeBooks and eBay searches from **Find similar copies**; book searches include edition and printing details for more relevant comparisons.
+
+### Importing, exporting, and reporting
+
+- Download a CSV template and bulk-import inventory with validation and useful error messages.
+- Import sale information and book-specific genre, edition, and printing fields.
+- Create a printer-friendly active-collection report with photo counts and financial totals, or save it as a PDF for insurance and estate records.
+
+### Product pages and feedback
+
+- Explore the collector-focused home page and learn more about the project on the **About** page.
+- Review shipped, planned, and longer-term work on the **Now / Next / Later Roadmap**.
+- Send feedback from inside the app when logged in, with optional photo attachments.
+- Measure key product interactions with Google Analytics events.
 
 ## Tech stack
 
