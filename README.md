@@ -13,6 +13,7 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 - Mark sold and restore
 - CSV template download and bulk upload
 - Cost basis and estimated value tracking
+- In-app feedback form (logged-in users only) with optional photo attachments
 
 ## Tech stack
 
@@ -29,6 +30,7 @@ Run these once per Supabase project, in the dashboard's SQL Editor:
 
 - `supabase/photo-storage-setup.sql` -- adds the photo storage bucket and columns.
 - `supabase/ux-batch-fields.sql` -- adds sold price/date, prior-status-on-restore, and Book-specific detail columns; also makes estimated_value nullable.
+- `supabase/feedback-table.sql` -- creates the `feedback` table (with its own RLS policies) used by the logged-in "Send feedback" page. Feedback photos reuse the existing item-photos storage bucket, so no new bucket setup is needed.
 
 The app's queries filter mutations by row id alone, so Row Level Security
 with owner-scoped policies on `inventory_items` is required, not optional --

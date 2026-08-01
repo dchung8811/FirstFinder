@@ -1229,6 +1229,7 @@ export default function FirstFinderApp() {
               <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>Inventory ({activeInventory.length})</TabButton>
               <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Add Item</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: isLoggedIn ? "logged_in" : "logged_out" }); setActiveView("roadmap"); }}>Roadmap</TabButton>
+              <TabButton active={activeView === "feedback"} onClick={() => setActiveView("feedback")}>Feedback</TabButton>
             </>
           ) : (
             <>
@@ -1261,6 +1262,7 @@ export default function FirstFinderApp() {
                 <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>Inventory ({activeInventory.length})</MobileNavLink>
                 <MobileNavLink active={activeView === "add"} onClick={() => go("add")}>Add Item</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: "logged_in" }); go("roadmap"); }}>Roadmap</MobileNavLink>
+                <MobileNavLink active={activeView === "feedback"} onClick={() => go("feedback")}>Feedback</MobileNavLink>
               </>
             ) : (
               <>
@@ -1279,6 +1281,7 @@ export default function FirstFinderApp() {
       {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
       {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} bulkMessage={bulkMessage} />}
+      {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
 
       {editingItem && (
         <EditItemModal
@@ -1757,6 +1760,120 @@ function ResetPasswordPage({ onDone }) {
               </Button>
             </form>
           )}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function FeedbackPage({ currentUser, pushToast }) {
+  const [description, setDescription] = useState("");
+  const [photos, setPhotos] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  function handleUpload(event) {
+    const files = Array.from(event.target.files || []);
+    const nextPhotos = files.map((file) => ({
+      id: `feedback-${file.name}-${Date.now()}-${Math.random()}`,
+      name: file.name,
+      url: URL.createObjectURL(file),
+      file
+    }));
+    setPhotos((current) => [...current, ...nextPhotos]);
+    event.target.value = "";
+  }
+
+  function removePhoto(id) {
+    setPhotos((current) => {
+      const photo = current.find((entry) => entry.id === id);
+      if (photo) URL.revokeObjectURL(photo.url);
+      return current.filter((entry) => entry.id !== id);
+    });
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    if (!description.trim()) {
+      pushToast("Add a description before sending feedback.", "error");
+      return;
+    }
+
+    if (!currentUser) {
+      pushToast("Please log in before sending feedback.", "error");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("feedback")
+        .insert({ user_id: currentUser.id, description: description.trim() })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Feedback submit error:", error.message);
+        pushToast(error.message, "error");
+        return;
+      }
+
+      if (photos.length > 0) {
+        // Feedback photos reuse the inventory item-photos bucket, under
+        // <user_id>/feedback/<feedback_id>/... -- the bucket's existing
+        // owner-only policies only check the first path segment, so no
+        // new bucket or storage policy is needed for this.
+        const result = await uploadPhotoList(currentUser.id, `feedback/${data.id}`, photos, "feedback");
+
+        const { error: updateError } = await supabase
+          .from("feedback")
+          .update({ photos: result.uploaded, updated_at: new Date().toISOString() })
+          .eq("id", data.id);
+
+        if (updateError) console.error("Feedback photo update error:", updateError.message);
+
+        if (result.failures.length > 0) {
+          pushToast(`Feedback sent, but some photos failed to upload: ${result.failures.join(", ")}.`, "warning");
+        }
+      }
+
+      trackEvent("feedback_submitted", { has_photos: photos.length > 0 });
+
+      clearPhotoUrls(photos);
+      setDescription("");
+      setPhotos([]);
+      pushToast("Thanks — your feedback was sent.", "success");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="mx-auto max-w-3xl px-6 py-12">
+      <h1 className="text-5xl font-semibold tracking-tight">Send feedback.</h1>
+      <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
+        Found a bug or have an idea? Describe what happened and attach a screenshot or photo if it helps.
+      </p>
+
+      <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
+        <CardContent className="p-6 md:p-8">
+          <form onSubmit={handleSubmit}>
+            <TextAreaField
+              label="What's going on?"
+              value={description}
+              onChange={setDescription}
+              placeholder="Tell us what happened, what you expected, and any steps to reproduce it."
+            />
+
+            <div className="mt-6">
+              <CompactUploader title="Attach photos (optional)" icon="camera" photos={photos} onUpload={handleUpload} onRemove={removePhoto} />
+            </div>
+
+            <Button type="submit" disabled={submitting} className="mt-6 h-11 w-full rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] hover:bg-[#0f332d]">
+              {submitting ? "Sending..." : "Send feedback"}
+            </Button>
+          </form>
         </CardContent>
       </Card>
     </section>
@@ -2437,6 +2554,7 @@ function TabButton({ active, children, onClick }) { return <button onClick={onCl
 function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function SelectField({ label, value, options, onChange }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }
+function TextAreaField({ label, value, onChange, placeholder, rows = 6 }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><textarea value={value || ""} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={rows} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function PhotoUploader({ title, eyebrow, description, prompts, photos, onUpload, onRemove }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">{eyebrow}</div><h2 className="mt-1 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#665746]">{description}</p></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">{photos.length}</div></div><label className="mt-5 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-[#cbb894] bg-[#f7ecdc] p-6 text-center transition hover:bg-[#fff4e6]"><Icon name={title.toLowerCase().includes("receipt") ? "receipt" : "camera"} size={36} className="text-[#123f38]" /><div className="mt-3 text-lg font-semibold">Take or upload</div><div className="mt-1 max-w-sm text-xs leading-5 text-[#6b5b4c]">Works with camera or photo library on mobile.</div><input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label><div className="mt-4 flex flex-wrap gap-2">{prompts.map((prompt) => <div key={prompt} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs text-[#665746]">{prompt}</div>)}</div>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} />}</CardContent></Card>; }
 function CompactUploader({ title, icon, photos, onUpload, onRemove }) { return <div className="rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] p-4"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2 font-semibold"><Icon name={icon} size={17} /> {title}</div><span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs text-[#123f38]">{photos.length}</span></div><label className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">Take or upload<input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} compact />}</div>; }
 function PhotoGrid({ photos, onRemove, compact = false }) { return <div className={`mt-4 grid gap-3 ${compact ? "grid-cols-3" : "sm:grid-cols-2"}`}>{photos.map((photo) => <div key={photo.id} className="group relative overflow-hidden rounded-2xl border border-[#e0d2bc] bg-white shadow-sm"><img src={photo.url} alt={photo.name} className={`${compact ? "h-20" : "h-32"} w-full object-cover`} /><button type="button" onClick={() => onRemove(photo.id)} className="absolute right-2 top-2 rounded-full bg-[#201a14]/75 p-2 text-white opacity-100 transition hover:bg-[#201a14] sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove ${photo.name}`}><Icon name="x" size={15} /></button>{!compact && <div className="truncate px-3 py-2 text-xs text-[#665746]">{photo.name}</div>}</div>)}</div>; }
