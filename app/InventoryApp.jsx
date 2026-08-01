@@ -1297,17 +1297,145 @@ export default function FirstFinderApp() {
 }
 
 
+const roadmapCategoryStyles = {
+  Cataloging: { icon: "camera", tone: "bg-[#edf4f2] text-[#123f38]" },
+  "Trust & Provenance": { icon: "receipt", tone: "bg-[#f0e2cf] text-[#665746]" },
+  Valuation: { icon: "dollar", tone: "bg-[#fff3d8] text-[#6d5526]" },
+  Discovery: { icon: "search", tone: "bg-[#e6ecf5] text-[#2c3f5c]" },
+  Community: { icon: "user", tone: "bg-[#f3e6ef] text-[#5c2c4d]" }
+};
+
+const roadmapHorizons = [
+  {
+    id: "now",
+    label: "Now",
+    framing: "In progress or up next in the build queue.",
+    items: [
+      {
+        category: "Cataloging",
+        title: "ISBN barcode scan, auto-filled",
+        text: "Scan a book's barcode and pull real title, author, publisher, and year from a public books API — replacing the mock-data autofill entirely."
+      },
+      {
+        category: "Cataloging",
+        title: "Standard condition grades",
+        text: "A proper Fine / Very Good / Good / Fair / Poor dropdown, the vocabulary every collector and marketplace already uses, instead of burying condition in free-text notes."
+      },
+      {
+        category: "Trust & Provenance",
+        title: "Grading & cert fields",
+        text: "Grading company, grade, and cert number fields for graded cards and comics, with a direct link out to the grader's public cert-verification page."
+      }
+    ]
+  },
+  {
+    id: "next",
+    label: "Next",
+    framing: "Scoped, waiting on the Now list to clear.",
+    items: [
+      {
+        category: "Valuation",
+        title: "\"Check current price\" deep links",
+        text: "One tap from any item to relevant eBay sold listings or an AbeBooks search for that exact title and edition — market context without a pricing API."
+      },
+      {
+        category: "Trust & Provenance",
+        title: "First-edition identification helper",
+        text: "A per-book checklist for the points that actually prove a true first — number line, stated edition, issue points — the feature the FirstFinder name promises."
+      },
+      {
+        category: "Discovery",
+        title: "A real want list",
+        text: "Give \"Wishlist\" its own view with a target price, instead of it being just another status buried in the inventory tabs."
+      },
+      {
+        category: "Valuation",
+        title: "Insurance / estate report export",
+        text: "One-click PDF of the collection — photos, cost basis, current values — so \"receipts, values, photos, proof\" is something you can actually hand someone."
+      }
+    ]
+  },
+  {
+    id: "later",
+    label: "Later",
+    framing: "Directionally right; sequencing depends on what Now/Next prove out.",
+    items: [
+      {
+        category: "Community",
+        title: "Shareable collection page",
+        text: "A public, read-only link to show off a shelf or set — the same instinct that makes PSA's and PCGS's set registries so sticky."
+      },
+      {
+        category: "Valuation",
+        title: "Value-over-time charting",
+        text: "Cost basis and realized sales are already tracked, so a value trend line is mostly a visualization problem once there's enough history per item."
+      },
+      {
+        category: "Valuation",
+        title: "Live pricing integration",
+        text: "Wire in eBay's or PSA's pricing APIs for real-time value estimates, once the manual deep-links above prove people actually want this."
+      }
+    ]
+  }
+];
+
+const roadmapNonGoals = [
+  "Grading or authentication services",
+  "Becoming a marketplace or facilitating sales",
+  "Anything that competes with the graders and marketplaces this roadmap links out to"
+];
+
 function RoadmapPage() {
   return (
-    <section className="mx-auto max-w-6xl px-6 py-16 md:py-24">
-      <div className="rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-10 text-center shadow-sm">
-        <div className="mx-auto mb-5 inline-flex rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-sm font-medium text-[#655644]">
+    <section className="mx-auto max-w-6xl px-6 py-16 md:py-20">
+      <div className="max-w-3xl">
+        <div className="font-ledger inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#655644]">
           Roadmap
         </div>
-        <h1 className="text-4xl font-semibold tracking-tight md:text-6xl">Coming soon!</h1>
-        <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-[#665746]">
-          We’ll share upcoming FirstFinder features and improvements here.
+        <h1 className="font-display mt-5 text-4xl font-semibold tracking-tight md:text-6xl">What's next for FirstFinder.</h1>
+        <p className="mt-5 max-w-2xl text-lg leading-8 text-[#665746]">
+          A working roadmap, not a promise list — sequencing shifts as we learn what collectors actually reach for. Shaped by what serious collectors already expect from graded-collectibles registries and rare-book marketplaces.
         </p>
+      </div>
+
+      <div className="mt-12 grid gap-6 lg:grid-cols-3">
+        {roadmapHorizons.map((horizon) => (
+          <div key={horizon.id} className="rounded-[2rem] border border-[#d8c7ad] bg-[#fbf5e9] p-5">
+            <div className="flex items-baseline justify-between px-2">
+              <h2 className="font-display text-2xl font-semibold">{horizon.label}</h2>
+              <span className="font-ledger text-xs text-[#8a7a64]">{horizon.items.length} item{horizon.items.length === 1 ? "" : "s"}</span>
+            </div>
+            <p className="mt-1 px-2 text-sm leading-6 text-[#7d6c5a]">{horizon.framing}</p>
+
+            <div className="mt-4 flex flex-col gap-3">
+              {horizon.items.map((item) => {
+                const style = roadmapCategoryStyles[item.category] || roadmapCategoryStyles.Cataloging;
+                return (
+                  <div key={item.title} className="rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-4 shadow-sm">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${style.tone}`}>
+                      <Icon name={style.icon} size={11} />
+                      {item.category}
+                    </span>
+                    <div className="mt-3 font-semibold leading-snug">{item.title}</div>
+                    <p className="mt-1.5 text-sm leading-6 text-[#665746]">{item.text}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-8 rounded-2xl border border-dashed border-[#d3c1a4] bg-[#fffdf8] p-6">
+        <div className="font-ledger text-xs uppercase tracking-[0.2em] text-[#8a7a64]">Deliberately not on this roadmap</div>
+        <ul className="mt-3 grid gap-1.5 text-sm leading-6 text-[#665746] sm:grid-cols-3">
+          {roadmapNonGoals.map((goal) => (
+            <li key={goal} className="flex items-start gap-2">
+              <Icon name="x" size={14} className="mt-1 shrink-0 text-[#b09a78]" />
+              {goal}
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
