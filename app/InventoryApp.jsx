@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { sendGAEvent } from "@next/third-parties/google";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
 
 const emptyItem = {
@@ -9,6 +9,9 @@ const emptyItem = {
   category: "Book",
   maker: "",
   edition: "",
+  bookGenre: "",
+  bookEdition: "",
+  bookPrinting: "",
   status: "Owned",
   purchaseDate: "",
   source: "",
@@ -60,10 +63,10 @@ const itemPhotoPrompts = ["Front", "Back", "Details", "Condition", "Signature/ma
 const receiptPhotoPrompts = ["Receipt", "Invoice", "Order confirmation", "Auction record"];
 const statuses = ["Owned", "Researching", "For sale", "Sold", "Wishlist"];
 const quickCategories = ["Book", "Sports memorabilia", "Trading card", "Comic", "Record", "Art", "Toy", "Other"];
-const csvHeaders = ["name", "category", "maker", "edition", "status", "purchaseDate", "source", "purchasePrice", "estimatedValue", "notes"];
+const csvHeaders = ["name", "category", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "purchaseDate", "source", "purchasePrice", "estimatedValue", "notes"];
 const csvTemplateRows = [
-  ["The Gunslinger", "Book", "Stephen King", "First edition candidate", "Owned", "2026-05-12", "Used bookstore", "45", "850", "Need to confirm jacket state"],
-  ["Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "Owned", "2026-04-28", "Flea market", "12", "40", "Minor corner wear"]
+  ["The Gunslinger", "Book", "Stephen King", "First edition candidate", "Fantasy", "First edition", "First printing", "Owned", "2026-05-12", "Used bookstore", "45", "850", "Need to confirm jacket state"],
+  ["Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "", "", "", "Owned", "2026-04-28", "Flea market", "12", "40", "Minor corner wear"]
 ];
 const mockAutofillOptions = [
   {
@@ -189,6 +192,7 @@ function Icon({ name, size = 20, className = "" }) {
     ),
     arrow: <path d="m9 18 6-6-6-6" />,
     play: <path d="m8 5 12 7-12 7V5Z" />,
+    menu: <path d="M4 6h16M4 12h16M4 18h16" />,
     home: (
       <>
         <path d="M3 11 12 3l9 8" />
@@ -304,8 +308,38 @@ function formatCurrency(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(toNumber(value));
 }
 
+function hasValue(value) {
+  return value !== "" && value !== null && value !== undefined;
+}
+
+function hasEstimate(item) {
+  return hasValue(item.estimatedValue);
+}
+
+// Prefers what an item actually sold for over its pre-sale estimate, so
+// Sold-tab totals reflect realized value rather than a stale guess. Returns
+// null when there's nothing to show yet, so callers can render "—" instead
+// of a misleading $0.
+function itemValueForTotals(item) {
+  if (item.status === "Sold" && hasValue(item.soldPrice)) return toNumber(item.soldPrice);
+  return hasEstimate(item) ? toNumber(item.estimatedValue) : null;
+}
+
 function calculateGain(item) {
-  return toNumber(item.estimatedValue) - toNumber(item.purchasePrice);
+  const value = itemValueForTotals(item);
+  if (value === null) return null;
+  return value - toNumber(item.purchasePrice);
+}
+
+// Use for a single item's value/gain display, where "no data yet" should
+// read as "—" instead of $0 (which looks like a loss against cost basis).
+function formatEstimatedValue(item) {
+  const value = itemValueForTotals(item);
+  return value === null ? "—" : formatCurrency(value);
+}
+
+function formatGain(gain) {
+  return gain === null ? "—" : formatCurrency(gain);
 }
 
 function makeSavedItem(item, itemPhotos = [], receiptPhotos = []) {
@@ -336,11 +370,17 @@ function toDbItem(item, userId, itemPhotoCount = 0, receiptPhotoCount = 0) {
     category: item.category || "Other",
     maker: item.maker || "",
     edition: item.edition || "",
+    book_genre: item.bookGenre || "",
+    book_edition: item.bookEdition || "",
+    book_printing: item.bookPrinting || "",
     status: item.status || "Owned",
     purchase_date: item.purchaseDate || null,
     source: item.source || "",
     purchase_price: toNumber(item.purchasePrice),
-    estimated_value: toNumber(item.estimatedValue),
+    // Store null (not 0) when the user hasn't entered an estimate, so "no
+    // estimate yet" stays distinguishable from "estimated at $0" after a
+    // save/reload round-trip.
+    estimated_value: hasValue(item.estimatedValue) ? toNumber(item.estimatedValue) : null,
     notes: item.notes || "",
     item_photo_count: itemPhotoCount,
     receipt_photo_count: receiptPhotoCount
@@ -364,11 +404,17 @@ function fromDbItem(row) {
     category: row.category || "Other",
     maker: row.maker || "",
     edition: row.edition || "",
+    bookGenre: row.book_genre || "",
+    bookEdition: row.book_edition || "",
+    bookPrinting: row.book_printing || "",
     status: row.status || "Owned",
     purchaseDate: row.purchase_date || "",
     source: row.source || "",
     purchasePrice: String(row.purchase_price ?? ""),
-    estimatedValue: String(row.estimated_value ?? ""),
+    estimatedValue: row.estimated_value === null || row.estimated_value === undefined ? "" : String(row.estimated_value),
+    previousStatus: row.previous_status || "",
+    soldPrice: row.sold_price === null || row.sold_price === undefined ? "" : String(row.sold_price),
+    soldDate: row.sold_date || "",
     notes: row.notes || "",
     itemPhotoCount: itemPhotos.length || row.item_photo_count || 0,
     receiptPhotoCount: receiptPhotos.length || row.receipt_photo_count || 0,
@@ -495,12 +541,103 @@ function FirstFinderLogoMark({ className = "h-6 w-6" }) {
   );
 }
 
+// Shared modal chrome: closes on Escape or a backdrop click, locks page
+// scroll while open, and moves focus into the dialog with basic Tab
+// cycling so keyboard users don't fall through to the page behind it.
+function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (event.key === "Tab" && containerRef.current) {
+        const focusable = containerRef.current.querySelectorAll(
+          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    containerRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  function handleBackdropClick(event) {
+    if (event.target === event.currentTarget) onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={handleBackdropClick}>
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        className={`max-h-[90vh] w-full overflow-y-auto rounded-[2rem] bg-[#fff9f0] p-6 shadow-2xl outline-none ${contentClassName}`}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ToastStack({ toasts, onDismiss }) {
+  const toneStyles = {
+    error: "border-[#e2b6a1] bg-[#fbe9e2] text-[#8a3b22]",
+    warning: "border-[#e3c98c] bg-[#fff3d8] text-[#6d5526]",
+    success: "border-[#bcd7cf] bg-[#edf4f2] text-[#123f38]"
+  };
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-[60] flex flex-col items-center gap-2 px-4">
+      <AnimatePresence>
+        {toasts.map((toast) => (
+          <motion.div
+            key={toast.id}
+            initial={{ opacity: 0, y: -12, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border px-4 py-3 shadow-xl ${toneStyles[toast.type] || toneStyles.success}`}
+          >
+            <span className="flex-1 text-sm leading-6">{toast.text}</span>
+            <button type="button" onClick={() => onDismiss(toast.id)} className="mt-0.5 shrink-0 opacity-70 hover:opacity-100" aria-label="Dismiss notification">
+              <Icon name="x" size={15} />
+            </button>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 
 export default function FirstFinderApp() {
   const [activeView, setActiveView] = useState("home");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [item, setItem] = useState(sampleItems[0]);
+  const [item, setItem] = useState({ ...emptyItem, ...sampleItems[0] });
   const [quickItem, setQuickItem] = useState({ ...emptyItem, purchaseDate: todayIso() });
   const [inventory, setInventory] = useState([]);
   const [itemPhotos, setItemPhotos] = useState([]);
@@ -515,8 +652,27 @@ export default function FirstFinderApp() {
   const [bulkMessage, setBulkMessage] = useState("");
   const [bulkUploading, setBulkUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const loadedUserIdRef = useRef(null);
+
+  function pushToast(text, type = "error") {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts((current) => [...current, { id, text, type }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 5000);
+  }
+
+  function dismissToast(id) {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function go(view) {
+    setActiveView(view);
+    setMobileMenuOpen(false);
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -577,17 +733,29 @@ export default function FirstFinderApp() {
   const visibleInventory = inventoryStatusView === "sold" ? soldInventory : activeInventory;
 
   const totalCostBasis = useMemo(() => activeInventory.reduce((sum, entry) => sum + toNumber(entry.purchasePrice), 0), [activeInventory]);
-  const totalEstimatedValue = useMemo(() => activeInventory.reduce((sum, entry) => sum + toNumber(entry.estimatedValue), 0), [activeInventory]);
-  const totalGain = totalEstimatedValue - totalCostBasis;
+  const totalEstimatedValue = useMemo(
+    () => activeInventory.reduce((sum, entry) => { const value = itemValueForTotals(entry); return value === null ? sum : sum + value; }, 0),
+    [activeInventory]
+  );
+  const totalGain = useMemo(
+    () => activeInventory.reduce((sum, entry) => { const gain = calculateGain(entry); return gain === null ? sum : sum + gain; }, 0),
+    [activeInventory]
+  );
 
   const viewTotalCostBasis = useMemo(() => visibleInventory.reduce((sum, entry) => sum + toNumber(entry.purchasePrice), 0), [visibleInventory]);
-  const viewTotalEstimatedValue = useMemo(() => visibleInventory.reduce((sum, entry) => sum + toNumber(entry.estimatedValue), 0), [visibleInventory]);
-  const viewTotalGain = viewTotalEstimatedValue - viewTotalCostBasis;
+  const viewTotalEstimatedValue = useMemo(
+    () => visibleInventory.reduce((sum, entry) => { const value = itemValueForTotals(entry); return value === null ? sum : sum + value; }, 0),
+    [visibleInventory]
+  );
+  const viewTotalGain = useMemo(
+    () => visibleInventory.reduce((sum, entry) => { const gain = calculateGain(entry); return gain === null ? sum : sum + gain; }, 0),
+    [visibleInventory]
+  );
 
   const filteredInventory = useMemo(() => {
     const query = searchTerm.toLowerCase().trim();
     if (!query) return visibleInventory;
-    return visibleInventory.filter((entry) => [entry.name, entry.category, entry.maker, entry.source, entry.status].join(" ").toLowerCase().includes(query));
+    return visibleInventory.filter((entry) => [entry.name, entry.category, entry.maker, entry.source, entry.status, entry.notes, entry.edition].join(" ").toLowerCase().includes(query));
   }, [visibleInventory, searchTerm]);
 
   async function loadInventory(userId) {
@@ -599,7 +767,7 @@ export default function FirstFinderApp() {
 
     if (error) {
       console.error("Load inventory error:", error.message);
-      alert(error.message);
+      pushToast(error.message, "error");
       return;
     }
 
@@ -612,7 +780,7 @@ export default function FirstFinderApp() {
 
     if (error) {
       console.error("Logout error:", error.message);
-      alert(error.message);
+      pushToast(error.message, "error");
       return;
     }
 
@@ -626,7 +794,7 @@ export default function FirstFinderApp() {
   function loadSample(sample) {
     clearPhotoUrls(itemPhotos);
     clearPhotoUrls(receiptPhotos);
-    setItem(sample);
+    setItem({ ...emptyItem, ...sample });
     setItemPhotos([]);
     setReceiptPhotos([]);
     setActiveView("add");
@@ -692,7 +860,7 @@ export default function FirstFinderApp() {
   // the photo paths back on the row. Returns the final row, or null on failure.
   async function insertItemWithPhotos(sourceItem, itemPhotoList, receiptPhotoList, entryType) {
     if (!currentUser) {
-      alert("Please log in before saving inventory.");
+      pushToast("Please log in before saving inventory.", "error");
       return null;
     }
 
@@ -707,7 +875,7 @@ export default function FirstFinderApp() {
 
       if (error) {
         console.error("Save item error:", error.message);
-        alert(error.message);
+        pushToast(error.message, "error");
         return null;
       }
 
@@ -751,7 +919,9 @@ export default function FirstFinderApp() {
       setInventory((items) => [fromDbItem(finalRow), ...items]);
 
       if (failures.length > 0) {
-        alert(`Item saved, but some photos failed to upload: ${failures.join(", ")}. Make sure the item-photos storage bucket is set up, then re-add the photos.`);
+        pushToast(`Item saved, but some photos failed to upload: ${failures.join(", ")}. Make sure the item-photos storage bucket is set up, then re-add the photos.`, "warning");
+      } else {
+        pushToast("Saved to your inventory.", "success");
       }
 
       return finalRow;
@@ -797,7 +967,7 @@ export default function FirstFinderApp() {
 
     if (error) {
       console.error("Delete item error:", error.message);
-      alert(error.message);
+      pushToast(error.message, "error");
       return;
     }
 
@@ -812,47 +982,67 @@ export default function FirstFinderApp() {
     }
 
     setInventory((items) => items.filter((entry) => entry.id !== id));
+    pushToast(`Deleted "${entry?.name || "item"}".`, "success");
   }
 
-  async function markSold(id) {
+  async function markSold(id, { soldPrice, soldDate } = {}) {
+    const previousItem = inventory.find((entry) => entry.id === id);
+    // Remember what the item was before the sale (not "Sold" itself, in the
+    // rare case this fires twice) so restoring later can put it back there
+    // instead of always defaulting to "Owned".
+    const statusToRestore = previousItem && previousItem.status !== "Sold" ? previousItem.status : previousItem?.previousStatus || "Owned";
+
     const { data, error } = await supabase
       .from("inventory_items")
-      .update({ status: "Sold", updated_at: new Date().toISOString() })
+      .update({
+        status: "Sold",
+        previous_status: statusToRestore,
+        sold_price: hasValue(soldPrice) ? toNumber(soldPrice) : null,
+        sold_date: soldDate || null,
+        updated_at: new Date().toISOString()
+      })
       .eq("id", id)
       .select()
       .single();
 
     if (error) {
       console.error("Mark sold error:", error.message);
-      alert(error.message);
+      pushToast(error.message, "error");
       return;
     }
 
-    const previousItem = inventory.find((entry) => entry.id === id);
-
     trackEvent("item_marked_sold", {
       category: previousItem?.category || "Other",
-      status_before: previousItem?.status || "Owned"
+      status_before: previousItem?.status || "Owned",
+      has_sold_price: hasValue(soldPrice)
     });
 
     setInventory((items) => items.map((entry) => (entry.id === id ? fromDbItem(data) : entry)));
+    pushToast(hasValue(soldPrice) ? `Marked sold for ${formatCurrency(soldPrice)}.` : "Marked sold.", "success");
   }
 
   async function restoreSold(id) {
+    const previousItem = inventory.find((entry) => entry.id === id);
+    const restoredStatus = previousItem?.previousStatus || "Owned";
+
     const { data, error } = await supabase
       .from("inventory_items")
-      .update({ status: "Owned", updated_at: new Date().toISOString() })
+      .update({
+        status: restoredStatus,
+        previous_status: null,
+        sold_price: null,
+        sold_date: null,
+        updated_at: new Date().toISOString()
+      })
       .eq("id", id)
       .select()
       .single();
 
     if (error) {
       console.error("Restore item error:", error.message);
-      alert(error.message);
+      pushToast(error.message, "error");
       return;
     }
-
-    const previousItem = inventory.find((entry) => entry.id === id);
 
     trackEvent("item_restored", {
       category: previousItem?.category || "Other"
@@ -860,11 +1050,12 @@ export default function FirstFinderApp() {
 
     setInventory((items) => items.map((entry) => (entry.id === id ? fromDbItem(data) : entry)));
     setInventoryStatusView("active");
+    pushToast(`Restored to ${restoredStatus}.`, "success");
   }
 
   async function updateInventoryItem({ draft, newItemPhotos, newReceiptPhotos, removedItemPhotoPaths, removedReceiptPhotoPaths }) {
     if (!currentUser) {
-      alert("Please log in before saving inventory.");
+      pushToast("Please log in before saving inventory.", "error");
       return;
     }
 
@@ -875,6 +1066,17 @@ export default function FirstFinderApp() {
       const keptItemPhotos = (currentEntry?.itemPhotos || []).filter((photo) => !removedItemPhotoPaths.includes(photo.path));
       const keptReceiptPhotos = (currentEntry?.receiptPhotos || []).filter((photo) => !removedReceiptPhotoPaths.includes(photo.path));
       const failures = [];
+
+      // The edit form can flip status into or out of "Sold" directly, not
+      // just via the Mark Sold / Restore actions, so keep the sold fields
+      // consistent with whichever status comes out of this save.
+      const isNowSold = draft.status === "Sold";
+      const wasAlreadySold = currentEntry?.status === "Sold";
+      const previousStatusToStore = !isNowSold
+        ? null
+        : wasAlreadySold
+          ? currentEntry?.previousStatus || "Owned"
+          : currentEntry?.status || "Owned";
 
       let uploadedItemPhotos = [];
       let uploadedReceiptPhotos = [];
@@ -907,11 +1109,17 @@ export default function FirstFinderApp() {
           category: draft.category || "Other",
           maker: draft.maker || "",
           edition: draft.edition || "",
+          book_genre: draft.bookGenre || "",
+          book_edition: draft.bookEdition || "",
+          book_printing: draft.bookPrinting || "",
           status: draft.status || "Owned",
+          previous_status: previousStatusToStore,
+          sold_price: isNowSold && hasValue(draft.soldPrice) ? toNumber(draft.soldPrice) : null,
+          sold_date: isNowSold ? draft.soldDate || null : null,
           purchase_date: draft.purchaseDate || null,
           source: draft.source || "",
           purchase_price: toNumber(draft.purchasePrice),
-          estimated_value: toNumber(draft.estimatedValue),
+          estimated_value: hasValue(draft.estimatedValue) ? toNumber(draft.estimatedValue) : null,
           notes: draft.notes || "",
           item_photos: finalItemPhotos,
           receipt_photos: finalReceiptPhotos,
@@ -925,7 +1133,7 @@ export default function FirstFinderApp() {
 
       if (error) {
         console.error("Update item error:", error.message);
-        alert(error.message);
+        pushToast(error.message, "error");
         return;
       }
 
@@ -933,7 +1141,9 @@ export default function FirstFinderApp() {
       setEditingItem(null);
 
       if (failures.length > 0) {
-        alert(`Changes saved, but some new photos failed to upload: ${failures.join(", ")}. Re-add them from Edit.`);
+        pushToast(`Changes saved, but some new photos failed to upload: ${failures.join(", ")}. Re-add them from Edit.`, "warning");
+      } else {
+        pushToast("Changes saved.", "success");
       }
     } finally {
       setSaving(false);
@@ -959,7 +1169,7 @@ export default function FirstFinderApp() {
 
     reader.onload = async () => {
       if (!currentUser) {
-        alert("Please log in before importing inventory.");
+        pushToast("Please log in before importing inventory.", "error");
         return;
       }
 
@@ -969,7 +1179,7 @@ export default function FirstFinderApp() {
         const { items: importedItems, error: parseError } = parseCsvInventory(String(reader.result || ""));
 
         if (parseError) {
-          alert(parseError);
+          pushToast(parseError, "error");
           return;
         }
 
@@ -982,7 +1192,7 @@ export default function FirstFinderApp() {
 
         if (error) {
           console.error("Bulk import error:", error.message);
-          alert(error.message);
+          pushToast(error.message, "error");
           return;
         }
 
@@ -1005,17 +1215,19 @@ export default function FirstFinderApp() {
 
   return (
     <main className="min-h-screen bg-[#f6efe3] text-[#201a14]">
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <button onClick={() => setActiveView(isLoggedIn ? "dashboard" : "home")} className="flex items-center gap-3 text-left">
+        <button onClick={() => go(isLoggedIn ? "dashboard" : "home")} className="flex items-center gap-3 text-left">
           <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 rounded-xl object-cover" /><div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Collectible inventory</div></div>
         </button>
 
         <div className="hidden items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1 md:flex">
           {isLoggedIn ? (
             <>
-              <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Add Inventory</TabButton>
-              <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>View Inventory ({activeInventory.length})</TabButton>
-              <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Tutorial</TabButton>
+              <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Dashboard</TabButton>
+              <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>Inventory ({activeInventory.length})</TabButton>
+              <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Add Item</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: isLoggedIn ? "logged_in" : "logged_out" }); setActiveView("roadmap"); }}>Roadmap</TabButton>
             </>
           ) : (
@@ -1028,8 +1240,37 @@ export default function FirstFinderApp() {
 
         <div className="flex items-center gap-2">
           {isLoggedIn ? <Button variant="outline" onClick={logout} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Log out</Button> : <Button onClick={() => setActiveView("login")} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]">Log in</Button>}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((open) => !open)}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[#d8c7ad] bg-[#fff8ee] text-[#201a14] md:hidden"
+            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={mobileMenuOpen}
+          >
+            <Icon name={mobileMenuOpen ? "x" : "menu"} size={18} />
+          </button>
         </div>
       </nav>
+
+      {mobileMenuOpen && (
+        <div className="mx-auto max-w-6xl px-6 pb-4 md:hidden">
+          <div className="flex flex-col gap-1 rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-2">
+            {isLoggedIn ? (
+              <>
+                <MobileNavLink active={activeView === "dashboard"} onClick={() => go("dashboard")}>Dashboard</MobileNavLink>
+                <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>Inventory ({activeInventory.length})</MobileNavLink>
+                <MobileNavLink active={activeView === "add"} onClick={() => go("add")}>Add Item</MobileNavLink>
+                <MobileNavLink active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: "logged_in" }); go("roadmap"); }}>Roadmap</MobileNavLink>
+              </>
+            ) : (
+              <>
+                <MobileNavLink active={activeView === "home"} onClick={() => go("home")}>Get Started</MobileNavLink>
+                <MobileNavLink active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: "logged_out" }); go("roadmap"); }}>Roadmap</MobileNavLink>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "dashboard" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
@@ -1547,8 +1788,8 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
           >
             Quick Add
           </Button>
-          <Button onClick={onInventory} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">View Inventory</Button>
-          <Button onClick={onFullAdd} variant="outline" className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Tutorial</Button>
+          <Button onClick={onInventory} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Inventory</Button>
+          <Button onClick={onFullAdd} variant="outline" className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Add Item</Button>
         </div>
       </div>
 
@@ -1580,6 +1821,14 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
               <SelectField label="Status" value={quickItem.status} options={statuses} onChange={(value) => setQuickItem({ ...quickItem, status: value })} />
             </div>
 
+            {quickItem.category === "Book" && (
+              <div className="mt-3 grid gap-3 md:grid-cols-4">
+                <Field label="Genre" value={quickItem.bookGenre} onChange={(value) => setQuickItem({ ...quickItem, bookGenre: value })} />
+                <Field label="Edition" value={quickItem.bookEdition} onChange={(value) => setQuickItem({ ...quickItem, bookEdition: value })} />
+                <Field label="Printing" value={quickItem.bookPrinting} onChange={(value) => setQuickItem({ ...quickItem, bookPrinting: value })} />
+              </div>
+            )}
+
             <div className="mt-5">
               <Field label="Notes" value={quickItem.notes} onChange={(value) => setQuickItem({ ...quickItem, notes: value })} />
             </div>
@@ -1608,7 +1857,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:py-16">
       <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
-      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} /><Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} /><SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem({ ...item, status: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label="Estimated value" type="number" value={item.estimatedValue} onChange={(value) => setItem({ ...item, estimatedValue: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and an estimated value of {formatCurrency(item.estimatedValue)}. Current estimated gain/loss is {formatCurrency(calculateGain(item))}.</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatCurrency(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">est. gain/loss</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to inventory"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
+      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><Field label="Edition" value={item.bookEdition} onChange={(value) => setItem({ ...item, bookEdition: value })} /><Field label="Printing" value={item.bookPrinting} onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem({ ...item, status: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label="Estimated value" type="number" value={item.estimatedValue} onChange={(value) => setItem({ ...item, estimatedValue: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and an estimated value of {formatEstimatedValue(item)}. Current estimated gain/loss is {formatGain(calculateGain(item))}.</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">est. gain/loss</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to inventory"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
     </section>
   );
 }
@@ -1617,6 +1866,8 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
   const [photoViewer, setPhotoViewer] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [pendingMarkSold, setPendingMarkSold] = useState(null);
+  const [markingSold, setMarkingSold] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
   async function confirmDelete() {
@@ -1630,12 +1881,14 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
     }
   }
 
-  async function handleMarkSold(id) {
-    setBusyId(id);
+  async function confirmMarkSold({ soldPrice, soldDate }) {
+    if (!pendingMarkSold) return;
+    setMarkingSold(true);
     try {
-      await onMarkSold(id);
+      await onMarkSold(pendingMarkSold.id, { soldPrice, soldDate });
+      setPendingMarkSold(null);
     } finally {
-      setBusyId(null);
+      setMarkingSold(false);
     }
   }
 
@@ -1647,6 +1900,8 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
       setBusyId(null);
     }
   }
+
+  const isSoldView = statusView === "sold";
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
@@ -1665,9 +1920,9 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
       {bulkMessage && <div className="mt-6 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}
 
       <div className="mt-8 grid gap-4 md:grid-cols-3">
-        <DashboardCard icon="receipt" label="Active cost basis" value={formatCurrency(totalCostBasis)} />
-        <DashboardCard icon="dollar" label="Active estimated value" value={formatCurrency(totalEstimatedValue)} />
-        <DashboardCard icon="search" label="Active est. gain/loss" value={formatCurrency(totalGain)} />
+        <DashboardCard icon="receipt" label={isSoldView ? "Sold cost basis" : "Active cost basis"} value={formatCurrency(totalCostBasis)} />
+        <DashboardCard icon="dollar" label={isSoldView ? "Sold for (total)" : "Active estimated value"} value={formatCurrency(totalEstimatedValue)} />
+        <DashboardCard icon="search" label={isSoldView ? "Realized gain/loss" : "Active est. gain/loss"} value={formatCurrency(totalGain)} />
       </div>
 
       <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto]">
@@ -1728,7 +1983,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                     <td className="px-5 py-4">{entry.category}</td>
                     <td className="px-5 py-4">{entry.status}</td>
                     <td className="px-5 py-4">{formatCurrency(entry.purchasePrice)}</td>
-                    <td className="px-5 py-4">{formatCurrency(entry.estimatedValue)}</td>
+                    <td className="px-5 py-4">{formatEstimatedValue(entry)}</td>
                     <td className="px-5 py-4">
                       <button type="button" onClick={() => setPhotoViewer(entry)} className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">
                         View {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0)}
@@ -1740,7 +1995,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                         {entry.status === "Sold" ? (
                           <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleRestoreSold(entry.id)} className="px-4 py-2">{busyId === entry.id ? "Restoring..." : "Restore"}</Button>
                         ) : (
-                          <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleMarkSold(entry.id)} className="px-4 py-2">{busyId === entry.id ? "Saving..." : "Sold"}</Button>
+                          <Button variant="outline" onClick={() => setPendingMarkSold(entry)} className="px-4 py-2">Sold</Button>
                         )}
                         <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "inventory item"}`}><Icon name="trash" size={17} /></button>
                       </div>
@@ -1770,9 +2025,15 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
 
                 <div className="mt-5 grid gap-3 md:grid-cols-3">
                   <SmallMetric label="Cost" value={formatCurrency(entry.purchasePrice)} />
-                  <SmallMetric label="Value" value={formatCurrency(entry.estimatedValue)} />
-                  <SmallMetric label="Gain" value={formatCurrency(calculateGain(entry))} />
+                  <SmallMetric label="Value" value={formatEstimatedValue(entry)} />
+                  <SmallMetric label="Gain" value={formatGain(calculateGain(entry))} />
                 </div>
+
+                {entry.status === "Sold" && hasValue(entry.soldPrice) && (
+                  <div className="mt-3 rounded-2xl bg-[#edf4f2] px-4 py-3 text-sm text-[#123f38]">
+                    Sold for {formatCurrency(entry.soldPrice)}{entry.soldDate ? ` on ${entry.soldDate}` : ""}
+                  </div>
+                )}
 
                 <div className="mt-5 rounded-2xl bg-white p-4">
                   <div className="text-sm leading-6 text-[#665746]">{entry.edition || "No edition details"} · Purchased from {entry.source || "unknown source"} on {entry.purchaseDate || "unknown date"}</div>
@@ -1792,7 +2053,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                   {entry.status === "Sold" ? (
                     <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleRestoreSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">{busyId === entry.id ? "Restoring..." : "Restore to active"}</Button>
                   ) : (
-                    <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleMarkSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">{busyId === entry.id ? "Saving..." : "Mark sold"}</Button>
+                    <Button variant="outline" onClick={() => setPendingMarkSold(entry)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Mark sold</Button>
                   )}
                 </div>
               </CardContent>
@@ -1811,29 +2072,70 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
           onConfirm={confirmDelete}
         />
       )}
+
+      {pendingMarkSold && (
+        <MarkSoldDialog
+          entry={pendingMarkSold}
+          submitting={markingSold}
+          onCancel={() => setPendingMarkSold(null)}
+          onConfirm={confirmMarkSold}
+        />
+      )}
     </section>
   );
 }
 
 function DeleteConfirmDialog({ entry, deleting, onCancel, onConfirm }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-[2rem] bg-[#fff9f0] p-6 shadow-2xl">
-        <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Delete item</div>
-        <h2 className="mt-1 text-2xl font-semibold">Delete "{entry.name || "Untitled item"}"?</h2>
-        <p className="mt-3 leading-7 text-[#665746]">
-          This removes the item and its saved photos permanently. This can't be undone.
-        </p>
+    <ModalShell onClose={deleting ? () => {} : onCancel} contentClassName="max-w-md">
+      <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Delete item</div>
+      <h2 className="mt-1 text-2xl font-semibold">Delete "{entry.name || "Untitled item"}"?</h2>
+      <p className="mt-3 leading-7 text-[#665746]">
+        This removes the item and its saved photos permanently. This can't be undone.
+      </p>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={deleting} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+          Cancel
+        </Button>
+        <Button type="button" onClick={onConfirm} disabled={deleting} className="h-11 rounded-full bg-[#8a3b22] px-6 text-[#fff7ea] hover:bg-[#7a331d]">
+          {deleting ? "Deleting..." : "Delete item"}
+        </Button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function MarkSoldDialog({ entry, submitting, onCancel, onConfirm }) {
+  const [soldPrice, setSoldPrice] = useState(entry.estimatedValue || "");
+  const [soldDate, setSoldDate] = useState(todayIso());
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    onConfirm({ soldPrice, soldDate });
+  }
+
+  return (
+    <ModalShell onClose={submitting ? () => {} : onCancel} contentClassName="max-w-md">
+      <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Mark sold</div>
+      <h2 className="mt-1 text-2xl font-semibold">"{entry.name || "Untitled item"}" sold</h2>
+      <p className="mt-3 leading-7 text-[#665746]">
+        Capture what it actually sold for so realized gain and the Sold tab totals reflect reality, not the estimate. Leave the price blank if you'd rather skip it for now.
+      </p>
+      <form onSubmit={handleSubmit}>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <Field label="Sold for" type="number" value={soldPrice} onChange={setSoldPrice} />
+          <Field label="Sold on" type="date" value={soldDate} onChange={setSoldDate} />
+        </div>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" onClick={onCancel} disabled={deleting} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={submitting} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
             Cancel
           </Button>
-          <Button type="button" onClick={onConfirm} disabled={deleting} className="h-11 rounded-full bg-[#8a3b22] px-6 text-[#fff7ea] hover:bg-[#7a331d]">
-            {deleting ? "Deleting..." : "Delete item"}
+          <Button type="submit" disabled={submitting} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+            {submitting ? "Saving..." : "Mark sold"}
           </Button>
         </div>
-      </div>
-    </div>
+      </form>
+    </ModalShell>
   );
 }
 
@@ -1898,6 +2200,17 @@ function EditItemModal({ item, onClose, onSave, saving }) {
     });
   }
 
+  // Switching status to "Sold" here (rather than via the Mark Sold dialog)
+  // should behave the same way: default the sold date to today so the
+  // field isn't just sitting there blank.
+  function handleStatusChange(value) {
+    setDraft((current) => ({
+      ...current,
+      status: value,
+      soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate
+    }));
+  }
+
   function removeExistingPhoto(path, kind) {
     const setter = kind === "item" ? setExistingItemPhotos : setExistingReceiptPhotos;
     setter((photos) => photos.filter((photo) => photo.path !== path));
@@ -1923,64 +2236,76 @@ function EditItemModal({ item, onClose, onSave, saving }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] bg-[#fff9f0] p-6 shadow-2xl">
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Edit record</div>
-            <h2 className="mt-1 text-3xl font-semibold">{item.name || "Untitled item"}</h2>
-          </div>
-          <button onClick={handleClose} disabled={saving} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Close edit modal">
-            <Icon name="x" size={18} />
-          </button>
+    <ModalShell onClose={saving ? () => {} : handleClose} contentClassName="max-h-[88vh] max-w-3xl">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Edit record</div>
+          <h2 className="mt-1 text-3xl font-semibold">{item.name || "Untitled item"}</h2>
+        </div>
+        <button onClick={handleClose} disabled={saving} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Close edit modal">
+          <Icon name="x" size={18} />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Item name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+          <SelectField label="Category" value={draft.category} options={quickCategories} onChange={(value) => setDraft({ ...draft, category: value })} />
+          <Field label="Maker / Author / Brand" value={draft.maker} onChange={(value) => setDraft({ ...draft, maker: value })} />
+          {draft.category === "Book" ? (
+            <>
+              <Field label="Genre" value={draft.bookGenre} onChange={(value) => setDraft({ ...draft, bookGenre: value })} />
+              <Field label="Edition" value={draft.bookEdition} onChange={(value) => setDraft({ ...draft, bookEdition: value })} />
+              <Field label="Printing" value={draft.bookPrinting} onChange={(value) => setDraft({ ...draft, bookPrinting: value })} />
+            </>
+          ) : (
+            <Field label="Edition / Variant / Details" value={draft.edition} onChange={(value) => setDraft({ ...draft, edition: value })} />
+          )}
+          <SelectField label="Status" value={draft.status} options={statuses} onChange={handleStatusChange} />
+          <Field label="Purchase date" type="date" value={draft.purchaseDate} onChange={(value) => setDraft({ ...draft, purchaseDate: value })} />
+          <Field label="Where purchased" value={draft.source} onChange={(value) => setDraft({ ...draft, source: value })} />
+          <Field label="Cost basis" type="number" value={draft.purchasePrice} onChange={(value) => setDraft({ ...draft, purchasePrice: value })} />
+          <Field label="Estimated value" type="number" value={draft.estimatedValue} onChange={(value) => setDraft({ ...draft, estimatedValue: value })} />
+          {draft.status === "Sold" && (
+            <>
+              <Field label="Sold for" type="number" value={draft.soldPrice} onChange={(value) => setDraft({ ...draft, soldPrice: value })} />
+              <Field label="Sold on" type="date" value={draft.soldDate} onChange={(value) => setDraft({ ...draft, soldDate: value })} />
+            </>
+          )}
+          <Field label="Notes" value={draft.notes} onChange={(value) => setDraft({ ...draft, notes: value })} />
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Item name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
-            <SelectField label="Category" value={draft.category} options={quickCategories} onChange={(value) => setDraft({ ...draft, category: value })} />
-            <Field label="Maker / Author / Brand" value={draft.maker} onChange={(value) => setDraft({ ...draft, maker: value })} />
-            <Field label="Edition / Variant / Details" value={draft.edition} onChange={(value) => setDraft({ ...draft, edition: value })} />
-            <SelectField label="Status" value={draft.status} options={statuses} onChange={(value) => setDraft({ ...draft, status: value })} />
-            <Field label="Purchase date" type="date" value={draft.purchaseDate} onChange={(value) => setDraft({ ...draft, purchaseDate: value })} />
-            <Field label="Where purchased" value={draft.source} onChange={(value) => setDraft({ ...draft, source: value })} />
-            <Field label="Cost basis" type="number" value={draft.purchasePrice} onChange={(value) => setDraft({ ...draft, purchasePrice: value })} />
-            <Field label="Estimated value" type="number" value={draft.estimatedValue} onChange={(value) => setDraft({ ...draft, estimatedValue: value })} />
-            <Field label="Notes" value={draft.notes} onChange={(value) => setDraft({ ...draft, notes: value })} />
-          </div>
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <EditPhotoSection
+            title="Item photos"
+            icon="camera"
+            existingPhotos={existingItemPhotos}
+            newPhotos={newItemPhotos}
+            onUpload={(event) => handleNewPhotoUpload(event, "item")}
+            onRemoveExisting={(path) => removeExistingPhoto(path, "item")}
+            onRemoveNew={(id) => removeNewPhoto(id, "item")}
+          />
+          <EditPhotoSection
+            title="Receipt proof"
+            icon="receipt"
+            existingPhotos={existingReceiptPhotos}
+            newPhotos={newReceiptPhotos}
+            onUpload={(event) => handleNewPhotoUpload(event, "receipt")}
+            onRemoveExisting={(path) => removeExistingPhoto(path, "receipt")}
+            onRemoveNew={(id) => removeNewPhoto(id, "receipt")}
+          />
+        </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            <EditPhotoSection
-              title="Item photos"
-              icon="camera"
-              existingPhotos={existingItemPhotos}
-              newPhotos={newItemPhotos}
-              onUpload={(event) => handleNewPhotoUpload(event, "item")}
-              onRemoveExisting={(path) => removeExistingPhoto(path, "item")}
-              onRemoveNew={(id) => removeNewPhoto(id, "item")}
-            />
-            <EditPhotoSection
-              title="Receipt proof"
-              icon="receipt"
-              existingPhotos={existingReceiptPhotos}
-              newPhotos={newReceiptPhotos}
-              onUpload={(event) => handleNewPhotoUpload(event, "receipt")}
-              onRemoveExisting={(path) => removeExistingPhoto(path, "receipt")}
-              onRemoveNew={(id) => removeNewPhoto(id, "receipt")}
-            />
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" onClick={handleClose} disabled={saving} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
-              Cancel
-            </Button>
-            <Button type="submit" disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
-              {saving ? "Saving..." : "Save changes"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={handleClose} disabled={saving} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+            {saving ? "Saving..." : "Save changes"}
+          </Button>
+        </div>
+      </form>
+    </ModalShell>
   );
 }
 
@@ -2069,48 +2394,47 @@ function PhotoViewerModal({ entry, onClose }) {
   }, [entry]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] bg-[#fff9f0] p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Photos</div>
-            <h2 className="mt-1 text-3xl font-semibold">{entry.name || "Untitled item"}</h2>
-          </div>
-          <button onClick={onClose} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label="Close photo viewer">
-            <Icon name="x" size={18} />
-          </button>
+    <ModalShell onClose={onClose} contentClassName="max-h-[85vh] max-w-4xl">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Photos</div>
+          <h2 className="mt-1 text-3xl font-semibold">{entry.name || "Untitled item"}</h2>
         </div>
-
-        {allPhotos === null ? (
-          <div className="mt-6 rounded-2xl bg-[#f7efe3] p-6 text-center text-[#665746]">
-            Loading photos...
-          </div>
-        ) : allPhotos.length === 0 ? (
-          <div className="mt-6 rounded-2xl bg-[#f7efe3] p-6 text-center text-[#665746]">
-            {loadError || "No saved photos for this item yet."}
-          </div>
-        ) : (
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {allPhotos.map((photo) => (
-              <div key={photo.id} className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-white">
-                <div className="flex h-72 w-full items-center justify-center bg-[#f3ece0]">
-                  <img src={photo.url} alt={photo.name} className="h-full w-full object-contain" />
-                </div>
-                <div className="p-4">
-                  <div className="font-semibold">{photo.label}</div>
-                  <div className="truncate text-sm text-[#665746]">{photo.name}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <button onClick={onClose} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label="Close photo viewer">
+          <Icon name="x" size={18} />
+        </button>
       </div>
-    </div>
+
+      {allPhotos === null ? (
+        <div className="mt-6 rounded-2xl bg-[#f7efe3] p-6 text-center text-[#665746]">
+          Loading photos...
+        </div>
+      ) : allPhotos.length === 0 ? (
+        <div className="mt-6 rounded-2xl bg-[#f7efe3] p-6 text-center text-[#665746]">
+          {loadError || "No saved photos for this item yet."}
+        </div>
+      ) : (
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          {allPhotos.map((photo) => (
+            <div key={photo.id} className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-white">
+              <div className="flex h-72 w-full items-center justify-center bg-[#f3ece0]">
+                <img src={photo.url} alt={photo.name} className="h-full w-full object-contain" />
+              </div>
+              <div className="p-4">
+                <div className="font-semibold">{photo.label}</div>
+                <div className="truncate text-sm text-[#665746]">{photo.name}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </ModalShell>
   );
 }
 
 function clearPhotoUrls(photos) { photos.forEach((photo) => URL.revokeObjectURL(photo.url)); }
 function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-full px-4 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
+function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function SelectField({ label, value, options, onChange }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }
 function PhotoUploader({ title, eyebrow, description, prompts, photos, onUpload, onRemove }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">{eyebrow}</div><h2 className="mt-1 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#665746]">{description}</p></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">{photos.length}</div></div><label className="mt-5 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-[#cbb894] bg-[#f7ecdc] p-6 text-center transition hover:bg-[#fff4e6]"><Icon name={title.toLowerCase().includes("receipt") ? "receipt" : "camera"} size={36} className="text-[#123f38]" /><div className="mt-3 text-lg font-semibold">Take or upload</div><div className="mt-1 max-w-sm text-xs leading-5 text-[#6b5b4c]">Works with camera or photo library on mobile.</div><input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label><div className="mt-4 flex flex-wrap gap-2">{prompts.map((prompt) => <div key={prompt} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs text-[#665746]">{prompt}</div>)}</div>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} />}</CardContent></Card>; }
@@ -2131,7 +2455,7 @@ function Button({ children, variant = "primary", className = "", onClick, type =
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${styles} ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-5 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${styles} ${className}`}
     >
       {children}
     </button>
