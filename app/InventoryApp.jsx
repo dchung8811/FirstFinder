@@ -1053,21 +1053,141 @@ function RoadmapPage() {
   );
 }
 
-function HomePage({ onGetStarted }) {
+// Drop a YouTube video id in here (e.g. "dQw4w9WgXcQ") and the demo video
+// player appears on the homepage in place of the three-step strip's header.
+const demoVideoId = null;
+
+function LedgerRow({ label, value, strong = false }) {
   return (
-    <section className="mx-auto max-w-6xl px-6 py-16 md:py-24">
-      <div className="grid gap-12 md:grid-cols-[1fr_0.9fr] md:items-center">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-sm text-[#655644]"><Icon name="receipt" size={16} /> Receipts, values, photos, proof</div>
-          <h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-7xl">Inventory collectibles like you may actually sell them one day.</h1>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">FirstFinder helps collectors keep item photos, receipt photos, purchase details, value estimates, and sale status in one clean place.</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row"><Button onClick={onGetStarted} className="h-12 rounded-full bg-[#123f38] px-7 text-base text-[#fff7ea] hover:bg-[#0f332d]">Get Started <Icon name="arrow" size={18} className="ml-1" /></Button></div>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-7"><div className="rounded-[1.5rem] bg-[#123f38] p-6 text-[#fff7ea]"><div className="text-sm uppercase tracking-[0.2em] text-[#d8e6e2]">Your records</div><div className="mt-4 grid gap-3"><HomeFeature icon="camera" title="Item photos" text="Condition, edition points, signatures, defects, tags, and packaging." /><HomeFeature icon="receipt" title="Receipt proof" text="Receipts, invoices, auction records, and order confirmations." /><HomeFeature icon="dollar" title="Cost basis" text="Track what you paid, what it may be worth, and what changed when sold." /></div></div></CardContent></Card>
-        </motion.div>
+    <div className="flex items-baseline gap-2 text-sm">
+      <span className="text-[#7d6c5a]">{label}</span>
+      <span className="flex-1 border-b border-dotted border-[#c9b591]" />
+      <span className={`font-ledger ${strong ? "font-medium text-[#123f38]" : "text-[#3d332a]"}`}>{value}</span>
+    </div>
+  );
+}
+
+function SpecimenCard({ index, kind, title, detail, paid, value, chips, className = "" }) {
+  return (
+    <div className={`w-full max-w-sm rounded-2xl border border-[#d3c1a4] bg-[#fffdf8] p-5 shadow-[0_18px_40px_-18px_rgba(48,36,20,0.35)] ${className}`}>
+      <div className="flex items-center justify-between border-b border-[#e6d9c2] pb-3">
+        <span className="font-ledger text-[11px] uppercase tracking-[0.18em] text-[#8a7a64]">{kind}</span>
+        <span className="font-ledger text-[11px] text-[#8a7a64]">No. {index}</span>
       </div>
-    </section>
+      <div className="font-display mt-4 text-2xl font-semibold leading-tight text-[#201a14]">{title}</div>
+      <div className="mt-1 text-sm text-[#665746]">{detail}</div>
+      <div className="mt-4 grid gap-2">
+        <LedgerRow label="Paid" value={paid} />
+        <LedgerRow label="Est. value" value={value} strong />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {chips.map((chip) => (
+          <span key={chip.text} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${chip.tone === "green" ? "bg-[#edf4f2] text-[#123f38]" : "bg-[#f0e2cf] text-[#665746]"}`}>
+            {chip.icon && <Icon name={chip.icon} size={12} />}
+            {chip.text}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HomePage({ onGetStarted }) {
+  const steps = [
+    { number: "01", icon: "camera", title: "Snap it", text: "Photograph the item and the receipt the day it comes home. Proof beats memory." },
+    { number: "02", icon: "file", title: "Log it", text: "Edition points, condition, where you found it, what you paid. Thirty seconds per item." },
+    { number: "03", icon: "dollar", title: "Track it", text: "Cost basis, estimated value, and what actually changed when you sold." }
+  ];
+
+  return (
+    <>
+      <section className="mx-auto max-w-6xl px-6 pb-20 pt-14 md:pt-20">
+        <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="font-ledger text-xs uppercase tracking-[0.28em] text-[#8a7a64]">Collectible inventory · Cost basis · Proof</div>
+            <h1 className="font-display mt-5 max-w-2xl text-5xl font-semibold leading-[1.02] tracking-tight text-[#201a14] md:text-[4.4rem]">
+              Inventory collectibles like you may actually sell them one day.
+            </h1>
+            <p className="mt-6 max-w-xl text-lg leading-8 text-[#665746]">
+              Item photos, receipt proof, purchase details, and value in one ledger — for the first editions, cards, and programs you swore you'd keep track of this time.
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-5">
+              <Button onClick={onGetStarted} className="h-12 rounded-full bg-[#123f38] px-7 text-base text-[#fff7ea] hover:bg-[#0f332d]">
+                Get Started <Icon name="arrow" size={18} className="ml-1" />
+              </Button>
+              <a href="#how-it-works" className="text-sm font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+                See how it works
+              </a>
+            </div>
+            <p className="font-ledger mt-10 text-xs text-[#8a7a64]">Built by a collector who kept losing receipts.</p>
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="relative mx-auto w-full max-w-lg lg:mx-0">
+            <div className="pointer-events-none absolute -left-6 top-8 hidden h-full w-full rounded-2xl border border-dashed border-[#d3c1a4] sm:block" aria-hidden="true" />
+            <SpecimenCard
+              index="001"
+              kind="Book · First edition"
+              title="The Gunslinger"
+              detail="Donald M. Grant, 1982 · dust jacket, first printing points"
+              paid="$45"
+              value="$850"
+              chips={[{ icon: "receipt", text: "Receipt saved", tone: "green" }, { icon: "camera", text: "5 photos" }]}
+              className="relative z-10 -rotate-2"
+            />
+            <SpecimenCard
+              index="002"
+              kind="Sports · Program"
+              title="Phillies Program, 1970s"
+              detail="Veterans Stadium era · minor corner wear"
+              paid="$12"
+              value="$40"
+              chips={[{ icon: "receipt", text: "Flea market find", tone: "green" }, { icon: "camera", text: "2 photos" }]}
+              className="relative z-20 ml-auto -mt-1 rotate-[2.5deg]"
+            />
+          </motion.div>
+        </div>
+      </section>
+
+      <section id="how-it-works" className="border-t border-[#e2d4bc] bg-[#fbf5e9]">
+        <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
+          {demoVideoId ? (
+            <div className="mx-auto max-w-3xl">
+              <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in ninety seconds.</h2>
+              <div className="mt-8 overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
+                <iframe
+                  className="aspect-video w-full"
+                  src={`https://www.youtube-nocookie.com/embed/${demoVideoId}`}
+                  title="FirstFinder demo"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            </div>
+          ) : (
+            <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">How it works.</h2>
+          )}
+
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            {steps.map((step) => (
+              <div key={step.number} className="rounded-2xl border border-[#ddceb2] bg-[#fffdf8] p-6">
+                <div className="flex items-center justify-between">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#123f38] text-[#fff7ea]"><Icon name={step.icon} size={20} /></span>
+                  <span className="font-ledger text-sm text-[#b09a78]">{step.number}</span>
+                </div>
+                <div className="font-display mt-5 text-xl font-semibold">{step.title}</div>
+                <p className="mt-2 text-sm leading-6 text-[#665746]">{step.text}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-12 text-center">
+            <Button onClick={onGetStarted} className="h-12 rounded-full bg-[#123f38] px-7 text-base text-[#fff7ea] hover:bg-[#0f332d]">
+              Start your ledger <Icon name="arrow" size={18} className="ml-1" />
+            </Button>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1970,7 +2090,6 @@ function PhotoViewerModal({ entry, onClose }) {
 }
 
 function clearPhotoUrls(photos) { photos.forEach((photo) => URL.revokeObjectURL(photo.url)); }
-function HomeFeature({ icon, title, text }) { return <div className="rounded-2xl bg-white/10 p-4"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/15"><Icon name={icon} size={19} /></div><div className="font-semibold">{title}</div><div className="mt-1 text-sm leading-6 text-[#dce7e4]">{text}</div></div>; }
 function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-full px-4 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function SelectField({ label, value, options, onChange }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }
