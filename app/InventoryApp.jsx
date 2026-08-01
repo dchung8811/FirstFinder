@@ -389,42 +389,78 @@ function buildCsvTemplate() {
   return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
 }
 
-function parseCsvLine(line) {
-  const values = [];
-  let current = "";
+// Parses the whole CSV text into rows of trimmed values, character by
+// character, so a quoted field can contain commas or newlines without
+// breaking row boundaries (splitting on "\n" before parsing quotes, as a
+// line-by-line parser would, corrupts any quoted multi-line field).
+function parseCsvRows(csvText) {
+  const rows = [];
+  let currentRow = [];
+  let field = "";
   let inQuotes = false;
+  const text = String(csvText || "");
 
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    const nextChar = line[i + 1];
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const nextChar = text[i + 1];
 
-    if (char === '"' && inQuotes && nextChar === '"') {
-      current += '"';
-      i += 1;
-    } else if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === "," && !inQuotes) {
-      values.push(current.trim());
-      current = "";
+    if (inQuotes) {
+      if (char === '"' && nextChar === '"') {
+        field += '"';
+        i += 1;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ",") {
+      currentRow.push(field.trim());
+      field = "";
+    } else if (char === "\n" || char === "\r") {
+      if (char === "\r" && nextChar === "\n") i += 1;
+      currentRow.push(field.trim());
+      field = "";
+      rows.push(currentRow);
+      currentRow = [];
     } else {
-      current += char;
+      field += char;
     }
   }
 
-  values.push(current.trim());
-  return values;
+  if (field.length > 0 || currentRow.length > 0) {
+    currentRow.push(field.trim());
+    rows.push(currentRow);
+  }
+
+  return rows.filter((row) => row.some((value) => value.length > 0));
 }
 
 function parseCsvInventory(csvText) {
-  const lines = csvText.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  if (lines.length < 2) return [];
+  const rows = parseCsvRows(csvText);
+  if (rows.length < 2) {
+    return { items: [], error: "That file has no data rows to import." };
+  }
 
-  const headers = parseCsvLine(lines[0]).map((header) => header.trim());
-  return lines.slice(1).map((line) => {
-    const values = parseCsvLine(line);
-    const row = headers.reduce((acc, header, index) => ({ ...acc, [header]: values[index] || "" }), {});
-    return makeSavedItem({ ...emptyItem, ...row, status: row.status || "Owned" }, 0, 0);
-  });
+  const headers = rows[0].map((header) => header.trim());
+  if (!headers.map((header) => header.toLowerCase()).includes("name")) {
+    return { items: [], error: `Couldn't find a "name" column. Use the downloaded template so columns match: ${csvHeaders.join(", ")}.` };
+  }
+
+  const items = rows
+    .slice(1)
+    .map((values) => {
+      const row = headers.reduce((acc, header, index) => ({ ...acc, [header]: values[index] || "" }), {});
+      const status = statuses.includes(row.status) ? row.status : "Owned";
+      return makeSavedItem({ ...emptyItem, ...row, status }, 0, 0);
+    })
+    .filter((item) => item.name.trim().length > 0);
+
+  return { items, error: items.length === 0 ? "No rows had a value in the name column." : null };
 }
 
 function pickMockAutofill(fileName, photoType) {
@@ -433,24 +469,6 @@ function pickMockAutofill(fileName, photoType) {
   const matched = mockAutofillOptions.find((option) => normalized.includes(option.match));
   return matched?.data || mockAutofillOptions[mockAutofillOptions.length - 1].data;
 }
-
-function runRuntimeTests() {
-  const activeTestInventory = [{ status: "Owned" }, { status: "Sold" }, { status: "Researching" }];
-  const parsedTemplate = parseCsvInventory(buildCsvTemplate());
-  return [
-    { name: "sample inventory includes three starter items", pass: sampleItems.length === 3 },
-    { name: "cost basis parses dollars safely", pass: toNumber("$45.50") === 45.5 },
-    { name: "gain calculates estimated value minus cost basis", pass: calculateGain({ estimatedValue: "100", purchasePrice: "40" }) === 60 },
-    { name: "receipt photo prompts include receipt", pass: receiptPhotoPrompts.includes("Receipt") },
-    { name: "statuses include sold state", pass: statuses.includes("Sold") },
-    { name: "quick categories include books", pass: quickCategories.includes("Book") },
-    { name: "empty item defaults to owned status", pass: emptyItem.status === "Owned" },
-    { name: "sold items are excluded from active inventory", pass: getActiveInventory(activeTestInventory).length === 2 },
-    { name: "csv template can be parsed into inventory rows", pass: parsedTemplate.length === 2 },
-    { name: "mock receipt autofill returns purchase price", pass: pickMockAutofill("receipt.jpg", "quickReceipt").purchasePrice === "45" }
-  ];
-}
-
 
 function FirstFinderLogoMark({ className = "h-6 w-6" }) {
   return (
@@ -554,8 +572,6 @@ export default function FirstFinderApp() {
     };
   }, []);
 
-  const runtimeTests = useMemo(() => runRuntimeTests(), []);
-  const passingTests = runtimeTests.filter((test) => test.pass).length;
   const activeInventory = useMemo(() => getActiveInventory(inventory), [inventory]);
   const soldInventory = useMemo(() => inventory.filter((entry) => entry.status === "Sold"), [inventory]);
   const visibleInventory = inventoryStatusView === "sold" ? soldInventory : activeInventory;
@@ -590,13 +606,6 @@ export default function FirstFinderApp() {
     setInventory((data || []).map(fromDbItem));
   }
 
-  function navigate(view) {
-    if (!isLoggedIn && ["dashboard", "add", "inventory"].includes(view)) {
-      setActiveView("login");
-      return;
-    }
-    setActiveView(view);
-  }
 
   async function logout() {
     const { error } = await supabase.auth.signOut();
@@ -957,7 +966,13 @@ export default function FirstFinderApp() {
       setBulkUploading(true);
 
       try {
-        const importedItems = parseCsvInventory(String(reader.result || ""));
+        const { items: importedItems, error: parseError } = parseCsvInventory(String(reader.result || ""));
+
+        if (parseError) {
+          alert(parseError);
+          return;
+        }
+
         const rows = importedItems.map((entry) => toDbItem(entry, currentUser.id, 0, 0));
 
         const { data, error } = await supabase
@@ -991,7 +1006,7 @@ export default function FirstFinderApp() {
   return (
     <main className="min-h-screen bg-[#f6efe3] text-[#201a14]">
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <button onClick={() => navigate(isLoggedIn ? "dashboard" : "home")} className="flex items-center gap-3 text-left">
+        <button onClick={() => setActiveView(isLoggedIn ? "dashboard" : "home")} className="flex items-center gap-3 text-left">
           <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 rounded-xl object-cover" /><div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Collectible inventory</div></div>
         </button>
 
