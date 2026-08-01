@@ -11,7 +11,6 @@
     "@tailwindcss/postcss": "^4.3.0",
     "framer-motion": "^12.38.0",
     "next": "latest",
-    "openai": "latest",
     "react": "latest",
     "react-dom": "latest"
   },

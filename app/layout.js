@@ -19,9 +19,13 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
+  const gaId = process.env.NEXT_PUBLIC_GA_ID;
+
   return (
     <html lang="en">
-      <body className={`${fraunces.variable} ${plexMono.variable}`}>{children}        <GoogleAnalytics gaId="G-WYF4FV2R9R" />
+      <body className={`${fraunces.variable} ${plexMono.variable}`}>
+        {children}
+        {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
   );

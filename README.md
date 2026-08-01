@@ -25,6 +25,12 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 
 ## One-time setup
 
-Photo uploads need a storage bucket and two columns. Run
-`supabase/photo-storage-setup.sql` in the Supabase dashboard SQL Editor once
-per project.
+Run both of these once per Supabase project, in the dashboard's SQL Editor:
+
+- `supabase/photo-storage-setup.sql` -- adds the photo storage bucket and columns.
+- `supabase/inventory-items-rls.sql` -- enables Row Level Security so a
+  signed-in user can only read or write their own inventory rows. The app's
+  queries filter by row id alone, so this is required, not optional.
+
+Copy `.env.example` to `.env.local` and fill in your Supabase project's URL
+and anon key (Project Settings -> API in the Supabase dashboard).
