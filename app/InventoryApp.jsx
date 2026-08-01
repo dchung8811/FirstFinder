@@ -17,6 +17,8 @@ const emptyItem = {
   source: "",
   purchasePrice: "",
   estimatedValue: "",
+  soldPrice: "",
+  soldDate: "",
   notes: ""
 };
 
@@ -63,10 +65,10 @@ const itemPhotoPrompts = ["Front", "Back", "Details", "Condition", "Signature/ma
 const receiptPhotoPrompts = ["Receipt", "Invoice", "Order confirmation", "Auction record"];
 const statuses = ["Owned", "Researching", "For sale", "Sold", "Wishlist"];
 const quickCategories = ["Book", "Sports memorabilia", "Trading card", "Comic", "Record", "Art", "Toy", "Other"];
-const csvHeaders = ["name", "category", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "purchaseDate", "source", "purchasePrice", "estimatedValue", "notes"];
+const csvHeaders = ["name", "category", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"];
 const csvTemplateRows = [
-  ["The Gunslinger", "Book", "Stephen King", "First edition candidate", "Fantasy", "First edition", "First printing", "Owned", "2026-05-12", "Used bookstore", "45", "850", "Need to confirm jacket state"],
-  ["Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "", "", "", "Owned", "2026-04-28", "Flea market", "12", "40", "Minor corner wear"]
+  ["The Gunslinger", "Book", "Stephen King", "First edition candidate", "Fantasy", "First edition", "First printing", "Owned", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state"],
+  ["Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "", "", "", "Sold", "2026-04-28", "Flea market", "12", "", "40", "2026-06-01", "Minor corner wear. Sold at a local card show."]
 ];
 const mockAutofillOptions = [
   {
@@ -312,6 +314,39 @@ function hasValue(value) {
   return value !== "" && value !== null && value !== undefined;
 }
 
+// Builds marketplace search URLs for "find similar copies" -- plain search
+// links, no API keys or scraping involved.
+// Appends a clarifying word (e.g. "edition") only if the value doesn't
+// already contain it, so a field typed as just "First" becomes "First
+// edition" while "First edition" isn't turned into "First edition edition".
+function withClarifyingWord(value, word) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return trimmed;
+  return trimmed.toLowerCase().includes(word.toLowerCase()) ? trimmed : `${trimmed} ${word}`;
+}
+
+function buildSimilarCopyLinks(item) {
+  const parts = [item.name, item.maker];
+
+  // Book-specific detail fields narrow the search to the exact edition/
+  // printing the collector actually has, e.g. "The Gunslinger Stephen King
+  // First edition First printing" instead of just the title and author.
+  if (item.category === "Book") {
+    if (item.bookEdition) parts.push(withClarifyingWord(item.bookEdition, "edition"));
+    if (item.bookPrinting) parts.push(withClarifyingWord(item.bookPrinting, "printing"));
+  } else if (item.edition) {
+    parts.push(item.edition);
+  }
+
+  const query = parts.filter(Boolean).join(" ").trim();
+  if (!query) return null;
+  const encoded = encodeURIComponent(query);
+  return {
+    abebooks: `https://www.abebooks.com/servlet/SearchResults?kn=${encoded}`,
+    ebay: `https://www.ebay.com/sch/i.html?_nkw=${encoded}`
+  };
+}
+
 function hasEstimate(item) {
   return hasValue(item.estimatedValue);
 }
@@ -374,6 +409,12 @@ function toDbItem(item, userId, itemPhotoCount = 0, receiptPhotoCount = 0) {
     book_edition: item.bookEdition || "",
     book_printing: item.bookPrinting || "",
     status: item.status || "Owned",
+    // A brand-new item can be created with status already set to "Sold"
+    // (quick add, tutorial, or CSV import) -- capture the sale fields the
+    // same way an existing item marked sold would.
+    previous_status: item.status === "Sold" ? "Owned" : null,
+    sold_price: item.status === "Sold" && hasValue(item.soldPrice) ? toNumber(item.soldPrice) : null,
+    sold_date: item.status === "Sold" ? item.soldDate || null : null,
     purchase_date: item.purchaseDate || null,
     source: item.source || "",
     purchase_price: toNumber(item.purchasePrice),
@@ -546,6 +587,14 @@ function FirstFinderLogoMark({ className = "h-6 w-6" }) {
 // cycling so keyboard users don't fall through to the page behind it.
 function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
   const containerRef = useRef(null);
+  // Keeps handlers below reading the *current* onClose (e.g. respecting a
+  // saving-guarded no-op) without putting onClose in the mount effect's
+  // dependency array -- see that effect for why that matters.
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -553,7 +602,7 @@ function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
 
     function handleKeyDown(event) {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -582,10 +631,15 @@ function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+    // Intentionally empty: this should only run once per modal open (locks
+    // scroll, focuses the dialog, wires the listener) -- not on every
+    // keystroke-triggered re-render, which is what re-including onClose
+    // here caused (it stole focus back to the container after each letter).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleBackdropClick(event) {
-    if (event.target === event.currentTarget) onClose();
+    if (event.target === event.currentTarget) onCloseRef.current();
   }
 
   return (
@@ -1215,26 +1269,31 @@ export default function FirstFinderApp() {
 
   return (
     <main className="min-h-screen bg-[#f6efe3] text-[#201a14]">
-      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <div className="print:hidden">
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </div>
 
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5 print:hidden">
         <button onClick={() => go(isLoggedIn ? "dashboard" : "home")} className="flex items-center gap-3 text-left">
           <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 rounded-xl object-cover" /><div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Collectible inventory</div></div>
         </button>
 
-        <div className="hidden items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1 md:flex">
+        <div className="hidden max-w-full items-center gap-1 overflow-x-auto rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1 md:flex">
           {isLoggedIn ? (
             <>
               <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Dashboard</TabButton>
               <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>Inventory ({activeInventory.length})</TabButton>
               <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Add Item</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: isLoggedIn ? "logged_in" : "logged_out" }); setActiveView("roadmap"); }}>Roadmap</TabButton>
+              <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
               <TabButton active={activeView === "feedback"} onClick={() => setActiveView("feedback")}>Feedback</TabButton>
+              <TabButton active={activeView === "account"} onClick={() => setActiveView("account")}>My Account</TabButton>
             </>
           ) : (
             <>
               <TabButton active={activeView === "home"} onClick={() => setActiveView("home")}>Get Started</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: isLoggedIn ? "logged_in" : "logged_out" }); setActiveView("roadmap"); }}>Roadmap</TabButton>
+              <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
             </>
           )}
         </div>
@@ -1254,7 +1313,7 @@ export default function FirstFinderApp() {
       </nav>
 
       {mobileMenuOpen && (
-        <div className="mx-auto max-w-6xl px-6 pb-4 md:hidden">
+        <div className="mx-auto max-w-6xl px-6 pb-4 md:hidden print:hidden">
           <div className="flex flex-col gap-1 rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-2">
             {isLoggedIn ? (
               <>
@@ -1262,12 +1321,15 @@ export default function FirstFinderApp() {
                 <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>Inventory ({activeInventory.length})</MobileNavLink>
                 <MobileNavLink active={activeView === "add"} onClick={() => go("add")}>Add Item</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: "logged_in" }); go("roadmap"); }}>Roadmap</MobileNavLink>
+                <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
                 <MobileNavLink active={activeView === "feedback"} onClick={() => go("feedback")}>Feedback</MobileNavLink>
+                <MobileNavLink active={activeView === "account"} onClick={() => go("account")}>My Account</MobileNavLink>
               </>
             ) : (
               <>
                 <MobileNavLink active={activeView === "home"} onClick={() => go("home")}>Get Started</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: "logged_out" }); go("roadmap"); }}>Roadmap</MobileNavLink>
+                <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
               </>
             )}
           </div>
@@ -1276,12 +1338,15 @@ export default function FirstFinderApp() {
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "dashboard" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
+      {activeView === "about" && <AboutPage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
       {activeView === "login" && <LoginPage />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
-      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} bulkMessage={bulkMessage} />}
+      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} bulkMessage={bulkMessage} />}
+      {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
+      {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
 
       {editingItem && (
         <EditItemModal
@@ -1436,6 +1501,39 @@ function RoadmapPage() {
             </li>
           ))}
         </ul>
+      </div>
+    </section>
+  );
+}
+
+const aboutParagraphs = [
+  "There's something magical about discovering your first rare or collectible book. It's more than finding an old volume on a shelf—it's stepping into a world filled with history, craftsmanship, and stories that have survived generations. Every collector remembers that first find.",
+  "As your collection grows, so does the challenge of keeping track of it. What starts as a simple spreadsheet slowly turns into a maze of formulas, colors, and tabs. Eventually, you look for a better solution, only to find software that's clunky, confusing, or built without collectors in mind.",
+  "That's why we created First Finder.",
+  "First Finder is designed to help you catalog and care for your collection—from your very first find to your next great discovery. Whether you're browsing your favorite used bookstore, exploring a rare book fair, or uncovering a hidden gem online, you can quickly record your purchase, photograph its condition, save receipts, and keep everything in one place. And while we started with rare books, First Finder is equally at home with comics, manuscripts, and other cherished collectibles.",
+  "To us, collecting is about more than ownership. It's about preserving art, protecting knowledge, and ensuring that remarkable stories continue to be passed from one generation to the next. That happens because of collectors—people who care enough to seek, preserve, and share these pieces of history.",
+  "First Finder was built for you.",
+  "The Collector. The Seeker. The First Finder.",
+  "We're constantly improving the app and would love to hear your ideas. Thank you for being part of the journey."
+];
+
+function AboutPage({ onGoToFeedback }) {
+  return (
+    <section className="mx-auto max-w-3xl px-6 py-16 md:py-20">
+      <h1 className="font-display text-4xl font-semibold tracking-tight md:text-6xl">The story behind First Finder.</h1>
+
+      <div className="mt-8 space-y-5 text-lg leading-8 text-[#665746]">
+        {aboutParagraphs.map((paragraph, index) => (
+          <p key={index} className={index === 2 || index === 5 || index === 6 ? "font-display text-2xl font-semibold text-[#201a14]" : ""}>
+            {paragraph}
+          </p>
+        ))}
+      </div>
+
+      <div className="mt-12 flex justify-center">
+        <Button onClick={onGoToFeedback} className="h-12 rounded-full bg-[#123f38] px-7 text-base text-[#fff7ea] hover:bg-[#0f332d]">
+          Share your ideas <Icon name="arrow" size={18} className="ml-1" />
+        </Button>
       </div>
     </section>
   );
@@ -2004,7 +2102,174 @@ function FeedbackPage({ currentUser, pushToast }) {
           </form>
         </CardContent>
       </Card>
+
+      <p className="mt-6 text-center text-sm text-[#665746]">
+        Prefer email? Reach us directly at <a href="mailto:thebookbarterer@gmail.com" className="font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">thebookbarterer@gmail.com</a>.
+      </p>
     </section>
+  );
+}
+
+function formatAccountDate(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
+function MyAccountPage({ currentUser, inventory, pushToast }) {
+  const [name, setName] = useState(currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || "");
+  const [savingName, setSavingName] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const firstItem =
+    inventory.length > 0
+      ? [...inventory].sort((a, b) => new Date(a.savedAt) - new Date(b.savedAt))[0]
+      : null;
+
+  async function handleSaveName(event) {
+    event.preventDefault();
+    setSavingName(true);
+
+    const { error } = await supabase.auth.updateUser({ data: { full_name: name.trim() } });
+
+    setSavingName(false);
+
+    if (error) {
+      pushToast(error.message, "error");
+      return;
+    }
+
+    pushToast("Name updated.", "success");
+  }
+
+  async function handleDeleteAccount() {
+    setDeletingAccount(true);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        pushToast("Please log in again before deleting your account.", "error");
+        return;
+      }
+
+      const response = await fetch("/api/delete-account", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        pushToast(result.error || "Could not delete your account. Please try again.", "error");
+        return;
+      }
+
+      await supabase.auth.signOut();
+      // Full reload so every bit of app state (inventory, session, etc.)
+      // clears cleanly rather than trying to unwind it all in React state.
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Delete account request error:", error.message);
+      pushToast("Could not reach the server to delete your account. Please try again.", "error");
+    } finally {
+      setDeletingAccount(false);
+    }
+  }
+
+  return (
+    <section className="mx-auto max-w-3xl px-6 py-12">
+      <h1 className="text-5xl font-semibold tracking-tight">My account.</h1>
+      <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">Your profile and account settings.</p>
+
+      <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
+        <CardContent className="p-6 md:p-8">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Member since</div>
+              <div className="mt-1 text-lg font-semibold">{formatAccountDate(currentUser?.created_at)}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Email</div>
+              <div className="mt-1 text-lg font-semibold">{currentUser?.email}</div>
+            </div>
+            <div className="sm:col-span-2">
+              <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">First collectible loaded</div>
+              {firstItem ? (
+                <>
+                  <div className="mt-1 text-lg font-semibold">{firstItem.name || "Untitled item"}</div>
+                  <div className="text-sm text-[#665746]">{formatAccountDate(firstItem.savedAt)}</div>
+                </>
+              ) : (
+                <div className="mt-1 text-lg font-semibold text-[#8a7a64]">None yet</div>
+              )}
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveName} className="mt-6 flex flex-col gap-3 border-t border-[#e0d2bc] pt-6 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Field label="Name" value={name} onChange={setName} />
+            </div>
+            <Button type="submit" disabled={savingName} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+              {savingName ? "Saving..." : "Save name"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6 rounded-[2rem] border-[#e2b6a1] bg-[#fbf1ec] shadow-sm">
+        <CardContent className="p-6 md:p-8">
+          <div className="text-sm uppercase tracking-[0.18em] text-[#8a3b22]">Danger zone</div>
+          <h2 className="mt-1 text-2xl font-semibold">Delete your account</h2>
+          <p className="mt-3 leading-7 text-[#665746]">
+            Permanently deletes your login, your entire collection, all saved photos, and any feedback you've sent. This can't be undone.
+          </p>
+          <Button onClick={() => setShowDeleteDialog(true)} className="mt-5 h-11 rounded-full bg-[#8a3b22] px-6 text-[#fff7ea] hover:bg-[#7a331d]">
+            Delete my account
+          </Button>
+        </CardContent>
+      </Card>
+
+      {showDeleteDialog && (
+        <DeleteAccountDialog
+          deleting={deletingAccount}
+          onCancel={() => setShowDeleteDialog(false)}
+          onConfirm={handleDeleteAccount}
+        />
+      )}
+    </section>
+  );
+}
+
+function DeleteAccountDialog({ deleting, onCancel, onConfirm }) {
+  const [confirmText, setConfirmText] = useState("");
+  const canConfirm = confirmText.trim().toUpperCase() === "DELETE";
+
+  return (
+    <ModalShell onClose={deleting ? () => {} : onCancel} contentClassName="max-w-md">
+      <div className="text-sm uppercase tracking-[0.18em] text-[#8a3b22]">Delete account</div>
+      <h2 className="mt-1 text-2xl font-semibold">Are you sure?</h2>
+      <p className="mt-3 leading-7 text-[#665746]">
+        This permanently deletes your login, your entire collection, all saved photos, and any feedback you've sent. There is no way to undo this.
+      </p>
+      <p className="mt-4 text-sm font-medium text-[#665746]">Type DELETE to confirm.</p>
+      <input
+        value={confirmText}
+        onChange={(event) => setConfirmText(event.target.value)}
+        className="mt-2 w-full rounded-2xl border border-[#e2b6a1] bg-white px-4 py-3 outline-none focus:border-[#8a3b22] focus:ring-2 focus:ring-[#8a3b22]/15"
+        placeholder="DELETE"
+        autoFocus
+      />
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={deleting} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+          Cancel
+        </Button>
+        <Button type="button" onClick={onConfirm} disabled={!canConfirm || deleting} className="h-11 rounded-full bg-[#8a3b22] px-6 text-[#fff7ea] hover:bg-[#7a331d]">
+          {deleting ? "Deleting..." : "Permanently delete my account"}
+        </Button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -2059,11 +2324,19 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
               <Field label="Item name" value={quickItem.name} onChange={(value) => setQuickItem({ ...quickItem, name: value })} />
               <SelectField label="Category" value={quickItem.category} options={quickCategories} onChange={(value) => setQuickItem({ ...quickItem, category: value })} />
               <Field label="Cost basis" type="number" value={quickItem.purchasePrice} onChange={(value) => setQuickItem({ ...quickItem, purchasePrice: value })} />
-              <Field label="Estimated value" type="number" value={quickItem.estimatedValue} onChange={(value) => setQuickItem({ ...quickItem, estimatedValue: value })} />
+              <Field
+                label={quickItem.status === "Sold" ? "Sold for" : "Estimated value"}
+                type="number"
+                value={quickItem.status === "Sold" ? quickItem.soldPrice : quickItem.estimatedValue}
+                onChange={(value) => setQuickItem({ ...quickItem, [quickItem.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })}
+              />
               <Field label="Maker / Author / Brand" value={quickItem.maker} onChange={(value) => setQuickItem({ ...quickItem, maker: value })} />
               <Field label="Where purchased" value={quickItem.source} onChange={(value) => setQuickItem({ ...quickItem, source: value })} />
               <Field label="Purchase date" type="date" value={quickItem.purchaseDate} onChange={(value) => setQuickItem({ ...quickItem, purchaseDate: value })} />
-              <SelectField label="Status" value={quickItem.status} options={statuses} onChange={(value) => setQuickItem({ ...quickItem, status: value })} />
+              <SelectField label="Status" value={quickItem.status} options={statuses} onChange={(value) => setQuickItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />
+              {quickItem.status === "Sold" && (
+                <Field label="Sold on" type="date" value={quickItem.soldDate} onChange={(value) => setQuickItem({ ...quickItem, soldDate: value })} />
+              )}
             </div>
 
             {quickItem.category === "Book" && (
@@ -2102,18 +2375,24 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:py-16">
       <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
-      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><Field label="Edition" value={item.bookEdition} onChange={(value) => setItem({ ...item, bookEdition: value })} /><Field label="Printing" value={item.bookPrinting} onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem({ ...item, status: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label="Estimated value" type="number" value={item.estimatedValue} onChange={(value) => setItem({ ...item, estimatedValue: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and an estimated value of {formatEstimatedValue(item)}. Current estimated gain/loss is {formatGain(calculateGain(item))}.</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">est. gain/loss</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to inventory"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
+      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><Field label="Edition" value={item.bookEdition} onChange={(value) => setItem({ ...item, bookEdition: value })} /><Field label="Printing" value={item.bookPrinting} onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>an estimated value of {formatEstimatedValue(item)}. Current estimated gain/loss is {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to inventory"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
     </section>
   );
 }
 
-function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onDelete, onMarkSold, onRestoreSold, onEdit, bulkMessage }) {
+function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onDelete, onMarkSold, onRestoreSold, onEdit, bulkMessage }) {
   const [photoViewer, setPhotoViewer] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [pendingMarkSold, setPendingMarkSold] = useState(null);
   const [markingSold, setMarkingSold] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState("All categories");
+
+  const displayedInventory =
+    categoryFilter === "All categories"
+      ? filteredInventory
+      : filteredInventory.filter((entry) => entry.category === categoryFilter);
 
   async function confirmDelete() {
     if (!pendingDelete) return;
@@ -2159,7 +2438,10 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
               : "Sold items are removed from active inventory counts and moved into the Sold tab."}
           </p>
         </div>
-        <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add inventory</Button>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button variant="outline" onClick={onExport} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export for insurance</Button>
+          <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add inventory</Button>
+        </div>
       </div>
 
       {bulkMessage && <div className="mt-6 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}
@@ -2170,7 +2452,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
         <DashboardCard icon="search" label={isSoldView ? "Realized gain/loss" : "Active est. gain/loss"} value={formatCurrency(totalGain)} />
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto]">
+      <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto_auto]">
         <div className="rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-3">
           <div className="flex items-center gap-3 rounded-xl bg-white px-4 py-3">
             <Icon name="search" size={18} className="text-[#746655]" />
@@ -2178,11 +2460,29 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
           </div>
         </div>
 
+        <select
+          value={categoryFilter}
+          onChange={(event) => setCategoryFilter(event.target.value)}
+          className="mt-[10px] h-[48px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
+        >
+          <option>All categories</option>
+          {quickCategories.map((category) => (
+            <option key={category} value={category}>{category}</option>
+          ))}
+        </select>
+
         <div className="mt-[10px] flex h-[48px] items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
           <TabButton active={viewMode === "cards"} onClick={() => { trackEvent("inventory_view_changed", { view_mode: "cards" }); setViewMode("cards"); }}>Cards</TabButton>
           <TabButton active={viewMode === "records"} onClick={() => { trackEvent("inventory_view_changed", { view_mode: "records" }); setViewMode("records"); }}>Records</TabButton>
         </div>
       </div>
+
+      {categoryFilter !== "All categories" && (
+        <div className="mt-3 flex items-center gap-2 text-sm text-[#665746]">
+          Filtering by <span className="rounded-full bg-[#f0e2cf] px-3 py-1 font-medium text-[#665746]">{categoryFilter}</span>
+          <button type="button" onClick={() => setCategoryFilter("All categories")} className="text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">Clear</button>
+        </div>
+      )}
 
       <div className="mt-5 flex items-center justify-between gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff8ee] p-2">
         <div className="text-sm text-[#665746]">
@@ -2202,9 +2502,9 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
             <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">Add an item or import a CSV to start building your cost-basis record.</p>
           </CardContent>
         </Card>
-      ) : filteredInventory.length === 0 ? (
+      ) : displayedInventory.length === 0 ? (
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
-          <CardContent className="p-8 text-center"><h2 className="text-2xl font-semibold">No matches</h2><p className="mt-3 text-[#665746]">Try a different search term.</p></CardContent>
+          <CardContent className="p-8 text-center"><h2 className="text-2xl font-semibold">No matches</h2><p className="mt-3 text-[#665746]">Try a different search term or filter.</p></CardContent>
         </Card>
       ) : viewMode === "records" ? (
         <div className="mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
@@ -2222,7 +2522,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                 </tr>
               </thead>
               <tbody>
-                {filteredInventory.map((entry) => (
+                {displayedInventory.map((entry) => (
                   <tr key={entry.id} className="border-t border-[#e0d2bc]">
                     <td className="px-5 py-4"><div className="font-semibold">{entry.name || "Untitled item"}</div><div className="text-[#665746]">{entry.maker || "Unknown maker"}</div></td>
                     <td className="px-5 py-4">{entry.category}</td>
@@ -2253,7 +2553,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
         </div>
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
-          {filteredInventory.map((entry) => (
+          {displayedInventory.map((entry) => (
             <Card key={entry.id} className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between gap-4">
@@ -2290,6 +2590,13 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                       {entry.itemPhotoCount || 0} item photo{entry.itemPhotoCount === 1 ? "" : "s"}
                     </button>
                   </div>
+                  {buildSimilarCopyLinks(entry) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#f0e2cf] pt-3 text-xs">
+                      <span className="text-[#7d6c5a]">Find similar copies:</span>
+                      <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" className="rounded-full bg-[#e6ecf5] px-3 py-1 font-medium text-[#2c3f5c] hover:bg-[#d8e0ee]">AbeBooks ↗</a>
+                      <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" className="rounded-full bg-[#fff3d8] px-3 py-1 font-medium text-[#6d5526] hover:bg-[#ffe9bd]">eBay ↗</a>
+                    </div>
+                  )}
                 </div>
 
                 <p className="mt-4 text-sm leading-6 text-[#665746]">{entry.notes}</p>
@@ -2326,6 +2633,76 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
           onConfirm={confirmMarkSold}
         />
       )}
+    </section>
+  );
+}
+
+function InsuranceExportPage({ items, onBack }) {
+  const generatedDate = todayIso();
+  const totalCostBasis = items.reduce((sum, item) => sum + toNumber(item.purchasePrice), 0);
+  const totalEstimatedValue = items.reduce((sum, item) => {
+    const value = itemValueForTotals(item);
+    return value === null ? sum : sum + value;
+  }, 0);
+
+  return (
+    <section className="mx-auto max-w-5xl px-6 py-12 print:max-w-none print:px-0 print:py-0">
+      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
+        <div>
+          <h1 className="text-4xl font-semibold tracking-tight">Collection report.</h1>
+          <p className="mt-2 max-w-xl text-[#665746]">A printable summary of your active inventory — for insurance, estate planning, or your own records. Use your browser's print dialog to save it as a PDF.</p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button variant="outline" onClick={onBack} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Back to inventory</Button>
+          <Button onClick={() => window.print()} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="file" size={16} className="mr-2" /> Print / Save as PDF</Button>
+        </div>
+      </div>
+
+      <div className="mt-2 hidden print:block">
+        <h1 className="text-2xl font-semibold">FirstFinder — Collection Report</h1>
+        <p className="mt-1 text-sm text-[#665746]">Generated {generatedDate} · {items.length} item{items.length === 1 ? "" : "s"}</p>
+      </div>
+
+      <div className="mt-8 grid gap-4 md:grid-cols-3 print:mt-4 print:grid-cols-3 print:gap-2">
+        <DashboardCard icon="box" label="Active items" value={items.length} />
+        <DashboardCard icon="receipt" label="Total cost basis" value={formatCurrency(totalCostBasis)} />
+        <DashboardCard icon="dollar" label="Total estimated value" value={formatCurrency(totalEstimatedValue)} />
+      </div>
+
+      <div className="mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-white print:mt-4 print:rounded-none print:border-0">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm print:min-w-0">
+            <thead className="bg-[#f0e2cf] text-xs uppercase tracking-[0.14em] text-[#665746] print:bg-transparent print:text-black">
+              <tr>
+                <th className="px-4 py-3">Item</th>
+                <th className="px-4 py-3">Category</th>
+                <th className="px-4 py-3">Purchased</th>
+                <th className="px-4 py-3">Source</th>
+                <th className="px-4 py-3">Cost</th>
+                <th className="px-4 py-3">Value</th>
+                <th className="px-4 py-3">Photos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id} className="border-t border-[#e0d2bc] align-top">
+                  <td className="px-4 py-3">
+                    <div className="font-semibold">{item.name || "Untitled item"}</div>
+                    <div className="text-[#665746]">{item.maker || "Unknown maker"}</div>
+                    {item.notes && <div className="mt-1 max-w-xs text-xs text-[#8a7a64]">{item.notes}</div>}
+                  </td>
+                  <td className="px-4 py-3">{item.category}</td>
+                  <td className="px-4 py-3">{item.purchaseDate || "—"}</td>
+                  <td className="px-4 py-3">{item.source || "—"}</td>
+                  <td className="px-4 py-3">{formatCurrency(item.purchasePrice)}</td>
+                  <td className="px-4 py-3">{formatEstimatedValue(item)}</td>
+                  <td className="px-4 py-3">{(item.itemPhotoCount || 0) + (item.receiptPhotoCount || 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   );
 }
@@ -2510,12 +2887,14 @@ function EditItemModal({ item, onClose, onSave, saving }) {
           <Field label="Purchase date" type="date" value={draft.purchaseDate} onChange={(value) => setDraft({ ...draft, purchaseDate: value })} />
           <Field label="Where purchased" value={draft.source} onChange={(value) => setDraft({ ...draft, source: value })} />
           <Field label="Cost basis" type="number" value={draft.purchasePrice} onChange={(value) => setDraft({ ...draft, purchasePrice: value })} />
-          <Field label="Estimated value" type="number" value={draft.estimatedValue} onChange={(value) => setDraft({ ...draft, estimatedValue: value })} />
+          <Field
+            label={draft.status === "Sold" ? "Sold for" : "Estimated value"}
+            type="number"
+            value={draft.status === "Sold" ? draft.soldPrice : draft.estimatedValue}
+            onChange={(value) => setDraft({ ...draft, [draft.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })}
+          />
           {draft.status === "Sold" && (
-            <>
-              <Field label="Sold for" type="number" value={draft.soldPrice} onChange={(value) => setDraft({ ...draft, soldPrice: value })} />
-              <Field label="Sold on" type="date" value={draft.soldDate} onChange={(value) => setDraft({ ...draft, soldDate: value })} />
-            </>
+            <Field label="Sold on" type="date" value={draft.soldDate} onChange={(value) => setDraft({ ...draft, soldDate: value })} />
           )}
           <Field label="Notes" value={draft.notes} onChange={(value) => setDraft({ ...draft, notes: value })} />
         </div>
@@ -2678,7 +3057,7 @@ function PhotoViewerModal({ entry, onClose }) {
 }
 
 function clearPhotoUrls(photos) { photos.forEach((photo) => URL.revokeObjectURL(photo.url)); }
-function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-full px-4 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
+function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`shrink-0 rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function SelectField({ label, value, options, onChange }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }
