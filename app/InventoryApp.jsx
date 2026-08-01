@@ -317,7 +317,19 @@ function hasValue(value) {
 // Builds marketplace search URLs for "find similar copies" -- plain search
 // links, no API keys or scraping involved.
 function buildSimilarCopyLinks(item) {
-  const query = [item.name, item.maker].filter(Boolean).join(" ").trim();
+  const parts = [item.name, item.maker];
+
+  // Book-specific detail fields narrow the search to the exact edition/
+  // printing the collector actually has, e.g. "The Gunslinger Stephen King
+  // First edition First printing" instead of just the title and author.
+  if (item.category === "Book") {
+    if (item.bookEdition) parts.push(item.bookEdition);
+    if (item.bookPrinting) parts.push(item.bookPrinting);
+  } else if (item.edition) {
+    parts.push(item.edition);
+  }
+
+  const query = parts.filter(Boolean).join(" ").trim();
   if (!query) return null;
   const encoded = encodeURIComponent(query);
   return {
