@@ -587,6 +587,14 @@ function FirstFinderLogoMark({ className = "h-6 w-6" }) {
 // cycling so keyboard users don't fall through to the page behind it.
 function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
   const containerRef = useRef(null);
+  // Keeps handlers below reading the *current* onClose (e.g. respecting a
+  // saving-guarded no-op) without putting onClose in the mount effect's
+  // dependency array -- see that effect for why that matters.
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -594,7 +602,7 @@ function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
 
     function handleKeyDown(event) {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -623,10 +631,15 @@ function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+    // Intentionally empty: this should only run once per modal open (locks
+    // scroll, focuses the dialog, wires the listener) -- not on every
+    // keystroke-triggered re-render, which is what re-including onClose
+    // here caused (it stole focus back to the container after each letter).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleBackdropClick(event) {
-    if (event.target === event.currentTarget) onClose();
+    if (event.target === event.currentTarget) onCloseRef.current();
   }
 
   return (
