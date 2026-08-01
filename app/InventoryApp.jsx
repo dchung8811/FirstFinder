@@ -316,6 +316,15 @@ function hasValue(value) {
 
 // Builds marketplace search URLs for "find similar copies" -- plain search
 // links, no API keys or scraping involved.
+// Appends a clarifying word (e.g. "edition") only if the value doesn't
+// already contain it, so a field typed as just "First" becomes "First
+// edition" while "First edition" isn't turned into "First edition edition".
+function withClarifyingWord(value, word) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return trimmed;
+  return trimmed.toLowerCase().includes(word.toLowerCase()) ? trimmed : `${trimmed} ${word}`;
+}
+
 function buildSimilarCopyLinks(item) {
   const parts = [item.name, item.maker];
 
@@ -323,8 +332,8 @@ function buildSimilarCopyLinks(item) {
   // printing the collector actually has, e.g. "The Gunslinger Stephen King
   // First edition First printing" instead of just the title and author.
   if (item.category === "Book") {
-    if (item.bookEdition) parts.push(item.bookEdition);
-    if (item.bookPrinting) parts.push(item.bookPrinting);
+    if (item.bookEdition) parts.push(withClarifyingWord(item.bookEdition, "edition"));
+    if (item.bookPrinting) parts.push(withClarifyingWord(item.bookPrinting, "printing"));
   } else if (item.edition) {
     parts.push(item.edition);
   }
