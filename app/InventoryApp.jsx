@@ -188,6 +188,7 @@ function Icon({ name, size = 20, className = "" }) {
       </>
     ),
     arrow: <path d="m9 18 6-6-6-6" />,
+    play: <path d="m8 5 12 7-12 7V5Z" />,
     home: (
       <>
         <path d="M3 11 12 3l9 8" />
@@ -1150,9 +1151,9 @@ function HomePage({ onGetStarted }) {
 
       <section id="how-it-works" className="border-t border-[#e2d4bc] bg-[#fbf5e9]">
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
-          {demoVideoId ? (
-            <div className="mx-auto max-w-3xl">
-              <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in ninety seconds.</h2>
+          <div className="mx-auto max-w-3xl">
+            <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in ninety seconds.</h2>
+            {demoVideoId ? (
               <div className="mt-8 overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
                 <iframe
                   className="aspect-video w-full"
@@ -1162,10 +1163,15 @@ function HomePage({ onGetStarted }) {
                   allowFullScreen
                 />
               </div>
-            </div>
-          ) : (
-            <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">How it works.</h2>
-          )}
+            ) : (
+              <div className="mt-8 flex aspect-video w-full flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl border border-[#d3c1a4] bg-[#123f38] shadow-xl">
+                <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#fff7ea]/40 text-[#fff7ea]">
+                  <Icon name="play" size={26} className="ml-1" />
+                </span>
+                <div className="font-ledger text-xs uppercase tracking-[0.24em] text-[#d8e6e2]">Demo film · Coming soon</div>
+              </div>
+            )}
+          </div>
 
           <div className="mt-12 grid gap-6 md:grid-cols-3">
             {steps.map((step) => (
