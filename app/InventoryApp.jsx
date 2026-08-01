@@ -1520,10 +1520,7 @@ const aboutParagraphs = [
 function AboutPage({ onGoToFeedback }) {
   return (
     <section className="mx-auto max-w-3xl px-6 py-16 md:py-20">
-      <div className="font-ledger inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#655644]">
-        About Us
-      </div>
-      <h1 className="font-display mt-5 text-4xl font-semibold tracking-tight md:text-6xl">The story behind First Finder.</h1>
+      <h1 className="font-display text-4xl font-semibold tracking-tight md:text-6xl">The story behind First Finder.</h1>
 
       <div className="mt-8 space-y-5 text-lg leading-8 text-[#665746]">
         {aboutParagraphs.map((paragraph, index) => (
