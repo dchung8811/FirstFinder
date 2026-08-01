@@ -1105,8 +1105,7 @@ function HomePage({ onGetStarted }) {
       <section className="mx-auto max-w-6xl px-6 pb-20 pt-14 md:pt-20">
         <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="font-ledger text-xs uppercase tracking-[0.28em] text-[#8a7a64]">Collectible inventory · Cost basis · Proof</div>
-            <h1 className="font-display mt-5 max-w-2xl text-5xl font-semibold leading-[1.02] tracking-tight text-[#201a14] md:text-[4.4rem]">
+            <h1 className="font-display max-w-2xl text-5xl font-semibold leading-[1.02] tracking-tight text-[#201a14] md:text-[4.4rem]">
               Inventory collectibles like you may actually sell them one day.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-[#665746]">
