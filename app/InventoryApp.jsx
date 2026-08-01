@@ -1067,6 +1067,17 @@ export default function FirstFinderApp() {
       const keptReceiptPhotos = (currentEntry?.receiptPhotos || []).filter((photo) => !removedReceiptPhotoPaths.includes(photo.path));
       const failures = [];
 
+      // The edit form can flip status into or out of "Sold" directly, not
+      // just via the Mark Sold / Restore actions, so keep the sold fields
+      // consistent with whichever status comes out of this save.
+      const isNowSold = draft.status === "Sold";
+      const wasAlreadySold = currentEntry?.status === "Sold";
+      const previousStatusToStore = !isNowSold
+        ? null
+        : wasAlreadySold
+          ? currentEntry?.previousStatus || "Owned"
+          : currentEntry?.status || "Owned";
+
       let uploadedItemPhotos = [];
       let uploadedReceiptPhotos = [];
 
@@ -1102,6 +1113,9 @@ export default function FirstFinderApp() {
           book_edition: draft.bookEdition || "",
           book_printing: draft.bookPrinting || "",
           status: draft.status || "Owned",
+          previous_status: previousStatusToStore,
+          sold_price: isNowSold && hasValue(draft.soldPrice) ? toNumber(draft.soldPrice) : null,
+          sold_date: isNowSold ? draft.soldDate || null : null,
           purchase_date: draft.purchaseDate || null,
           source: draft.source || "",
           purchase_price: toNumber(draft.purchasePrice),
@@ -2186,6 +2200,17 @@ function EditItemModal({ item, onClose, onSave, saving }) {
     });
   }
 
+  // Switching status to "Sold" here (rather than via the Mark Sold dialog)
+  // should behave the same way: default the sold date to today so the
+  // field isn't just sitting there blank.
+  function handleStatusChange(value) {
+    setDraft((current) => ({
+      ...current,
+      status: value,
+      soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate
+    }));
+  }
+
   function removeExistingPhoto(path, kind) {
     const setter = kind === "item" ? setExistingItemPhotos : setExistingReceiptPhotos;
     setter((photos) => photos.filter((photo) => photo.path !== path));
@@ -2236,11 +2261,17 @@ function EditItemModal({ item, onClose, onSave, saving }) {
           ) : (
             <Field label="Edition / Variant / Details" value={draft.edition} onChange={(value) => setDraft({ ...draft, edition: value })} />
           )}
-          <SelectField label="Status" value={draft.status} options={statuses} onChange={(value) => setDraft({ ...draft, status: value })} />
+          <SelectField label="Status" value={draft.status} options={statuses} onChange={handleStatusChange} />
           <Field label="Purchase date" type="date" value={draft.purchaseDate} onChange={(value) => setDraft({ ...draft, purchaseDate: value })} />
           <Field label="Where purchased" value={draft.source} onChange={(value) => setDraft({ ...draft, source: value })} />
           <Field label="Cost basis" type="number" value={draft.purchasePrice} onChange={(value) => setDraft({ ...draft, purchasePrice: value })} />
           <Field label="Estimated value" type="number" value={draft.estimatedValue} onChange={(value) => setDraft({ ...draft, estimatedValue: value })} />
+          {draft.status === "Sold" && (
+            <>
+              <Field label="Sold for" type="number" value={draft.soldPrice} onChange={(value) => setDraft({ ...draft, soldPrice: value })} />
+              <Field label="Sold on" type="date" value={draft.soldDate} onChange={(value) => setDraft({ ...draft, soldDate: value })} />
+            </>
+          )}
           <Field label="Notes" value={draft.notes} onChange={(value) => setDraft({ ...draft, notes: value })} />
         </div>
 
