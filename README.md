@@ -13,7 +13,14 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 - Mark sold and restore
 - CSV template download and bulk upload
 - Cost basis and estimated value tracking
+- Sale price/date capture, with realized gain shown once an item is sold
+- Category filter on the inventory list
+- "Find similar copies" links out to AbeBooks/eBay search results
+- Printable collection report for insurance/estate records
 - In-app feedback form (logged-in users only) with optional photo attachments
+- My Account page: member since, editable name, first collectible loaded
+- Delete-account (self-service, permanently removes the account, its data, and its photos)
+- About page
 
 ## Tech stack
 
@@ -41,3 +48,14 @@ script run.
 
 Copy `.env.example` to `.env.local` and fill in your Supabase project's URL
 and anon key (Project Settings -> API in the Supabase dashboard).
+
+### Delete-account feature
+
+The "Delete my account" flow (My Account page) needs `SUPABASE_SERVICE_ROLE_KEY`
+set -- it calls `app/api/delete-account`, a server-side route that removes
+the user's storage photos, `inventory_items` rows, `feedback` rows, and
+finally the auth user itself via the Supabase Admin API, which only works
+with the service role key (never the anon key). Get the key from Project
+Settings -> API -> service_role ("secret"), and set it in `.env.local` for
+local dev and in Vercel's environment variables for production. It must
+never be prefixed with `NEXT_PUBLIC_` and is never sent to the browser.
