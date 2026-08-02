@@ -482,6 +482,14 @@ function buildCsvTemplate() {
   return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
 }
 
+// csvHeaders lines up 1:1 with the item objects' own field names, so each
+// row is just each header looked up on the item -- no per-column mapping to
+// maintain in parallel with the import side.
+function buildCsvExport(items) {
+  const rows = items.map((item) => csvHeaders.map((header) => item[header] ?? ""));
+  return [csvHeaders, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
+}
+
 // Parses the whole CSV text into rows of trimmed values, character by
 // character, so a quoted field can contain commas or newlines without
 // breaking row boundaries (splitting on "\n" before parsing quotes, as a
@@ -1296,7 +1304,7 @@ export default function FirstFinderApp() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6efe3] text-[#201a14]">
+    <main className="min-h-screen bg-[#f6efe3] text-[#201a14] print:min-h-0 print:bg-white">
       <div className="print:hidden">
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
       </div>
@@ -1422,11 +1430,6 @@ const roadmapHorizons = [
     framing: "Scoped, waiting on the Now list to clear.",
     items: [
       {
-        category: "Valuation",
-        title: "\"Check current price\" deep links",
-        text: "One tap from any item to relevant eBay sold listings or an AbeBooks search for that exact title and edition — market context without a pricing API."
-      },
-      {
         category: "Trust & Provenance",
         title: "First-edition identification helper",
         text: "A per-book checklist for the points that actually prove a true first — number line, stated edition, issue points — the feature the FirstFinder name promises."
@@ -1435,11 +1438,6 @@ const roadmapHorizons = [
         category: "Discovery",
         title: "A real want list",
         text: "Give \"Wishlist\" its own view with a target price, instead of it being just another status buried in the inventory tabs."
-      },
-      {
-        category: "Valuation",
-        title: "Insurance / estate report export",
-        text: "One-click PDF of the collection — photos, cost basis, current values — so \"receipts, values, photos, proof\" is something you can actually hand someone."
       }
     ]
   },
@@ -2812,15 +2810,50 @@ function InsuranceExportPage({ items, onBack }) {
     return value === null ? sum : sum + value;
   }, 0);
 
+  const [itemPhotosById, setItemPhotosById] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const allPhotos = items.flatMap((item) => (item.itemPhotos || []).map((photo) => ({ ...photo, itemId: item.id })));
+    if (allPhotos.length === 0) return;
+
+    fetchSignedPhotoUrls(allPhotos).then((resolved) => {
+      if (cancelled) return;
+      const byItem = {};
+      resolved.forEach((photo) => {
+        if (!byItem[photo.itemId]) byItem[photo.itemId] = [];
+        byItem[photo.itemId].push(photo);
+      });
+      setItemPhotosById(byItem);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  function handleExportCsv() {
+    trackEvent("insurance_export_csv_downloaded", { item_count: items.length });
+    const csv = buildCsvExport(items);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "firstfinder-inventory-export.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <section className="mx-auto max-w-5xl px-6 py-12 print:max-w-none print:px-0 print:py-0">
       <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-4xl font-semibold tracking-tight">Collection report.</h1>
-          <p className="mt-2 max-w-xl text-[#665746]">A printable summary of your active inventory — for insurance, estate planning, or your own records. Use your browser's print dialog to save it as a PDF.</p>
+          <p className="mt-2 max-w-xl text-[#665746]">A printable summary of your active inventory — for insurance, estate planning, or your own records. Use your browser's print dialog to save it as a PDF, or export the raw data as a CSV (photos aren't included in the CSV).</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button variant="outline" onClick={onBack} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Back to inventory</Button>
+          <Button variant="outline" onClick={handleExportCsv} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export as CSV</Button>
           <Button onClick={() => { trackEvent("insurance_export_printed", { item_count: items.length }); window.print(); }} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="file" size={16} className="mr-2" /> Print / Save as PDF</Button>
         </div>
       </div>
@@ -2836,10 +2869,13 @@ function InsuranceExportPage({ items, onBack }) {
         <DashboardCard icon="dollar" label="Total estimated value" value={formatCurrency(totalEstimatedValue)} />
       </div>
 
-      <div className="mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-white print:mt-4 print:rounded-none print:border-0">
+      {/* Screen view: a compact table. Hidden for print -- a wide table
+          doesn't reflow to a printed page's width, which is what made the
+          old PDF output overflow and truncate columns. */}
+      <div className="mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-white print:hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm print:min-w-0">
-            <thead className="bg-[#f0e2cf] text-xs uppercase tracking-[0.14em] text-[#665746] print:bg-transparent print:text-black">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="bg-[#f0e2cf] text-xs uppercase tracking-[0.14em] text-[#665746]">
               <tr>
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3">Category</th>
@@ -2871,6 +2907,45 @@ function InsuranceExportPage({ items, onBack }) {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Print-only view: an itemized list rather than a table, so every
+          item's photos and details flow within the printed page width
+          instead of needing horizontal space a page doesn't have. */}
+      <div className="hidden print:mt-4 print:block">
+        {items.map((item) => (
+          <div key={item.id} className="break-inside-avoid border-t border-[#e0d2bc] py-4 first:border-t-0">
+            <div className="flex items-baseline justify-between gap-4">
+              <div>
+                <div className="font-semibold">{item.name || "Untitled item"}</div>
+                <div className="text-sm text-[#665746]">
+                  {item.maker || "Unknown maker"} · {item.category}
+                  {item.condition ? ` · ${item.condition}` : ""}
+                </div>
+              </div>
+              <div className="whitespace-nowrap text-right text-sm">
+                <div>Cost {formatCurrency(item.purchasePrice)}</div>
+                <div>Value {formatEstimatedValue(item)}</div>
+              </div>
+            </div>
+            <div className="mt-1 text-xs text-[#8a7a64]">
+              Purchased {item.purchaseDate || "unknown date"} · {item.source || "unknown source"}
+            </div>
+            {item.notes && <div className="mt-1 text-xs text-[#8a7a64]">{item.notes}</div>}
+            {(itemPhotosById[item.id]?.length > 0) && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {itemPhotosById[item.id].map((photo) => (
+                  <img
+                    key={photo.path}
+                    src={photo.url}
+                    alt=""
+                    className="h-24 w-24 rounded-lg border border-[#e0d2bc] object-cover"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   );
