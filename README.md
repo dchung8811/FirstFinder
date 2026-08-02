@@ -16,7 +16,7 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 
 - Add a collectible through either a fast **Quick Add** form or a guided, tutorial-style flow.
 - Track books, trading cards, sports memorabilia, and other collectible categories.
-- Record an item's title, creator or maker, edition, status, purchase date, source, purchase price, estimated value, and notes.
+- Record an item's title, creator or maker, edition, status, condition (Near Fine/Fine, Very Good/Good, Fair, Poor), purchase date, source, purchase price, estimated value, and notes.
 - Capture book-specific genre, edition, and printing details.
 - Upload item and receipt photos, view uncropped full images, and add or remove photos while editing an existing item.
 - Store photos privately in Supabase Storage, with browser-side compression to keep uploads manageable.
@@ -24,7 +24,7 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 
 ### Inventory management and valuation
 
-- Browse the collection in card or record view, search across item details, and filter by category.
+- Browse the collection in card or record view, search across item details, and filter by category, genre, edition, and printing.
 - Switch between active and sold inventory, with item counts and totals scoped to the selected view.
 - Edit or delete entries, mark items as sold, and restore sold items to their previous status.
 - Track total cost basis and estimated value for active items.
@@ -61,6 +61,7 @@ Run these once per Supabase project, in the dashboard's SQL Editor:
 - `supabase/photo-storage-setup.sql` -- adds the photo storage bucket and columns.
 - `supabase/ux-batch-fields.sql` -- adds sold price/date, prior-status-on-restore, and Book-specific detail columns; also makes estimated_value nullable.
 - `supabase/feedback-table.sql` -- creates the `feedback` table (with its own RLS policies) used by the logged-in "Send feedback" page. Feedback photos reuse the existing item-photos storage bucket, so no new bucket setup is needed.
+- `supabase/condition-field.sql` -- adds the `condition` column used by the Condition field.
 
 The app's queries filter mutations by row id alone, so Row Level Security
 with owner-scoped policies on `inventory_items` is required, not optional --
