@@ -13,6 +13,7 @@ const emptyItem = {
   bookEdition: "",
   bookPrinting: "",
   status: "Owned",
+  condition: "",
   purchaseDate: "",
   source: "",
   purchasePrice: "",
@@ -65,10 +66,11 @@ const itemPhotoPrompts = ["Front", "Back", "Details", "Condition", "Signature/ma
 const receiptPhotoPrompts = ["Receipt", "Invoice", "Order confirmation", "Auction record"];
 const statuses = ["Owned", "Researching", "For sale", "Sold", "Wishlist"];
 const quickCategories = ["Book", "Sports memorabilia", "Trading card", "Comic", "Record", "Art", "Toy", "Other"];
-const csvHeaders = ["name", "category", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"];
+const conditionOptions = ["Near Fine/Fine", "Very Good/Good", "Fair", "Poor"];
+const csvHeaders = ["name", "category", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "condition", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"];
 const csvTemplateRows = [
-  ["The Gunslinger", "Book", "Stephen King", "First edition candidate", "Fantasy", "First edition", "First printing", "Owned", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state"],
-  ["Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "", "", "", "Sold", "2026-04-28", "Flea market", "12", "", "40", "2026-06-01", "Minor corner wear. Sold at a local card show."]
+  ["The Gunslinger", "Book", "Stephen King", "First edition candidate", "Fantasy", "First edition", "First printing", "Owned", "Near Fine/Fine", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state"],
+  ["Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "", "", "", "Sold", "Very Good/Good", "2026-04-28", "Flea market", "12", "", "40", "2026-06-01", "Minor corner wear. Sold at a local card show."]
 ];
 const mockAutofillOptions = [
   {
@@ -409,6 +411,7 @@ function toDbItem(item, userId, itemPhotoCount = 0, receiptPhotoCount = 0) {
     book_edition: item.bookEdition || "",
     book_printing: item.bookPrinting || "",
     status: item.status || "Owned",
+    condition: item.condition || "",
     // A brand-new item can be created with status already set to "Sold"
     // (quick add, tutorial, or CSV import) -- capture the sale fields the
     // same way an existing item marked sold would.
@@ -449,6 +452,7 @@ function fromDbItem(row) {
     bookEdition: row.book_edition || "",
     bookPrinting: row.book_printing || "",
     status: row.status || "Owned",
+    condition: row.condition || "",
     purchaseDate: row.purchase_date || "",
     source: row.source || "",
     purchasePrice: String(row.purchase_price ?? ""),
@@ -543,7 +547,8 @@ function parseCsvInventory(csvText) {
     .map((values) => {
       const row = headers.reduce((acc, header, index) => ({ ...acc, [header]: values[index] || "" }), {});
       const status = statuses.includes(row.status) ? row.status : "Owned";
-      return makeSavedItem({ ...emptyItem, ...row, status }, 0, 0);
+      const condition = conditionOptions.includes(row.condition) ? row.condition : "";
+      return makeSavedItem({ ...emptyItem, ...row, status, condition }, 0, 0);
     })
     .filter((item) => item.name.trim().length > 0);
 
@@ -728,6 +733,20 @@ export default function FirstFinderApp() {
     setMobileMenuOpen(false);
   }
 
+  // Tracks every view the nav (desktop, mobile, or a same-page button like
+  // "Add inventory") switches to, so navigation doesn't need a manual
+  // trackEvent at every call site -- skips the initial mount, which isn't a
+  // real navigation.
+  const isFirstViewRenderRef = useRef(true);
+  useEffect(() => {
+    if (isFirstViewRenderRef.current) {
+      isFirstViewRenderRef.current = false;
+      return;
+    }
+
+    trackEvent("view_changed", { view: activeView, auth_state: isLoggedIn ? "logged_in" : "logged_out" });
+  }, [activeView, isLoggedIn]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -838,6 +857,7 @@ export default function FirstFinderApp() {
       return;
     }
 
+    trackEvent("logout");
     loadedUserIdRef.current = null;
     setCurrentUser(null);
     setInventory([]);
@@ -1035,11 +1055,12 @@ export default function FirstFinderApp() {
       if (storageError) console.error("Photo cleanup error:", storageError.message);
     }
 
+    trackEvent("item_deleted", { category: entry?.category || "Other", status: entry?.status || "Owned" });
     setInventory((items) => items.filter((entry) => entry.id !== id));
     pushToast(`Deleted "${entry?.name || "item"}".`, "success");
   }
 
-  async function markSold(id, { soldPrice, soldDate } = {}) {
+  async function markSold(id, { soldPrice, soldDate, condition } = {}) {
     const previousItem = inventory.find((entry) => entry.id === id);
     // Remember what the item was before the sale (not "Sold" itself, in the
     // rare case this fires twice) so restoring later can put it back there
@@ -1053,6 +1074,7 @@ export default function FirstFinderApp() {
         previous_status: statusToRestore,
         sold_price: hasValue(soldPrice) ? toNumber(soldPrice) : null,
         sold_date: soldDate || null,
+        condition: condition || previousItem?.condition || "",
         updated_at: new Date().toISOString()
       })
       .eq("id", id)
@@ -1167,6 +1189,7 @@ export default function FirstFinderApp() {
           book_edition: draft.bookEdition || "",
           book_printing: draft.bookPrinting || "",
           status: draft.status || "Owned",
+          condition: draft.condition || "",
           previous_status: previousStatusToStore,
           sold_price: isNowSold && hasValue(draft.soldPrice) ? toNumber(draft.soldPrice) : null,
           sold_date: isNowSold ? draft.soldDate || null : null,
@@ -1191,6 +1214,7 @@ export default function FirstFinderApp() {
         return;
       }
 
+      trackEvent("item_updated", { category: draft.category || "Other", status: draft.status || "Owned" });
       setInventory((items) => items.map((entry) => (entry.id === draft.id ? fromDbItem(data) : entry)));
       setEditingItem(null);
 
@@ -1284,7 +1308,7 @@ export default function FirstFinderApp() {
               <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Dashboard</TabButton>
               <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>Inventory ({activeInventory.length})</TabButton>
               <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Add Item</TabButton>
-              <TabButton active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: isLoggedIn ? "logged_in" : "logged_out" }); setActiveView("roadmap"); }}>Roadmap</TabButton>
+              <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
               <TabButton active={activeView === "feedback"} onClick={() => setActiveView("feedback")}>Feedback</TabButton>
               <TabButton active={activeView === "account"} onClick={() => setActiveView("account")}>My Account</TabButton>
@@ -1292,7 +1316,7 @@ export default function FirstFinderApp() {
           ) : (
             <>
               <TabButton active={activeView === "home"} onClick={() => setActiveView("home")}>Get Started</TabButton>
-              <TabButton active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: isLoggedIn ? "logged_in" : "logged_out" }); setActiveView("roadmap"); }}>Roadmap</TabButton>
+              <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
             </>
           )}
@@ -1320,7 +1344,7 @@ export default function FirstFinderApp() {
                 <MobileNavLink active={activeView === "dashboard"} onClick={() => go("dashboard")}>Dashboard</MobileNavLink>
                 <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>Inventory ({activeInventory.length})</MobileNavLink>
                 <MobileNavLink active={activeView === "add"} onClick={() => go("add")}>Add Item</MobileNavLink>
-                <MobileNavLink active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: "logged_in" }); go("roadmap"); }}>Roadmap</MobileNavLink>
+                <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
                 <MobileNavLink active={activeView === "feedback"} onClick={() => go("feedback")}>Feedback</MobileNavLink>
                 <MobileNavLink active={activeView === "account"} onClick={() => go("account")}>My Account</MobileNavLink>
@@ -1328,7 +1352,7 @@ export default function FirstFinderApp() {
             ) : (
               <>
                 <MobileNavLink active={activeView === "home"} onClick={() => go("home")}>Get Started</MobileNavLink>
-                <MobileNavLink active={activeView === "roadmap"} onClick={() => { trackEvent("roadmap_viewed", { auth_state: "logged_out" }); go("roadmap"); }}>Roadmap</MobileNavLink>
+                <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
               </>
             )}
@@ -1380,11 +1404,6 @@ const roadmapHorizons = [
         category: "Cataloging",
         title: "ISBN barcode scan, auto-filled",
         text: "Scan a book's barcode and pull real title, author, publisher, and year from a public books API — replacing the mock-data autofill entirely."
-      },
-      {
-        category: "Cataloging",
-        title: "Standard condition grades",
-        text: "A proper Fine / Very Good / Good / Fair / Poor dropdown, the vocabulary every collector and marketplace already uses, instead of burying condition in free-text notes."
       },
       {
         category: "Trust & Provenance",
@@ -1541,7 +1560,60 @@ function AboutPage({ onGoToFeedback }) {
 
 // Drop a YouTube video id in here (e.g. "dQw4w9WgXcQ") and the demo video
 // player appears on the homepage in place of the three-step strip's header.
-const demoVideoId = null;
+const demoVideoId = "3RTVD9LqoEI";
+
+// Plain <iframe src> embeds have no playback-rate control, so this loads
+// the YouTube IFrame API and calls setPlaybackRate once the player is
+// ready. Falls back to a normal embed if the API script fails to load.
+function DemoVideoPlayer({ videoId }) {
+  const iframeRef = useRef(null);
+
+  useEffect(() => {
+    if (!videoId || !iframeRef.current) return;
+
+    let cancelled = false;
+
+    function createPlayer() {
+      if (cancelled || !iframeRef.current || !window.YT?.Player) return;
+      new window.YT.Player(iframeRef.current, {
+        events: {
+          onReady: (event) => event.target.setPlaybackRate(1.5)
+        }
+      });
+    }
+
+    if (window.YT?.Player) {
+      createPlayer();
+    } else {
+      const previousCallback = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        if (typeof previousCallback === "function") previousCallback();
+        createPlayer();
+      };
+
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const script = document.createElement("script");
+        script.src = "https://www.youtube.com/iframe_api";
+        document.body.appendChild(script);
+      }
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [videoId]);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      className="aspect-video w-full"
+      src={`https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1`}
+      title="FirstFinder demo"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowFullScreen
+    />
+  );
+}
 
 function LedgerRow({ label, value, strong = false }) {
   return (
@@ -1639,13 +1711,7 @@ function HomePage({ onGetStarted }) {
             <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in ninety seconds.</h2>
             {demoVideoId ? (
               <div className="mt-8 overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
-                <iframe
-                  className="aspect-video w-full"
-                  src={`https://www.youtube-nocookie.com/embed/${demoVideoId}`}
-                  title="FirstFinder demo"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
+                <DemoVideoPlayer videoId={demoVideoId} />
               </div>
             ) : (
               <div className="mt-8 flex aspect-video w-full flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl border border-[#d3c1a4] bg-[#123f38] shadow-xl">
@@ -2139,11 +2205,13 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
       return;
     }
 
+    trackEvent("account_name_updated");
     pushToast("Name updated.", "success");
   }
 
   async function handleDeleteAccount() {
     setDeletingAccount(true);
+    trackEvent("delete_account_initiated");
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -2166,6 +2234,7 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
         return;
       }
 
+      trackEvent("delete_account_completed");
       await supabase.auth.signOut();
       // Full reload so every bit of app state (inventory, session, etc.)
       // clears cleanly rather than trying to unwind it all in React state.
@@ -2337,6 +2406,7 @@ function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptP
               {quickItem.status === "Sold" && (
                 <Field label="Sold on" type="date" value={quickItem.soldDate} onChange={(value) => setQuickItem({ ...quickItem, soldDate: value })} />
               )}
+              <SelectField label="Condition" value={quickItem.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setQuickItem({ ...quickItem, condition: value })} />
             </div>
 
             {quickItem.category === "Book" && (
@@ -2375,7 +2445,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:py-16">
       <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
-      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><Field label="Edition" value={item.bookEdition} onChange={(value) => setItem({ ...item, bookEdition: value })} /><Field label="Printing" value={item.bookPrinting} onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>an estimated value of {formatEstimatedValue(item)}. Current estimated gain/loss is {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to inventory"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
+      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><Field label="Edition" value={item.bookEdition} onChange={(value) => setItem({ ...item, bookEdition: value })} /><Field label="Printing" value={item.bookPrinting} onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ ...item, condition: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>an estimated value of {formatEstimatedValue(item)}. Current estimated gain/loss is {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to inventory"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
     </section>
   );
 }
@@ -2388,11 +2458,35 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
   const [markingSold, setMarkingSold] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState("All categories");
+  const [genreFilter, setGenreFilter] = useState("All genres");
+  const [editionFilter, setEditionFilter] = useState("All editions");
+  const [printingFilter, setPrintingFilter] = useState("All printings");
 
-  const displayedInventory =
-    categoryFilter === "All categories"
-      ? filteredInventory
-      : filteredInventory.filter((entry) => entry.category === categoryFilter);
+  const genreOptions = useMemo(
+    () => Array.from(new Set(inventory.map((entry) => entry.bookGenre).filter(Boolean))).sort(),
+    [inventory]
+  );
+  const editionOptions = useMemo(
+    () => Array.from(new Set(inventory.map((entry) => entry.bookEdition).filter(Boolean))).sort(),
+    [inventory]
+  );
+  const printingOptions = useMemo(
+    () => Array.from(new Set(inventory.map((entry) => entry.bookPrinting).filter(Boolean))).sort(),
+    [inventory]
+  );
+
+  const displayedInventory = filteredInventory
+    .filter((entry) => categoryFilter === "All categories" || entry.category === categoryFilter)
+    .filter((entry) => genreFilter === "All genres" || entry.bookGenre === genreFilter)
+    .filter((entry) => editionFilter === "All editions" || entry.bookEdition === editionFilter)
+    .filter((entry) => printingFilter === "All printings" || entry.bookPrinting === printingFilter);
+
+  const activeFilters = [
+    categoryFilter !== "All categories" && { label: categoryFilter, clear: () => setCategoryFilter("All categories") },
+    genreFilter !== "All genres" && { label: genreFilter, clear: () => setGenreFilter("All genres") },
+    editionFilter !== "All editions" && { label: editionFilter, clear: () => setEditionFilter("All editions") },
+    printingFilter !== "All printings" && { label: printingFilter, clear: () => setPrintingFilter("All printings") }
+  ].filter(Boolean);
 
   async function confirmDelete() {
     if (!pendingDelete) return;
@@ -2405,11 +2499,11 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
     }
   }
 
-  async function confirmMarkSold({ soldPrice, soldDate }) {
+  async function confirmMarkSold({ soldPrice, soldDate, condition }) {
     if (!pendingMarkSold) return;
     setMarkingSold(true);
     try {
-      await onMarkSold(pendingMarkSold.id, { soldPrice, soldDate });
+      await onMarkSold(pendingMarkSold.id, { soldPrice, soldDate, condition });
       setPendingMarkSold(null);
     } finally {
       setMarkingSold(false);
@@ -2439,7 +2533,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Button variant="outline" onClick={onExport} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export for insurance</Button>
+          <Button variant="outline" onClick={() => { trackEvent("insurance_export_viewed"); onExport(); }} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export for insurance</Button>
           <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add inventory</Button>
         </div>
       </div>
@@ -2462,7 +2556,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
 
         <select
           value={categoryFilter}
-          onChange={(event) => setCategoryFilter(event.target.value)}
+          onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "category", value: event.target.value }); setCategoryFilter(event.target.value); }}
           className="mt-[10px] h-[48px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
         >
           <option>All categories</option>
@@ -2477,10 +2571,50 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
         </div>
       </div>
 
-      {categoryFilter !== "All categories" && (
-        <div className="mt-3 flex items-center gap-2 text-sm text-[#665746]">
-          Filtering by <span className="rounded-full bg-[#f0e2cf] px-3 py-1 font-medium text-[#665746]">{categoryFilter}</span>
-          <button type="button" onClick={() => setCategoryFilter("All categories")} className="text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">Clear</button>
+      {(genreOptions.length > 0 || editionOptions.length > 0 || printingOptions.length > 0) && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {genreOptions.length > 0 && (
+            <select
+              value={genreFilter}
+              onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "genre", value: event.target.value }); setGenreFilter(event.target.value); }}
+              className="h-[44px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
+            >
+              <option>All genres</option>
+              {genreOptions.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
+            </select>
+          )}
+          {editionOptions.length > 0 && (
+            <select
+              value={editionFilter}
+              onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "edition", value: event.target.value }); setEditionFilter(event.target.value); }}
+              className="h-[44px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
+            >
+              <option>All editions</option>
+              {editionOptions.map((edition) => <option key={edition} value={edition}>{edition}</option>)}
+            </select>
+          )}
+          {printingOptions.length > 0 && (
+            <select
+              value={printingFilter}
+              onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "printing", value: event.target.value }); setPrintingFilter(event.target.value); }}
+              className="h-[44px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
+            >
+              <option>All printings</option>
+              {printingOptions.map((printing) => <option key={printing} value={printing}>{printing}</option>)}
+            </select>
+          )}
+        </div>
+      )}
+
+      {activeFilters.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[#665746]">
+          Filtering by
+          {activeFilters.map((filter) => (
+            <span key={filter.label} className="flex items-center gap-2 rounded-full bg-[#f0e2cf] px-3 py-1 font-medium text-[#665746]">
+              {filter.label}
+              <button type="button" onClick={filter.clear} className="text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">Clear</button>
+            </span>
+          ))}
         </div>
       )}
 
@@ -2593,8 +2727,8 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                   {buildSimilarCopyLinks(entry) && (
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#f0e2cf] pt-3 text-xs">
                       <span className="text-[#7d6c5a]">Find similar copies:</span>
-                      <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" className="rounded-full bg-[#e6ecf5] px-3 py-1 font-medium text-[#2c3f5c] hover:bg-[#d8e0ee]">AbeBooks ↗</a>
-                      <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" className="rounded-full bg-[#fff3d8] px-3 py-1 font-medium text-[#6d5526] hover:bg-[#ffe9bd]">eBay ↗</a>
+                      <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies_clicked", { site: "abebooks", category: entry.category || "Other" })} className="rounded-full bg-[#e6ecf5] px-3 py-1 font-medium text-[#2c3f5c] hover:bg-[#d8e0ee]">AbeBooks ↗</a>
+                      <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies_clicked", { site: "ebay", category: entry.category || "Other" })} className="rounded-full bg-[#fff3d8] px-3 py-1 font-medium text-[#6d5526] hover:bg-[#ffe9bd]">eBay ↗</a>
                     </div>
                   )}
                 </div>
@@ -2654,7 +2788,7 @@ function InsuranceExportPage({ items, onBack }) {
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button variant="outline" onClick={onBack} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Back to inventory</Button>
-          <Button onClick={() => window.print()} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="file" size={16} className="mr-2" /> Print / Save as PDF</Button>
+          <Button onClick={() => { trackEvent("insurance_export_printed", { item_count: items.length }); window.print(); }} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="file" size={16} className="mr-2" /> Print / Save as PDF</Button>
         </div>
       </div>
 
@@ -2676,6 +2810,7 @@ function InsuranceExportPage({ items, onBack }) {
               <tr>
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3">Category</th>
+                <th className="px-4 py-3">Condition</th>
                 <th className="px-4 py-3">Purchased</th>
                 <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3">Cost</th>
@@ -2692,6 +2827,7 @@ function InsuranceExportPage({ items, onBack }) {
                     {item.notes && <div className="mt-1 max-w-xs text-xs text-[#8a7a64]">{item.notes}</div>}
                   </td>
                   <td className="px-4 py-3">{item.category}</td>
+                  <td className="px-4 py-3">{item.condition || "—"}</td>
                   <td className="px-4 py-3">{item.purchaseDate || "—"}</td>
                   <td className="px-4 py-3">{item.source || "—"}</td>
                   <td className="px-4 py-3">{formatCurrency(item.purchasePrice)}</td>
@@ -2730,10 +2866,11 @@ function DeleteConfirmDialog({ entry, deleting, onCancel, onConfirm }) {
 function MarkSoldDialog({ entry, submitting, onCancel, onConfirm }) {
   const [soldPrice, setSoldPrice] = useState(entry.estimatedValue || "");
   const [soldDate, setSoldDate] = useState(todayIso());
+  const [condition, setCondition] = useState(entry.condition || "");
 
   function handleSubmit(event) {
     event.preventDefault();
-    onConfirm({ soldPrice, soldDate });
+    onConfirm({ soldPrice, soldDate, condition });
   }
 
   return (
@@ -2747,6 +2884,7 @@ function MarkSoldDialog({ entry, submitting, onCancel, onConfirm }) {
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <Field label="Sold for" type="number" value={soldPrice} onChange={setSoldPrice} />
           <Field label="Sold on" type="date" value={soldDate} onChange={setSoldDate} />
+          <SelectField label="Condition" value={condition} options={conditionOptions} placeholder="Not set" onChange={setCondition} />
         </div>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onCancel} disabled={submitting} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
@@ -2884,6 +3022,7 @@ function EditItemModal({ item, onClose, onSave, saving }) {
             <Field label="Edition / Variant / Details" value={draft.edition} onChange={(value) => setDraft({ ...draft, edition: value })} />
           )}
           <SelectField label="Status" value={draft.status} options={statuses} onChange={handleStatusChange} />
+          <SelectField label="Condition" value={draft.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setDraft({ ...draft, condition: value })} />
           <Field label="Purchase date" type="date" value={draft.purchaseDate} onChange={(value) => setDraft({ ...draft, purchaseDate: value })} />
           <Field label="Where purchased" value={draft.source} onChange={(value) => setDraft({ ...draft, source: value })} />
           <Field label="Cost basis" type="number" value={draft.purchasePrice} onChange={(value) => setDraft({ ...draft, purchasePrice: value })} />
@@ -3060,7 +3199,7 @@ function clearPhotoUrls(photos) { photos.forEach((photo) => URL.revokeObjectURL(
 function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`shrink-0 rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
-function SelectField({ label, value, options, onChange }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }
+function SelectField({ label, value, options, onChange, placeholder }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{placeholder && <option value="">{placeholder}</option>}{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }
 function TextAreaField({ label, value, onChange, placeholder, rows = 6 }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><textarea value={value || ""} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={rows} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function PhotoUploader({ title, eyebrow, description, prompts, photos, onUpload, onRemove }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">{eyebrow}</div><h2 className="mt-1 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#665746]">{description}</p></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">{photos.length}</div></div><label className="mt-5 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-[#cbb894] bg-[#f7ecdc] p-6 text-center transition hover:bg-[#fff4e6]"><Icon name={title.toLowerCase().includes("receipt") ? "receipt" : "camera"} size={36} className="text-[#123f38]" /><div className="mt-3 text-lg font-semibold">Take or upload</div><div className="mt-1 max-w-sm text-xs leading-5 text-[#6b5b4c]">Works with camera or photo library on mobile.</div><input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label><div className="mt-4 flex flex-wrap gap-2">{prompts.map((prompt) => <div key={prompt} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs text-[#665746]">{prompt}</div>)}</div>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} />}</CardContent></Card>; }
 function CompactUploader({ title, icon, photos, onUpload, onRemove }) { return <div className="rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] p-4"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2 font-semibold"><Icon name={icon} size={17} /> {title}</div><span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs text-[#123f38]">{photos.length}</span></div><label className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">Take or upload<input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} compact />}</div>; }
