@@ -13,9 +13,26 @@ const plexMono = IBM_Plex_Mono({
   variable: "--font-plex-mono",
 });
 
+const siteUrl = "https://firstfinder.app";
+const description = "Collectible inventory for people who keep the receipt.";
+
 export const metadata = {
+  metadataBase: new URL(siteUrl),
   title: "FirstFinder",
-  description: "Collectible inventory for people who keep the receipt.",
+  description,
+  openGraph: {
+    title: "FirstFinder",
+    description,
+    url: siteUrl,
+    siteName: "FirstFinder",
+    images: ["/firstfinder-mark-exact.png"],
+  },
+  twitter: {
+    card: "summary",
+    title: "FirstFinder",
+    description,
+    images: ["/firstfinder-mark-exact.png"],
+  },
 };
 
 export default function RootLayout({ children }) {
