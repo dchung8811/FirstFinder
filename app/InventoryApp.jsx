@@ -1581,7 +1581,20 @@ function DemoVideoPlayer({ videoId }) {
       if (cancelled || !iframeRef.current || !window.YT?.Player) return;
       new window.YT.Player(iframeRef.current, {
         events: {
-          onReady: (event) => event.target.setPlaybackRate(1.5),
+          // Calling play/mute here too (not just via the URL's autoplay=1)
+          // makes playback start reliably -- a JS-triggered play on an
+          // already-muted player is allowed by every browser's autoplay
+          // policy, where the bare URL param is sometimes delayed or
+          // ignored. Starting reliably matters here beyond just seeing the
+          // video sooner: while the player sits paused waiting on autoplay,
+          // YouTube shows its own title bar and center play/pause/seek
+          // overlay -- the "youtube stuff" this is meant to avoid -- and
+          // that overlay isn't reachable through controls=0.
+          onReady: (event) => {
+            event.target.mute();
+            event.target.setPlaybackRate(1.5);
+            event.target.playVideo();
+          },
           // Belt-and-suspenders loop: the loop=1/playlist URL params usually
           // handle this alone, but restarting on ENDED covers players where
           // that trick doesn't take.
@@ -1619,11 +1632,18 @@ function DemoVideoPlayer({ videoId }) {
   return (
     <iframe
       ref={iframeRef}
-      className="aspect-video w-full"
-      src={`https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&autoplay=1&mute=1&loop=1&playlist=${videoId}`}
+      // Pointer events off: this is a decorative, always-looping background
+      // clip, not a player the visitor is meant to pause, seek, or click
+      // into -- keeps hover from ever reaching YouTube's own overlay.
+      // Oversized and offset within the clipped parent (see the wrapper's
+      // overflow-hidden) because YouTube renders its title bar even with
+      // controls=0 and there's no param to turn it off -- this pushes it
+      // above the visible crop instead.
+      className="pointer-events-none absolute left-0 w-full"
+      style={{ top: "-12%", height: "124%" }}
+      src={`https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3`}
       title="FirstFinder demo"
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-      allowFullScreen
     />
   );
 }
@@ -1723,7 +1743,7 @@ function HomePage({ onGetStarted }) {
           <div className="mx-auto max-w-3xl">
             <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in ninety seconds.</h2>
             {demoVideoId ? (
-              <div className="mt-8 overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
+              <div className="relative mt-8 aspect-video w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
                 <DemoVideoPlayer videoId={demoVideoId} />
               </div>
             ) : (
