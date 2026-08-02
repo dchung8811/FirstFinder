@@ -220,6 +220,9 @@ function Icon({ name, size = 20, className = "" }) {
         <path d="M8 13h8" />
         <path d="M8 17h5" />
       </>
+    ),
+    heart: (
+      <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z" />
     )
   };
 
@@ -1556,6 +1559,21 @@ function AboutPage({ onGoToFeedback }) {
           Share your ideas <Icon name="arrow" size={18} className="ml-1" />
         </Button>
       </div>
+
+      <div className="mt-16 border-t border-[#e0d2bc] pt-10 text-center">
+        <p className="mx-auto max-w-xl leading-7 text-[#665746]">
+          FirstFinder is free, and always will be. It's a passion project I built and pay for out of my own pocket to help fellow collectors keep track of what they love. Running it — hosting, storage, the database, all of it — costs real time and money as more people use it. If you've gotten value out of FirstFinder and want to help keep it free for everyone, any donation is genuinely appreciated.
+        </p>
+        <a
+          href="https://buymeacoffee.com/firstfinder"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => trackEvent("donation_link_clicked", { source_page: "about" })}
+          className="mt-5 inline-flex h-11 items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-6 text-sm font-medium text-[#665746] hover:bg-white"
+        >
+          <Icon name="heart" size={16} /> Buy me a coffee
+        </a>
+      </div>
     </section>
   );
 }
@@ -2315,6 +2333,24 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
               {savingName ? "Saving..." : "Save name"}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+        <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between md:p-8">
+          <div>
+            <h2 className="text-lg font-semibold">Enjoying FirstFinder?</h2>
+            <p className="mt-1 text-sm leading-6 text-[#665746]">It's free and always will be — a passion project I pay for out of pocket. Any donation helps keep it that way.</p>
+          </div>
+          <a
+            href="https://buymeacoffee.com/firstfinder"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackEvent("donation_link_clicked", { source_page: "my_account" })}
+            className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-6 text-sm font-medium text-[#665746] hover:bg-[#fff8ee]"
+          >
+            <Icon name="heart" size={16} /> Buy me a coffee
+          </a>
         </CardContent>
       </Card>
 
