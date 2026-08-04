@@ -27,6 +27,7 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 - Browse the collection in card or record view, search across item details, and filter by category, genre, edition, and printing.
 - Switch between active and sold inventory, with item counts and totals scoped to the selected view.
 - Edit or delete entries, mark items as sold, and restore sold items to their previous status.
+- Edit names, makers, categories, statuses, and amounts inline in record view without opening the edit modal.
 - Track total cost basis and estimated value for active items.
 - Capture the sold price and sold date from the sell action, edit form, Quick Add flow, guided flow, or CSV import.
 - Show realized gain for sold collectibles using the actual sale price rather than the previous estimate.
@@ -35,6 +36,7 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 ### Importing, exporting, and reporting
 
 - Download a CSV template and bulk-import inventory with validation and useful error messages.
+- Bulk edit and bulk delete by re-uploading an exported CSV: rows are matched on their reference number (FF-0001), a `delete` column removes items, and a preview shows exactly what will be added, changed, and removed before anything is saved.
 - Import sale information and book-specific genre, edition, and printing fields.
 - Create a printer-friendly active-collection report with photo counts and financial totals, or save it as a PDF for insurance and estate records.
 
@@ -62,6 +64,7 @@ Run these once per Supabase project, in the dashboard's SQL Editor:
 - `supabase/ux-batch-fields.sql` -- adds sold price/date, prior-status-on-restore, and Book-specific detail columns; also makes estimated_value nullable.
 - `supabase/feedback-table.sql` -- creates the `feedback` table (with its own RLS policies) used by the logged-in "Send feedback" page. Feedback photos reuse the existing item-photos storage bucket, so no new bucket setup is needed.
 - `supabase/condition-field.sql` -- adds the `condition` column used by the Condition field.
+- `supabase/reference-number.sql` -- adds the `reference_number` column (shown as FF-0001), backfills existing rows, and adds the unique per-user index. Required by the CSV bulk edit/delete tool, which matches rows on this number.
 
 The app's queries filter mutations by row id alone, so Row Level Security
 with owner-scoped policies on `inventory_items` is required, not optional --
