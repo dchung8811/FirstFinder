@@ -69,11 +69,33 @@ const quickCategories = ["Book", "Sports memorabilia", "Trading card", "Comic", 
 const conditionOptions = ["Near Fine/Fine", "Very Good/Good", "Fair", "Poor"];
 const bookEditionOptions = ["First", "Second", "Third", "Fourth", "Fifth", "Other"];
 const bookPrintingOptions = ["First", "Second", "Third", "Fourth", "Fifth", "Other"];
-const csvHeaders = ["name", "category", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "condition", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"];
+// Columns that map 1:1 onto item fields. Kept separate from csvHeaders because
+// the file also carries two control columns that aren't item data: "ref" (the
+// matching key) and "delete" (the row action).
+const csvItemFields = ["name", "category", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "condition", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"];
+const csvHeaders = ["ref", ...csvItemFields, "delete"];
 const csvTemplateRows = [
-  ["The Gunslinger", "Book", "Stephen King", "First edition candidate", "Fantasy", "First", "First", "Owned", "Near Fine/Fine", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state"],
-  ["Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "", "", "", "Sold", "Very Good/Good", "2026-04-28", "Flea market", "12", "", "40", "2026-06-01", "Minor corner wear. Sold at a local card show."]
+  ["", "The Gunslinger", "Book", "Stephen King", "First edition candidate", "Fantasy", "First", "First", "Owned", "Near Fine/Fine", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state", ""],
+  ["", "Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "", "", "", "Sold", "Very Good/Good", "2026-04-28", "Flea market", "12", "", "40", "2026-06-01", "Minor corner wear. Sold at a local card show.", ""]
 ];
+// Values accepted in the "delete" column. Deliberately generous, since people
+// will type whatever feels natural in a spreadsheet.
+const csvDeleteTokens = ["y", "yes", "true", "x", "1", "delete", "remove"];
+
+// Reference numbers are stored as plain integers and shown as FF-0001. The
+// display form is what goes in the CSV, so parsing tolerates the prefix, bare
+// digits, and stray whitespace alike.
+function formatReference(referenceNumber) {
+  if (referenceNumber === null || referenceNumber === undefined || referenceNumber === "") return "";
+  return `FF-${String(referenceNumber).padStart(4, "0")}`;
+}
+
+function parseReference(value) {
+  const digits = String(value ?? "").replace(/[^0-9]/g, "");
+  if (digits.length === 0) return null;
+  const parsed = Number.parseInt(digits, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
 const mockAutofillOptions = [
   {
     match: "receipt",
@@ -405,9 +427,82 @@ function getActiveInventory(inventory) {
   return inventory.filter((entry) => entry.status !== "Sold");
 }
 
+// Plain text columns that map straight across for a CSV-driven update.
+// Dates, numbers, and the sold-status fields need extra handling and are
+// applied separately in csvUpdateRow.
+const csvFieldToColumn = {
+  name: "name",
+  category: "category",
+  maker: "maker",
+  edition: "edition",
+  bookGenre: "book_genre",
+  bookEdition: "book_edition",
+  bookPrinting: "book_printing",
+  status: "status",
+  condition: "condition",
+  source: "source",
+  notes: "notes"
+};
+
+// Builds the row sent for a CSV-driven update. Only touches columns whose
+// header was present in the uploaded file, and deliberately never includes the
+// photo columns, so a bulk edit can't wipe someone's uploaded images.
+function csvUpdateRow(existing, fields, userId) {
+  const merged = { ...existing, ...fields };
+  const row = { id: existing.id, user_id: userId, updated_at: new Date().toISOString() };
+
+  Object.entries(csvFieldToColumn).forEach(([field, column]) => {
+    if (field in fields) row[column] = fields[field] || "";
+  });
+
+  if ("purchaseDate" in fields) row.purchase_date = fields.purchaseDate || null;
+  if ("purchasePrice" in fields) row.purchase_price = toNumber(fields.purchasePrice);
+  if ("estimatedValue" in fields) row.estimated_value = hasValue(fields.estimatedValue) ? toNumber(fields.estimatedValue) : null;
+
+  // A CSV edit can flip an item into or out of "Sold" just like the edit modal
+  // can, so keep the sale fields consistent with whichever status wins.
+  if ("status" in fields || "soldPrice" in fields || "soldDate" in fields) {
+    const isNowSold = merged.status === "Sold";
+    const wasSold = existing.status === "Sold";
+    row.previous_status = !isNowSold ? null : wasSold ? existing.previousStatus || "Owned" : existing.status || "Owned";
+    row.sold_price = isNowSold && hasValue(merged.soldPrice) ? toNumber(merged.soldPrice) : null;
+    row.sold_date = isNowSold ? merged.soldDate || null : null;
+  }
+
+  return row;
+}
+
+// Allocates the next N reference numbers for a user.
+//
+// Assigned here rather than by a Postgres trigger on purpose: a BEFORE INSERT
+// trigger computing max()+1 can't see the other rows of the same multi-row
+// insert, so a bulk CSV import would hand every row the same number. Computing
+// the whole range up front avoids that. The unique (user_id, reference_number)
+// index is the backstop if two sessions ever race.
+async function nextReferenceNumbers(userId, count) {
+  if (count <= 0) return { numbers: [], error: null };
+
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select("reference_number")
+    .eq("user_id", userId)
+    .not("reference_number", "is", null)
+    .order("reference_number", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("Reference number lookup error:", error.message);
+    return { numbers: [], error: error.message };
+  }
+
+  const start = (data?.[0]?.reference_number || 0) + 1;
+  return { numbers: Array.from({ length: count }, (_, index) => start + index), error: null };
+}
+
 function toDbItem(item, userId, itemPhotoCount = 0, receiptPhotoCount = 0) {
   return {
     user_id: userId,
+    reference_number: item.referenceNumber ?? null,
     name: item.name || "",
     category: item.category || "Other",
     maker: item.maker || "",
@@ -449,6 +544,7 @@ function fromDbItem(row) {
 
   return {
     id: row.id,
+    referenceNumber: row.reference_number ?? null,
     name: row.name || "",
     category: row.category || "Other",
     maker: row.maker || "",
@@ -488,8 +584,15 @@ function buildCsvTemplate() {
 // csvHeaders lines up 1:1 with the item objects' own field names, so each
 // row is just each header looked up on the item -- no per-column mapping to
 // maintain in parallel with the import side.
+// Leads with the item's reference number so the exported file can be edited
+// and re-uploaded to update or delete those same items. The trailing "delete"
+// column is exported blank, ready for the user to mark rows in a spreadsheet.
 function buildCsvExport(items) {
-  const rows = items.map((item) => csvHeaders.map((header) => item[header] ?? ""));
+  const rows = items.map((item) => [
+    formatReference(item.referenceNumber),
+    ...csvItemFields.map((field) => item[field] ?? ""),
+    ""
+  ]);
   return [csvHeaders, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
 }
 
@@ -544,30 +647,117 @@ function parseCsvRows(csvText) {
   return rows.filter((row) => row.some((value) => value.length > 0));
 }
 
-function parseCsvInventory(csvText) {
+// Only pulls fields whose column was actually present in the uploaded file.
+// This matters for updates: if someone exports, deletes a column in their
+// spreadsheet, and re-uploads, the absent column must be left alone rather
+// than blanking that field on every item.
+function sanitizeCsvFields(row, presentHeaders) {
+  const fields = {};
+
+  csvItemFields.forEach((field) => {
+    if (presentHeaders.includes(field)) fields[field] = row[field] ?? "";
+  });
+
+  // Enum columns fall back to a safe value rather than writing junk.
+  if ("status" in fields) fields.status = statuses.includes(fields.status) ? fields.status : "Owned";
+  if ("condition" in fields) fields.condition = conditionOptions.includes(fields.condition) ? fields.condition : "";
+  if ("bookEdition" in fields) fields.bookEdition = bookEditionOptions.includes(fields.bookEdition) ? fields.bookEdition : "";
+  if ("bookPrinting" in fields) fields.bookPrinting = bookPrintingOptions.includes(fields.bookPrinting) ? fields.bookPrinting : "";
+
+  return fields;
+}
+
+// Reads an uploaded CSV and sorts every row into create / update / delete,
+// matching existing items on their reference number.
+//
+// The rules here are deliberately conservative, because this is the one place
+// in the app where a malformed file could destroy data:
+//   - a row absent from the file means "leave it alone", never "delete it"
+//   - deleting requires an explicit flag AND a reference number
+//   - a reference number repeated in one file rejects the whole file rather
+//     than guessing which instruction wins
+function parseCsvBatch(csvText, existingItems = []) {
+  const empty = { creates: [], updates: [], deletes: [], rejected: [] };
   const rows = parseCsvRows(csvText);
+
   if (rows.length < 2) {
-    return { items: [], error: "That file has no data rows to import." };
+    return { ...empty, error: "That file has no data rows." };
   }
 
   const headers = rows[0].map((header) => header.trim());
-  if (!headers.map((header) => header.toLowerCase()).includes("name")) {
-    return { items: [], error: `Couldn't find a "name" column. Use the downloaded template so columns match: ${csvHeaders.join(", ")}.` };
+  const lowerHeaders = headers.map((header) => header.toLowerCase());
+  if (!lowerHeaders.includes("name") && !lowerHeaders.includes("ref")) {
+    return { ...empty, error: `Couldn't find a "name" or "ref" column. Use the downloaded template so columns match: ${csvHeaders.join(", ")}.` };
   }
 
-  const items = rows
-    .slice(1)
-    .map((values) => {
-      const row = headers.reduce((acc, header, index) => ({ ...acc, [header]: values[index] || "" }), {});
-      const status = statuses.includes(row.status) ? row.status : "Owned";
-      const condition = conditionOptions.includes(row.condition) ? row.condition : "";
-      const bookEdition = bookEditionOptions.includes(row.bookEdition) ? row.bookEdition : "";
-      const bookPrinting = bookPrintingOptions.includes(row.bookPrinting) ? row.bookPrinting : "";
-      return makeSavedItem({ ...emptyItem, ...row, status, condition, bookEdition, bookPrinting }, 0, 0);
-    })
-    .filter((item) => item.name.trim().length > 0);
+  const byReference = new Map(
+    existingItems
+      .filter((item) => item.referenceNumber !== null && item.referenceNumber !== undefined)
+      .map((item) => [item.referenceNumber, item])
+  );
 
-  return { items, error: items.length === 0 ? "No rows had a value in the name column." : null };
+  const creates = [];
+  const updates = [];
+  const deletes = [];
+  const rejected = [];
+  const seenReferences = new Map();
+
+  for (let index = 1; index < rows.length; index += 1) {
+    const values = rows[index];
+    const row = headers.reduce((acc, header, position) => ({ ...acc, [header]: values[position] || "" }), {});
+    // 1-based line number as the user sees it in a spreadsheet.
+    const line = index + 1;
+
+    const reference = parseReference(row.ref);
+    const isDelete = csvDeleteTokens.includes(String(row.delete || "").trim().toLowerCase());
+
+    if (reference !== null) {
+      if (seenReferences.has(reference)) {
+        return {
+          ...empty,
+          error: `${formatReference(reference)} appears on both line ${seenReferences.get(reference)} and line ${line}. Each reference can only appear once per file, so nothing was changed.`
+        };
+      }
+      seenReferences.set(reference, line);
+    }
+
+    if (isDelete && reference === null) {
+      rejected.push({ line, reference: "", reason: "Marked for deletion but has no reference number, so there's no way to tell which item you meant." });
+      continue;
+    }
+
+    if (reference !== null) {
+      const existing = byReference.get(reference);
+      if (!existing) {
+        rejected.push({ line, reference: formatReference(reference), reason: "No item in your collection has this reference number." });
+        continue;
+      }
+
+      if (isDelete) {
+        deletes.push(existing);
+      } else {
+        updates.push({ existing, fields: sanitizeCsvFields(row, headers) });
+      }
+      continue;
+    }
+
+    // No reference and not a delete: this is a new item. Blank lines are
+    // skipped quietly, matching how the import has always behaved.
+    const fields = sanitizeCsvFields(row, headers);
+    if (String(fields.name || "").trim().length === 0) continue;
+    creates.push(makeSavedItem({ ...emptyItem, ...fields }, 0, 0));
+  }
+
+  const total = creates.length + updates.length + deletes.length;
+  if (total === 0) {
+    return {
+      ...empty,
+      rejected,
+      error: rejected.length > 0 ? "No rows could be applied. See the details below." : "No rows in that file had anything to add, change, or remove."
+    };
+  }
+
+  return { creates, updates, deletes, rejected, error: null };
 }
 
 function pickMockAutofill(fileName, photoType) {
@@ -725,6 +915,8 @@ export default function FirstFinderApp() {
   const [autofillMessage, setAutofillMessage] = useState("");
   const [bulkMessage, setBulkMessage] = useState("");
   const [bulkUploading, setBulkUploading] = useState(false);
+  const [pendingImport, setPendingImport] = useState(null);
+  const [applyingImport, setApplyingImport] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -956,9 +1148,15 @@ export default function FirstFinderApp() {
     setSaving(true);
 
     try {
+      const { numbers, error: referenceError } = await nextReferenceNumbers(currentUser.id, 1);
+      if (referenceError) {
+        pushToast(referenceError, "error");
+        return null;
+      }
+
       const { data, error } = await supabase
         .from("inventory_items")
-        .insert(toDbItem(sourceItem, currentUser.id, itemPhotoList.length, receiptPhotoList.length))
+        .insert(toDbItem({ ...sourceItem, referenceNumber: numbers[0] }, currentUser.id, itemPhotoList.length, receiptPhotoList.length))
         .select()
         .single();
 
@@ -1269,34 +1467,22 @@ export default function FirstFinderApp() {
       setBulkUploading(true);
 
       try {
-        const { items: importedItems, error: parseError } = parseCsvInventory(String(reader.result || ""));
+        const batch = parseCsvBatch(String(reader.result || ""), inventory);
 
-        if (parseError) {
-          pushToast(parseError, "error");
+        if (batch.error) {
+          pushToast(batch.error, "error");
           return;
         }
 
-        const rows = importedItems.map((entry) => toDbItem(entry, currentUser.id, 0, 0));
-
-        const { data, error } = await supabase
-          .from("inventory_items")
-          .insert(rows)
-          .select();
-
-        if (error) {
-          console.error("Bulk import error:", error.message);
-          pushToast(error.message, "error");
-          return;
-        }
-
+        // Nothing is written yet. The user confirms from the preview first,
+        // since this is the only flow in the app that can delete in bulk.
         trackEvent("csv_uploaded", {
           source_page: "add_inventory",
-          imported_count: (data || []).length
+          create_count: batch.creates.length,
+          update_count: batch.updates.length,
+          delete_count: batch.deletes.length
         });
-
-        setInventory((items) => [...(data || []).map(fromDbItem), ...items]);
-        setBulkMessage(`Imported ${(data || []).length} item${(data || []).length === 1 ? "" : "s"} from ${file.name}.`);
-        setActiveView("inventory");
+        setPendingImport({ batch, fileName: file.name });
       } finally {
         setBulkUploading(false);
       }
@@ -1304,6 +1490,94 @@ export default function FirstFinderApp() {
 
     reader.readAsText(file);
     event.target.value = "";
+  }
+
+  async function applyPendingImport() {
+    if (!pendingImport || !currentUser) return;
+
+    const { creates, updates, deletes } = pendingImport.batch;
+    setApplyingImport(true);
+
+    try {
+      let created = [];
+      if (creates.length > 0) {
+        const { numbers, error: referenceError } = await nextReferenceNumbers(currentUser.id, creates.length);
+        if (referenceError) {
+          pushToast(referenceError, "error");
+          return;
+        }
+
+        const rows = creates.map((entry, index) => toDbItem({ ...entry, referenceNumber: numbers[index] }, currentUser.id, 0, 0));
+        const { data, error } = await supabase.from("inventory_items").insert(rows).select();
+
+        if (error) {
+          console.error("Bulk create error:", error.message);
+          pushToast(error.message, "error");
+          return;
+        }
+        created = (data || []).map(fromDbItem);
+      }
+
+      let updated = [];
+      if (updates.length > 0) {
+        const rows = updates.map(({ existing, fields }) => csvUpdateRow(existing, fields, currentUser.id));
+        const { data, error } = await supabase.from("inventory_items").upsert(rows).select();
+
+        if (error) {
+          console.error("Bulk update error:", error.message);
+          pushToast(error.message, "error");
+          return;
+        }
+        updated = (data || []).map(fromDbItem);
+      }
+
+      if (deletes.length > 0) {
+        // Best-effort photo cleanup first, mirroring deleteItem: the rows are
+        // what matter, and an orphaned file is better than a blocked delete.
+        const photoPaths = deletes
+          .flatMap((item) => [...(item.itemPhotos || []), ...(item.receiptPhotos || [])])
+          .map((photo) => photo.path)
+          .filter(Boolean);
+
+        if (photoPaths.length > 0) {
+          const { error: storageError } = await supabase.storage.from(PHOTO_BUCKET).remove(photoPaths);
+          if (storageError) console.error("Photo cleanup error:", storageError.message);
+        }
+
+        const { error } = await supabase
+          .from("inventory_items")
+          .delete()
+          .in("id", deletes.map((item) => item.id))
+          .eq("user_id", currentUser.id);
+
+        if (error) {
+          console.error("Bulk delete error:", error.message);
+          pushToast(error.message, "error");
+          return;
+        }
+      }
+
+      const deletedIds = new Set(deletes.map((item) => item.id));
+      const updatedById = new Map(updated.map((item) => [item.id, item]));
+      setInventory((items) => [
+        ...created,
+        ...items.filter((item) => !deletedIds.has(item.id)).map((item) => updatedById.get(item.id) || item)
+      ]);
+
+      trackEvent("csv_bulk_applied", {
+        created_count: created.length,
+        updated_count: updated.length,
+        deleted_count: deletes.length
+      });
+
+      const summary = `${created.length} added, ${updated.length} updated, ${deletes.length} deleted.`;
+      setBulkMessage(`Applied ${pendingImport.fileName}: ${summary}`);
+      pushToast(summary, "success");
+      setPendingImport(null);
+      setActiveView("inventory");
+    } finally {
+      setApplyingImport(false);
+    }
   }
 
   return (
@@ -1386,6 +1660,16 @@ export default function FirstFinderApp() {
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
+
+      {pendingImport && (
+        <BulkImportPreviewDialog
+          fileName={pendingImport.fileName}
+          batch={pendingImport.batch}
+          applying={applyingImport}
+          onCancel={() => setPendingImport(null)}
+          onConfirm={applyPendingImport}
+        />
+      )}
 
       {editingItem && (
         <EditItemModal
@@ -2987,6 +3271,89 @@ function InsuranceExportPage({ items, onBack }) {
   );
 }
 
+function ImportCount({ label, value, tone }) {
+  return (
+    <div className={`rounded-2xl px-4 py-3 ${tone}`}>
+      <div className="text-2xl font-semibold">{value}</div>
+      <div className="text-xs uppercase tracking-[0.14em]">{label}</div>
+    </div>
+  );
+}
+
+// Stands between an uploaded CSV and any write. Bulk delete is the most
+// destructive thing the app can do, so the counts, the exact items being
+// removed, and the skipped rows are all shown before anything happens.
+function BulkImportPreviewDialog({ fileName, batch, applying, onCancel, onConfirm }) {
+  const { creates, updates, deletes, rejected } = batch;
+  const [confirmText, setConfirmText] = useState("");
+  // A handful of deletions is easy to sanity-check from the list above. Past
+  // that, make the user type it out rather than click through.
+  const needsTypedConfirm = deletes.length > 5;
+  const canApply = !needsTypedConfirm || confirmText.trim().toUpperCase() === "DELETE";
+
+  return (
+    <ModalShell onClose={applying ? () => {} : onCancel} contentClassName="max-h-[88vh] max-w-2xl">
+      <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Review import</div>
+      <h2 className="mt-1 text-2xl font-semibold">{fileName}</h2>
+      <p className="mt-3 leading-7 text-[#665746]">Nothing has been changed yet. Here's what this file will do.</p>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <ImportCount label="To add" value={creates.length} tone="bg-[#edf4f2] text-[#123f38]" />
+        <ImportCount label="To update" value={updates.length} tone="bg-[#f0e2cf] text-[#665746]" />
+        <ImportCount label="To delete" value={deletes.length} tone={deletes.length > 0 ? "bg-[#fbf1ec] text-[#8a3b22]" : "bg-[#f7efe3] text-[#8a7a64]"} />
+      </div>
+
+      {deletes.length > 0 && (
+        <div className="mt-5 rounded-2xl bg-[#fbf1ec] p-4">
+          <div className="text-sm font-semibold text-[#8a3b22]">
+            {deletes.length === 1 ? "This item will be permanently deleted" : `These ${deletes.length} items will be permanently deleted`}, along with their saved photos:
+          </div>
+          <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-sm text-[#665746]">
+            {deletes.map((item) => (
+              <li key={item.id}>{formatReference(item.referenceNumber)} — {item.name || "Untitled item"}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {rejected.length > 0 && (
+        <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4">
+          <div className="text-sm font-semibold text-[#6d5526]">
+            {rejected.length === 1 ? "1 row will be skipped:" : `${rejected.length} rows will be skipped:`}
+          </div>
+          <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-sm text-[#6d5526]">
+            {rejected.map((row) => (
+              <li key={`${row.line}-${row.reference}`}>Line {row.line}{row.reference ? ` (${row.reference})` : ""} — {row.reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="mt-5 text-sm leading-6 text-[#8a7a64]">Anything in your collection that isn't listed in this file is left untouched.</p>
+
+      {needsTypedConfirm && (
+        <div className="mt-5">
+          <Field label={`Type DELETE to confirm removing ${deletes.length} items`} value={confirmText} onChange={setConfirmText} />
+        </div>
+      )}
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={applying} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={onConfirm}
+          disabled={applying || !canApply}
+          className={`h-11 rounded-full px-6 text-[#fff7ea] ${deletes.length > 0 ? "bg-[#8a3b22] hover:bg-[#7a331d]" : "bg-[#123f38] hover:bg-[#0f332d]"}`}
+        >
+          {applying ? "Applying..." : "Apply changes"}
+        </Button>
+      </div>
+    </ModalShell>
+  );
+}
+
 function DeleteConfirmDialog({ entry, deleting, onCancel, onConfirm }) {
   return (
     <ModalShell onClose={deleting ? () => {} : onCancel} contentClassName="max-w-md">
@@ -3045,7 +3412,7 @@ function MarkSoldDialog({ entry, submitting, onCancel, onConfirm }) {
 
 function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
   return (
-    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import inventory by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Photos can be added later item-by-item.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className={`flex h-11 items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] ${bulkUploading ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}><Icon name="upload" size={17} className="mr-2" /> {bulkUploading ? "Importing..." : "Upload CSV"}<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} disabled={bulkUploading} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import inventory by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Photos can be added later item-by-item.</p><p className="mt-3 leading-7 text-[#665746]">You can also edit in bulk: export your collection from the Inventory page, change what you need in a spreadsheet, and upload it back. Rows keep their <span className="font-medium">ref</span> so they update instead of duplicating, and putting <span className="font-medium">yes</span> in the <span className="font-medium">delete</span> column removes them. You'll see exactly what will change before anything is saved.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className={`flex h-11 items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] ${bulkUploading ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}><Icon name="upload" size={17} className="mr-2" /> {bulkUploading ? "Importing..." : "Upload CSV"}<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} disabled={bulkUploading} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
   );
 }
 
