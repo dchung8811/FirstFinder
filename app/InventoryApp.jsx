@@ -1441,6 +1441,46 @@ export default function FirstFinderApp() {
     }
   }
 
+  // Saves a single field edited inline from the Records table.
+  //
+  // Deliberately reuses csvUpdateRow so inline edits, CSV bulk edits, and the
+  // edit modal all apply the same sold-status rules. Without that, changing
+  // status inline would leave sold_price/sold_date/previous_status inconsistent.
+  async function updateItemFields(itemId, fields) {
+    const existing = inventory.find((entry) => entry.id === itemId);
+    if (!existing || !currentUser) return;
+
+    // Match the edit modal: moving an item to Sold defaults the sale date to
+    // today rather than leaving it blank.
+    const enriched = { ...fields };
+    if (fields.status === "Sold" && !existing.soldDate) enriched.soldDate = todayIso();
+
+    // Optimistic, so the table responds immediately; rolled back on failure.
+    setInventory((items) => items.map((entry) => (entry.id === itemId ? { ...entry, ...enriched } : entry)));
+
+    const row = csvUpdateRow(existing, enriched, currentUser.id);
+    delete row.id;
+    delete row.user_id;
+
+    const { data, error } = await supabase
+      .from("inventory_items")
+      .update(row)
+      .eq("id", itemId)
+      .eq("user_id", currentUser.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Inline edit error:", error.message);
+      pushToast(error.message, "error");
+      setInventory((items) => items.map((entry) => (entry.id === itemId ? existing : entry)));
+      return;
+    }
+
+    trackEvent("item_inline_edited", { field: Object.keys(fields)[0] || "unknown" });
+    setInventory((items) => items.map((entry) => (entry.id === itemId ? fromDbItem(data) : entry)));
+  }
+
   function downloadTemplate() {
     const csv = buildCsvTemplate();
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -1656,7 +1696,7 @@ export default function FirstFinderApp() {
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
-      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} bulkMessage={bulkMessage} />}
+      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
@@ -2801,7 +2841,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   );
 }
 
-function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onDelete, onMarkSold, onRestoreSold, onEdit, bulkMessage }) {
+function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, bulkMessage }) {
   const [photoViewer, setPhotoViewer] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -2993,6 +3033,9 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
         </Card>
       ) : viewMode === "records" ? (
         <div className="mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+          <div className="border-b border-[#e0d2bc] px-5 py-3 text-xs text-[#8a7a64]">
+            Click any name, category, status, or amount to edit it here. Enter saves, Escape cancels.
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="bg-[#f0e2cf] text-xs uppercase tracking-[0.14em] text-[#665746]">
@@ -3009,11 +3052,44 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
               <tbody>
                 {displayedInventory.map((entry) => (
                   <tr key={entry.id} className="border-t border-[#e0d2bc]">
-                    <td className="px-5 py-4"><div className="font-semibold">{entry.name || "Untitled item"}</div><div className="text-[#665746]">{entry.maker || "Unknown maker"}</div></td>
-                    <td className="px-5 py-4">{entry.category}</td>
-                    <td className="px-5 py-4">{entry.status}</td>
-                    <td className="px-5 py-4">{formatCurrency(entry.purchasePrice)}</td>
-                    <td className="px-5 py-4">{formatEstimatedValue(entry)}</td>
+                    <td className="px-5 py-4">
+                      <InlineCell
+                        label="item name"
+                        value={entry.name}
+                        display={<span className="font-semibold">{entry.name || "Untitled item"}</span>}
+                        onSave={(value) => onInlineSave(entry.id, { name: value })}
+                      />
+                      <InlineCell
+                        label="maker"
+                        value={entry.maker}
+                        display={<span className="text-[#665746]">{entry.maker || "Unknown maker"}</span>}
+                        onSave={(value) => onInlineSave(entry.id, { maker: value })}
+                      />
+                    </td>
+                    <td className="px-5 py-4">
+                      <InlineCell label="category" value={entry.category} options={quickCategories} onSave={(value) => onInlineSave(entry.id, { category: value })} />
+                    </td>
+                    <td className="px-5 py-4">
+                      <InlineCell label="status" value={entry.status} options={statuses} onSave={(value) => onInlineSave(entry.id, { status: value })} />
+                    </td>
+                    <td className="px-5 py-4">
+                      <InlineCell
+                        label="cost basis"
+                        type="number"
+                        value={entry.purchasePrice}
+                        display={formatCurrency(entry.purchasePrice)}
+                        onSave={(value) => onInlineSave(entry.id, { purchasePrice: value })}
+                      />
+                    </td>
+                    <td className="px-5 py-4">
+                      <InlineCell
+                        label={entry.status === "Sold" ? "sold price" : "estimated value"}
+                        type="number"
+                        value={entry.status === "Sold" ? entry.soldPrice : entry.estimatedValue}
+                        display={formatEstimatedValue(entry)}
+                        onSave={(value) => onInlineSave(entry.id, entry.status === "Sold" ? { soldPrice: value } : { estimatedValue: value })}
+                      />
+                    </td>
                     <td className="px-5 py-4">
                       <button type="button" onClick={() => setPhotoViewer(entry)} className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">
                         View {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0)}
@@ -3268,6 +3344,76 @@ function InsuranceExportPage({ items, onBack }) {
         ))}
       </div>
     </section>
+  );
+}
+
+// A single click-to-edit table cell for the Records view. Renders as plain
+// text until clicked, so the table still reads as a table rather than a grid
+// of form controls.
+function InlineCell({ value, display, options, type = "text", label, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+
+  // Keep the draft in step when the row changes underneath us (another edit,
+  // a bulk import, a refetch).
+  useEffect(() => {
+    setDraft(value ?? "");
+  }, [value]);
+
+  function commit(next) {
+    setEditing(false);
+    if (String(next ?? "") === String(value ?? "")) return;
+    onSave(String(next ?? ""));
+  }
+
+  function cancel() {
+    setDraft(value ?? "");
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        aria-label={`Edit ${label}`}
+        className="-mx-2 w-full rounded-lg px-2 py-1 text-left transition hover:bg-[#f0e2cf] focus:outline-none focus:ring-2 focus:ring-[#123f38]/20"
+      >
+        {display ?? (value || <span className="text-[#a2947f]">—</span>)}
+      </button>
+    );
+  }
+
+  if (options) {
+    return (
+      <select
+        autoFocus
+        value={draft}
+        aria-label={label}
+        onChange={(event) => commit(event.target.value)}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(event) => { if (event.key === "Escape") cancel(); }}
+        className="w-full rounded-lg border border-[#d8c7ad] bg-white px-2 py-1 outline-none focus:border-[#123f38]"
+      >
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      type={type}
+      value={draft}
+      aria-label={label}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => commit(draft)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") { event.preventDefault(); commit(draft); }
+        if (event.key === "Escape") cancel();
+      }}
+      className="w-full rounded-lg border border-[#d8c7ad] bg-white px-2 py-1 outline-none focus:border-[#123f38]"
+    />
   );
 }
 

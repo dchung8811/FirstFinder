@@ -27,6 +27,7 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 - Browse the collection in card or record view, search across item details, and filter by category, genre, edition, and printing.
 - Switch between active and sold inventory, with item counts and totals scoped to the selected view.
 - Edit or delete entries, mark items as sold, and restore sold items to their previous status.
+- Edit names, makers, categories, statuses, and amounts inline in record view without opening the edit modal.
 - Track total cost basis and estimated value for active items.
 - Capture the sold price and sold date from the sell action, edit form, Quick Add flow, guided flow, or CSV import.
 - Show realized gain for sold collectibles using the actual sale price rather than the previous estimate.
