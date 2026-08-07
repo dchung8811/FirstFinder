@@ -15,7 +15,9 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 // is the realistic failure. A hard per-user cap needs a persisted counter --
 // see the note in README.
 const COOLDOWN_MS = 3000;
-const DAILY_LIMIT = 50;
+// Tunable without a deploy, so the ceiling can be matched to whatever the real
+// per-call cost turns out to be on the account's actual model and image size.
+const DAILY_LIMIT = Number(process.env.IDENTIFY_DAILY_LIMIT) || 20;
 const callLog = new Map();
 
 function checkThrottle(userId) {
@@ -158,7 +160,14 @@ export async function POST(request) {
         return NextResponse.json({ error: "The photo identification service rejected our credentials." }, { status: 502 });
       }
       if (response.status === 429) {
-        return NextResponse.json({ error: "The identification service is rate limited right now. Try again shortly." }, { status: 429 });
+        // Running out of prepaid credit also comes back as 429, but "try again
+        // shortly" is wrong advice for it -- it won't resolve on its own.
+        const outOfCredit = /insufficient_quota|exceeded your current quota|billing/i.test(detail);
+        return NextResponse.json({
+          error: outOfCredit
+            ? "Photo identification has used up its budget for now. It'll work again once the account is topped up."
+            : "The identification service is busy right now. Try again in a moment."
+        }, { status: 429 });
       }
       return NextResponse.json({ error: "Couldn't identify that photo right now. Please try again." }, { status: 502 });
     }
