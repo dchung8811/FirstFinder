@@ -9,6 +9,11 @@ const MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
 // since every call costs real money on a self-funded app.
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
+// More photos means better evidence (a copyright page settles an edition that a
+// cover shot never could), but each one adds cost to the same call, so cap it.
+const MAX_IMAGES = 4;
+const MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+
 // Best-effort throttle. This lives in process memory, so on serverless it is
 // per-instance and a determined caller can get around it by landing on cold
 // instances. It is enough to stop an accidental loop or a stuck retry, which
@@ -74,8 +79,11 @@ const IDENTIFICATION_SCHEMA = {
 
 const SYSTEM_PROMPT = `You identify collectible books and printed collectibles from a photograph for a cataloguing app.
 
+You may be given several photographs of the SAME item -- typically a cover, and often a copyright page, number line, ISBN barcode, spine, or signature page. Treat them together as evidence about one object, not as separate items. Later photos usually carry the decisive evidence about edition and printing, so weight them accordingly.
+
 Be conservative and honest:
-- Only state an edition or printing you can actually see evidence for. If the photo shows a cover but no copyright page, you cannot confirm a first printing -- return "" for printing and say so in the summary.
+- Only state an edition or printing you can actually see evidence for. If you are shown a cover but no copyright page or number line, you cannot confirm a printing -- return "" for printing and say so in the summary.
+- When a copyright page or number line IS visible, read it and say in the summary what it shows and what that establishes.
 - Judge condition only from what is visible. If the jacket or spine is not shown, say the grade is provisional in the summary.
 - Values are rough market estimates in USD for a private collector, not appraisals. If you cannot form a defensible estimate, return 0 rather than guessing wildly.
 - Set confidence to "low" whenever the title is unclear, the edition is unverifiable, or the value could plausibly vary by more than an order of magnitude.
@@ -118,19 +126,30 @@ export async function POST(request) {
     return NextResponse.json({ error: throttleError }, { status: 429 });
   }
 
-  let imageDataUrl;
+  let images;
   try {
     const body = await request.json();
-    imageDataUrl = body?.image;
+    // Accepts a list, and still accepts a lone `image` so an older client
+    // doesn't break mid-deploy.
+    images = Array.isArray(body?.images) ? body.images : body?.image ? [body.image] : [];
   } catch (error) {
-    return NextResponse.json({ error: "Could not read the uploaded photo." }, { status: 400 });
+    return NextResponse.json({ error: "Could not read the uploaded photos." }, { status: 400 });
   }
 
-  if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
-    return NextResponse.json({ error: "That doesn't look like an image." }, { status: 400 });
+  if (images.length === 0) {
+    return NextResponse.json({ error: "No photo was included." }, { status: 400 });
   }
-  if (imageDataUrl.length > MAX_IMAGE_BYTES) {
-    return NextResponse.json({ error: "That photo is too large. Try a smaller one." }, { status: 413 });
+  if (images.length > MAX_IMAGES) {
+    return NextResponse.json({ error: `Please use at most ${MAX_IMAGES} photos at a time.` }, { status: 400 });
+  }
+  if (images.some((image) => typeof image !== "string" || !image.startsWith("data:image/"))) {
+    return NextResponse.json({ error: "One of those files doesn't look like an image." }, { status: 400 });
+  }
+  if (images.some((image) => image.length > MAX_IMAGE_BYTES)) {
+    return NextResponse.json({ error: "One of those photos is too large. Try a smaller one." }, { status: 413 });
+  }
+  if (images.reduce((total, image) => total + image.length, 0) > MAX_TOTAL_BYTES) {
+    return NextResponse.json({ error: "Those photos are too large together. Try fewer, or smaller ones." }, { status: 413 });
   }
 
   try {
@@ -144,8 +163,13 @@ export async function POST(request) {
           {
             role: "user",
             content: [
-              { type: "text", text: "Identify this item and estimate its value." },
-              { type: "image_url", image_url: { url: imageDataUrl } }
+              {
+                type: "text",
+                text: images.length === 1
+                  ? "Identify this item and estimate its value."
+                  : `Here are ${images.length} photographs of the same item. Use all of them together to identify it and estimate its value.`
+              },
+              ...images.map((image) => ({ type: "image_url", image_url: { url: image } }))
             ]
           }
         ],

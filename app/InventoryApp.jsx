@@ -918,6 +918,7 @@ export default function FirstFinderApp() {
   const [pendingImport, setPendingImport] = useState(null);
   const [applyingImport, setApplyingImport] = useState(false);
   const [identifying, setIdentifying] = useState(false);
+  const [identifyingPhotos, setIdentifyingPhotos] = useState([]);
   const [identifyDraft, setIdentifyDraft] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState([]);
@@ -1483,9 +1484,71 @@ export default function FirstFinderApp() {
     setInventory((items) => items.map((entry) => (entry.id === itemId ? fromDbItem(data) : entry)));
   }
 
-  // Sends one photo to the server route (which holds the API key) and turns the
-  // result into a pre-filled draft. Nothing is written to the collection here --
-  // the user reviews and edits everything on the next screen first.
+  async function fileToPhoto(file) {
+    const compressed = await compressImage(file, 1400, 0.8);
+    return { id: `identify-${Date.now()}-${Math.random()}`, name: file.name, url: URL.createObjectURL(compressed), file: compressed };
+  }
+
+  function photoToDataUrl(photo) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Could not read that photo."));
+      reader.readAsDataURL(photo.file);
+    });
+  }
+
+  // Runs the identification call for a set of photos. Used both for the first
+  // photo and for re-running with extra evidence (copyright page, ISBN) added
+  // on the review screen. Nothing is written to the collection here.
+  async function runIdentification(photos) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) {
+      pushToast("Please log in again before identifying a photo.", "error");
+      return null;
+    }
+
+    const images = await Promise.all(photos.map(photoToDataUrl));
+
+    const response = await fetch("/api/identify-book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ images })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      pushToast(payload.error || "Couldn't identify those photos. Please try again.", "error");
+      return null;
+    }
+
+    const result = payload.result || {};
+    trackEvent("photo_identified", {
+      confidence: result.confidence || "unknown",
+      category: result.category || "Other",
+      photo_count: photos.length
+    });
+    return result;
+  }
+
+  // Maps an identification result onto item fields. Only touches what the model
+  // produces -- cost basis, purchase date, source, and notes belong to the user
+  // and survive a re-identification.
+  function identifiedFields(result) {
+    return {
+      name: result.title || "",
+      maker: result.author || "",
+      category: result.category || "Book",
+      bookGenre: result.genre || "",
+      bookEdition: result.edition || "",
+      bookPrinting: result.printing || "",
+      condition: result.condition || "",
+      estimatedValue: Number(result.estimatedValue) > 0 ? String(result.estimatedValue) : ""
+    };
+  }
+
   async function handleIdentifyPhoto(event) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -1496,57 +1559,30 @@ export default function FirstFinderApp() {
       return;
     }
 
+    let photo;
+    try {
+      photo = await fileToPhoto(file);
+    } catch (error) {
+      pushToast("Could not read that photo.", "error");
+      return;
+    }
+
+    // Held in state so the loading overlay can show the actual photo being read.
+    setIdentifyingPhotos([photo]);
     setIdentifying(true);
 
     try {
-      const compressed = await compressImage(file, 1400, 0.8);
-      const imageDataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(new Error("Could not read that photo."));
-        reader.readAsDataURL(compressed);
-      });
-
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        pushToast("Please log in again before identifying a photo.", "error");
+      const result = await runIdentification([photo]);
+      if (!result) {
+        clearPhotoUrls([photo]);
         return;
       }
-
-      const response = await fetch("/api/identify-book", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ image: imageDataUrl })
-      });
-
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        pushToast(payload.error || "Couldn't identify that photo. Please try again.", "error");
-        return;
-      }
-
-      const result = payload.result || {};
-      trackEvent("photo_identified", { confidence: result.confidence || "unknown", category: result.category || "Other" });
 
       setIdentifyDraft({
         // Cost basis is deliberately left blank: only the collector knows what
         // they actually paid, and guessing it would corrupt gain calculations.
-        item: {
-          ...emptyItem,
-          name: result.title || "",
-          maker: result.author || "",
-          category: result.category || "Book",
-          bookGenre: result.genre || "",
-          bookEdition: result.edition || "",
-          bookPrinting: result.printing || "",
-          condition: result.condition || "",
-          estimatedValue: Number(result.estimatedValue) > 0 ? String(result.estimatedValue) : "",
-          purchasePrice: "",
-          purchaseDate: todayIso()
-        },
-        photo: { id: `identify-${Date.now()}`, name: file.name, url: URL.createObjectURL(compressed), file: compressed },
+        item: { ...emptyItem, ...identifiedFields(result), purchasePrice: "", purchaseDate: todayIso() },
+        photos: [photo],
         firstEditionValue: Number(result.firstEditionFirstPrintingValue) || 0,
         summary: result.summary || "",
         conditionNotes: result.conditionNotes || "",
@@ -1556,23 +1592,84 @@ export default function FirstFinderApp() {
     } catch (error) {
       console.error("Identify photo error:", error.message);
       pushToast(error.message || "Couldn't identify that photo. Please try again.", "error");
+      clearPhotoUrls([photo]);
     } finally {
       setIdentifying(false);
+      setIdentifyingPhotos([]);
+    }
+  }
+
+  async function addIdentifyPhotos(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (files.length === 0 || !identifyDraft) return;
+
+    const room = 4 - identifyDraft.photos.length;
+    if (room <= 0) {
+      pushToast("You can use up to 4 photos at a time.", "warning");
+      return;
+    }
+
+    try {
+      const added = await Promise.all(files.slice(0, room).map(fileToPhoto));
+      setIdentifyDraft((draft) => ({ ...draft, photos: [...draft.photos, ...added] }));
+      if (files.length > room) pushToast(`Added ${room} photo${room === 1 ? "" : "s"} — the limit is 4.`, "warning");
+    } catch (error) {
+      pushToast("Could not read one of those photos.", "error");
+    }
+  }
+
+  function removeIdentifyPhoto(photoId) {
+    setIdentifyDraft((draft) => {
+      const photo = draft.photos.find((entry) => entry.id === photoId);
+      if (photo) URL.revokeObjectURL(photo.url);
+      return { ...draft, photos: draft.photos.filter((entry) => entry.id !== photoId) };
+    });
+  }
+
+  // Re-runs identification with every photo now attached. Replaces the
+  // identified fields, since the whole point is that the new evidence should
+  // win, and leaves the user's own entries alone.
+  async function reIdentify() {
+    if (!identifyDraft || identifyDraft.photos.length === 0) return;
+
+    setIdentifyingPhotos(identifyDraft.photos);
+    setIdentifying(true);
+
+    try {
+      const result = await runIdentification(identifyDraft.photos);
+      if (!result) return;
+
+      setIdentifyDraft((draft) => ({
+        ...draft,
+        item: { ...draft.item, ...identifiedFields(result) },
+        firstEditionValue: Number(result.firstEditionFirstPrintingValue) || 0,
+        summary: result.summary || "",
+        conditionNotes: result.conditionNotes || "",
+        confidence: result.confidence || "low"
+      }));
+      pushToast("Updated using all of your photos.", "success");
+    } catch (error) {
+      console.error("Re-identify error:", error.message);
+      pushToast("Couldn't re-check those photos. Please try again.", "error");
+    } finally {
+      setIdentifying(false);
+      setIdentifyingPhotos([]);
     }
   }
 
   async function saveIdentifiedItem() {
     if (!identifyDraft) return;
-    const saved = await insertItemWithPhotos(identifyDraft.item, [identifyDraft.photo], [], "photo_identify");
+    const saved = await insertItemWithPhotos(identifyDraft.item, identifyDraft.photos, [], "photo_identify");
     if (!saved) return;
 
-    clearPhotoUrls([identifyDraft.photo]);
+    clearPhotoUrls(identifyDraft.photos);
     setIdentifyDraft(null);
     setActiveView("inventory");
   }
 
   function discardIdentifyDraft() {
-    if (identifyDraft) clearPhotoUrls([identifyDraft.photo]);
+    if (identifyDraft) clearPhotoUrls(identifyDraft.photos);
     setIdentifyDraft(null);
     setActiveView("addItems");
   }
@@ -1792,12 +1889,14 @@ export default function FirstFinderApp() {
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} />}
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
-      {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} />}
+      {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} onAddPhotos={addIdentifyPhotos} onRemovePhoto={removeIdentifyPhoto} onReIdentify={reIdentify} identifying={identifying} />}
       {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
       {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
+
+      {identifying && <IdentifyLoadingOverlay photos={identifyingPhotos} />}
 
       <SiteFooter isLoggedIn={isLoggedIn} onNavigate={go} />
 
@@ -3696,6 +3795,86 @@ function DashboardPage({ inventory, onAddItems, onCollection }) {
   );
 }
 
+const identifyingSteps = [
+  "Reading the cover…",
+  "Matching the title and author…",
+  "Looking for edition points…",
+  "Checking the number line…",
+  "Weighing the condition…",
+  "Estimating what it's worth…"
+];
+
+// Shown while the identification call is in flight. The photo the user just
+// took is the subject, with a scan sweeping over it, so the wait reads as work
+// happening on their book rather than a spinner on a blank page.
+function IdentifyLoadingOverlay({ photos }) {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setStep((current) => (current + 1) % identifyingSteps.length), 1700);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const cover = photos?.[0];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#201a14]/75 p-6 backdrop-blur-sm print:hidden">
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        className="w-full max-w-sm rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-6 shadow-2xl"
+      >
+        {cover && (
+          <div className="relative overflow-hidden rounded-2xl bg-black">
+            <img src={cover.url} alt="" className="max-h-72 w-full object-contain opacity-85" />
+            <motion.div
+              className="pointer-events-none absolute inset-x-0 h-24"
+              style={{ background: "linear-gradient(to bottom, rgba(47,125,107,0), rgba(47,125,107,0.5), rgba(47,125,107,0))" }}
+              animate={{ y: ["-30%", "130%"] }}
+              transition={{ duration: 1.9, repeat: Infinity, ease: "easeInOut" }}
+            />
+          </div>
+        )}
+
+        {photos?.length > 1 && (
+          <div className="mt-3 text-center text-xs uppercase tracking-[0.16em] text-[#8a7a64]">
+            Reading {photos.length} photos together
+          </div>
+        )}
+
+        {/* Keyed so each message remounts and fades in. Deliberately not wrapped
+            in AnimatePresence: with mode="wait" the enter animation could be
+            left un-run, leaving the message stuck at opacity 0. */}
+        <div className="mt-5 h-7 text-center">
+          <motion.div
+            key={step}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="font-display text-lg font-semibold text-[#201a14]"
+          >
+            {identifyingSteps[step]}
+          </motion.div>
+        </div>
+
+        {/* Indeterminate on purpose -- there's no real progress to report, and a
+            fake percentage would be a lie about how far along it is. */}
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#e0d2bc]">
+          <motion.div
+            className="h-full w-1/3 rounded-full bg-[#2f7d6b]"
+            animate={{ x: ["-110%", "320%"] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+          />
+        </div>
+
+        <p className="mt-4 text-center text-sm leading-6 text-[#8a7a64]">
+          This usually takes a few seconds. You'll get to review and edit everything before anything is saved.
+        </p>
+      </motion.div>
+    </div>
+  );
+}
+
 const confidenceTone = {
   high: { label: "High confidence", className: "bg-[#edf4f2] text-[#123f38]" },
   medium: { label: "Medium confidence", className: "bg-[#fff3d8] text-[#6d5526]" },
@@ -3730,10 +3909,11 @@ function IdentifyPhotoCard({ onPhoto, identifying }) {
 // Review screen for an identified photo: the picture beside the fields it
 // produced. Everything stays editable, and nothing reaches the collection until
 // the user submits.
-function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving }) {
-  const { item, photo, summary, conditionNotes, firstEditionValue, confidence } = draft;
+function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAddPhotos, onRemovePhoto, onReIdentify, identifying }) {
+  const { item, photos, summary, conditionNotes, firstEditionValue, confidence } = draft;
   const tone = confidenceTone[confidence] || confidenceTone.low;
   const setItem = (changes) => setDraft({ ...draft, item: { ...item, ...changes } });
+  const atPhotoLimit = photos.length >= 4;
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
@@ -3751,7 +3931,60 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving }) {
       <div className="mt-8 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-4">
           <Card className="overflow-hidden rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
-            <img src={photo.url} alt="The item you photographed" className="w-full object-cover" />
+            <img src={photos[0]?.url} alt="The item you photographed" className="w-full object-cover" />
+          </Card>
+
+          <Card className="rounded-[2rem] border-[#123f38]/25 bg-[#edf4f2] shadow-sm">
+            <CardContent className="p-6">
+              <h2 className="font-semibold">Add more photos for a better read</h2>
+              <p className="mt-2 text-sm leading-6 text-[#365c53]">
+                A cover alone can't prove an edition. Add the <span className="font-medium">copyright page</span>, the <span className="font-medium">number line</span>, or the <span className="font-medium">ISBN barcode</span> and re-check — that's what moves an edition from a guess to something you can stand behind.
+              </p>
+
+              {photos.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {photos.map((photo, index) => (
+                    <div key={photo.id} className="relative">
+                      <img src={photo.url} alt="" className="h-20 w-20 rounded-xl border border-[#cdbb9d] object-cover" />
+                      {index === 0 && (
+                        <span className="absolute -top-2 left-1 rounded-full bg-[#123f38] px-2 py-0.5 text-[10px] font-medium text-[#fff7ea]">Cover</span>
+                      )}
+                      {photos.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => onRemovePhoto(photo.id)}
+                          disabled={identifying || saving}
+                          aria-label="Remove this photo"
+                          className="absolute -right-2 -top-2 rounded-full bg-[#f0e2cf] p-1 text-[#665746] hover:bg-[#ead8bf] disabled:opacity-40"
+                        >
+                          <Icon name="x" size={12} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <label className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-5 text-sm font-medium text-[#665746] ${identifying || saving || atPhotoLimit ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-[#fff8ee]"}`}>
+                  <Icon name="camera" size={16} />
+                  {atPhotoLimit ? "4 photo limit reached" : "Add photos"}
+                  <input type="file" accept="image/*" capture="environment" multiple onChange={onAddPhotos} disabled={identifying || saving || atPhotoLimit} className="hidden" />
+                </label>
+                <Button
+                  type="button"
+                  onClick={onReIdentify}
+                  disabled={identifying || saving}
+                  className="h-11 flex-1 rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]"
+                >
+                  {identifying ? "Re-checking..." : `Re-check with ${photos.length} photo${photos.length === 1 ? "" : "s"}`}
+                </Button>
+              </div>
+
+              <p className="mt-3 text-xs leading-5 text-[#5c7d74]">
+                Re-checking replaces the identified fields above. Anything you typed yourself — cost basis, purchase date, source, notes — is kept.
+              </p>
+            </CardContent>
           </Card>
 
           <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
