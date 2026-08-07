@@ -917,6 +917,8 @@ export default function FirstFinderApp() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [pendingImport, setPendingImport] = useState(null);
   const [applyingImport, setApplyingImport] = useState(false);
+  const [identifying, setIdentifying] = useState(false);
+  const [identifyDraft, setIdentifyDraft] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1481,6 +1483,100 @@ export default function FirstFinderApp() {
     setInventory((items) => items.map((entry) => (entry.id === itemId ? fromDbItem(data) : entry)));
   }
 
+  // Sends one photo to the server route (which holds the API key) and turns the
+  // result into a pre-filled draft. Nothing is written to the collection here --
+  // the user reviews and edits everything on the next screen first.
+  async function handleIdentifyPhoto(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!currentUser) {
+      pushToast("Please log in before identifying a photo.", "error");
+      return;
+    }
+
+    setIdentifying(true);
+
+    try {
+      const compressed = await compressImage(file, 1400, 0.8);
+      const imageDataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Could not read that photo."));
+        reader.readAsDataURL(compressed);
+      });
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        pushToast("Please log in again before identifying a photo.", "error");
+        return;
+      }
+
+      const response = await fetch("/api/identify-book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ image: imageDataUrl })
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        pushToast(payload.error || "Couldn't identify that photo. Please try again.", "error");
+        return;
+      }
+
+      const result = payload.result || {};
+      trackEvent("photo_identified", { confidence: result.confidence || "unknown", category: result.category || "Other" });
+
+      setIdentifyDraft({
+        // Cost basis is deliberately left blank: only the collector knows what
+        // they actually paid, and guessing it would corrupt gain calculations.
+        item: {
+          ...emptyItem,
+          name: result.title || "",
+          maker: result.author || "",
+          category: result.category || "Book",
+          bookGenre: result.genre || "",
+          bookEdition: result.edition || "",
+          bookPrinting: result.printing || "",
+          condition: result.condition || "",
+          estimatedValue: Number(result.estimatedValue) > 0 ? String(result.estimatedValue) : "",
+          purchasePrice: "",
+          purchaseDate: todayIso()
+        },
+        photo: { id: `identify-${Date.now()}`, name: file.name, url: URL.createObjectURL(compressed), file: compressed },
+        firstEditionValue: Number(result.firstEditionFirstPrintingValue) || 0,
+        summary: result.summary || "",
+        conditionNotes: result.conditionNotes || "",
+        confidence: result.confidence || "low"
+      });
+      setActiveView("identify");
+    } catch (error) {
+      console.error("Identify photo error:", error.message);
+      pushToast(error.message || "Couldn't identify that photo. Please try again.", "error");
+    } finally {
+      setIdentifying(false);
+    }
+  }
+
+  async function saveIdentifiedItem() {
+    if (!identifyDraft) return;
+    const saved = await insertItemWithPhotos(identifyDraft.item, [identifyDraft.photo], [], "photo_identify");
+    if (!saved) return;
+
+    clearPhotoUrls([identifyDraft.photo]);
+    setIdentifyDraft(null);
+    setActiveView("inventory");
+  }
+
+  function discardIdentifyDraft() {
+    if (identifyDraft) clearPhotoUrls([identifyDraft.photo]);
+    setIdentifyDraft(null);
+    setActiveView("addItems");
+  }
+
   function downloadTemplate() {
     const csv = buildCsvTemplate();
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -1695,7 +1791,8 @@ export default function FirstFinderApp() {
       {activeView === "login" && <LoginPage />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} />}
-      {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
+      {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
+      {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} />}
       {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
       {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
@@ -2736,7 +2833,7 @@ function DeleteAccountDialog({ deleting, onCancel, onConfirm }) {
   );
 }
 
-function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, autofillMessage, onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
+function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onIdentifyPhoto, identifying, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, autofillMessage, onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
   return (
     <section className="mx-auto max-w-6xl px-6 py-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -2771,6 +2868,8 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
         <DashboardCard icon="receipt" label="Cost basis" value={formatCurrency(totalCostBasis)} />
         <DashboardCard icon="dollar" label="Est. gain/loss" value={formatCurrency(totalGain)} />
       </div>
+
+      <IdentifyPhotoCard onPhoto={onIdentifyPhoto} identifying={identifying} />
 
       <div id="quick-add-form" className="scroll-mt-24">
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
@@ -3592,6 +3691,144 @@ function DashboardPage({ inventory, onAddItems, onCollection }) {
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <TimeSeriesChart title="Items sold" buckets={sales} metric="count" color="#b07d2a" formatValue={wholeNumber} />
         <TimeSeriesChart title="Amount realized" buckets={sales} metric="amount" color="#b07d2a" formatValue={formatCurrency} />
+      </div>
+    </section>
+  );
+}
+
+const confidenceTone = {
+  high: { label: "High confidence", className: "bg-[#edf4f2] text-[#123f38]" },
+  medium: { label: "Medium confidence", className: "bg-[#fff3d8] text-[#6d5526]" },
+  low: { label: "Low confidence", className: "bg-[#fbf1ec] text-[#8a3b22]" }
+};
+
+// The entry point for photo identification. Sits between the summary cards and
+// the manual form, so the fast path is the first thing you see.
+function IdentifyPhotoCard({ onPhoto, identifying }) {
+  return (
+    <Card className="mt-8 rounded-[2rem] border-[#123f38]/25 bg-[#edf4f2] shadow-sm">
+      <CardContent className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between md:p-8">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#123f38]">
+            <Icon name="camera" size={14} /> Fastest way in
+          </div>
+          <h2 className="mt-3 text-2xl font-semibold">Take a picture, we'll fill in the rest.</h2>
+          <p className="mt-2 max-w-xl leading-7 text-[#365c53]">
+            Photograph the cover and we'll identify the title, edition, and a rough value, then hand you an editable draft. The photo is attached to the record. You'll still enter what you paid.
+          </p>
+        </div>
+        <label className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${identifying ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}>
+          <Icon name="camera" size={18} />
+          {identifying ? "Identifying..." : "Take or upload a photo"}
+          <input type="file" accept="image/*" capture="environment" onChange={onPhoto} disabled={identifying} className="hidden" />
+        </label>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Review screen for an identified photo: the picture beside the fields it
+// produced. Everything stays editable, and nothing reaches the collection until
+// the user submits.
+function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving }) {
+  const { item, photo, summary, conditionNotes, firstEditionValue, confidence } = draft;
+  const tone = confidenceTone[confidence] || confidenceTone.low;
+  const setItem = (changes) => setDraft({ ...draft, item: { ...item, ...changes } });
+
+  return (
+    <section className="mx-auto max-w-6xl px-6 py-12">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Review before saving</div>
+          <h1 className="mt-1 text-5xl font-semibold tracking-tight">Is this right?</h1>
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
+            Everything below was read from your photo and can be changed. Nothing is saved until you submit.
+          </p>
+        </div>
+        <span className={`inline-flex shrink-0 items-center rounded-full px-4 py-2 text-sm font-medium ${tone.className}`}>{tone.label}</span>
+      </div>
+
+      <div className="mt-8 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="space-y-4">
+          <Card className="overflow-hidden rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+            <img src={photo.url} alt="The item you photographed" className="w-full object-cover" />
+          </Card>
+
+          <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+            <CardContent className="p-6">
+              <h2 className="font-semibold">What this is</h2>
+              <p className="mt-3 leading-7 text-[#665746]">{summary || "No summary was returned for this photo."}</p>
+              {conditionNotes && (
+                <>
+                  <h3 className="mt-5 font-semibold">What condition does to the value</h3>
+                  <p className="mt-2 leading-7 text-[#665746]">{conditionNotes}</p>
+                </>
+              )}
+              <p className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">
+                These figures are an AI estimate from one photograph, not an appraisal. Check comparable sales before relying on them for insurance or a sale.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
+          <CardContent className="p-6 md:p-8">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Item name" value={item.name} onChange={(value) => setItem({ name: value })} />
+              <Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ maker: value })} />
+              <SelectField label="Category" value={item.category} options={quickCategories} onChange={(value) => setItem({ category: value })} />
+              <SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ condition: value })} />
+              {item.category === "Book" && (
+                <>
+                  <Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ bookGenre: value })} />
+                  <SelectField label="Edition" value={item.bookEdition} options={bookEditionOptions} placeholder="Select edition" onChange={(value) => setItem({ bookEdition: value })} />
+                  <SelectField label="Printing" value={item.bookPrinting} options={bookPrintingOptions} placeholder="Select printing" onChange={(value) => setItem({ bookPrinting: value })} />
+                </>
+              )}
+              <SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem({ status: value })} />
+              <Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ purchaseDate: value })} />
+              <Field label="Where purchased" value={item.source} onChange={(value) => setItem({ source: value })} />
+              <Field label="Cost basis (what you paid)" type="number" value={item.purchasePrice} onChange={(value) => setItem({ purchasePrice: value })} />
+              <Field label="Estimated value" type="number" value={item.estimatedValue} onChange={(value) => setItem({ estimatedValue: value })} />
+            </div>
+
+            <div className="mt-4">
+              <Field label="Notes" value={item.notes} onChange={(value) => setItem({ notes: value })} />
+            </div>
+
+            {firstEditionValue > 0 && (
+              <div className="mt-5 rounded-2xl bg-[#f7efe3] p-4">
+                <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">If it were a first edition, first printing</div>
+                <div className="mt-1 flex flex-wrap items-baseline gap-3">
+                  <span className="text-2xl font-semibold text-[#123f38]">{formatCurrency(firstEditionValue)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setItem({ estimatedValue: String(firstEditionValue) })}
+                    className="text-sm font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]"
+                  >
+                    Use this as the estimated value
+                  </button>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-[#665746]">
+                  Shown for comparison. Only apply it if you've confirmed the edition and printing yourself — a photo of the cover can't prove either.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-6 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">
+              Cost basis was left blank on purpose — only you know what you actually paid, and it drives your gain/loss.
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={onDiscard} disabled={saving} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+                Discard
+              </Button>
+              <Button type="button" onClick={onSubmit} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+                <Icon name="save" size={17} className="mr-2" /> {saving ? "Saving..." : "Add to my collection"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </section>
   );

@@ -14,6 +14,7 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 
 ### Cataloging and photos
 
+- Identify a collectible from a photo: take a picture, and the title, maker, edition, printing, condition, and a rough estimated value are filled in for review. Cost basis is deliberately left blank, and the photo is attached to the saved record.
 - Add a collectible through either a fast **Quick Add** form or a guided, tutorial-style flow.
 - Track books, trading cards, sports memorabilia, and other collectible categories.
 - Record an item's title, creator or maker, edition, status, condition (Near Fine/Fine, Very Good/Good, Fair, Poor), purchase date, source, purchase price, estimated value, and notes.
@@ -76,6 +77,24 @@ script run.
 
 Copy `.env.example` to `.env.local` and fill in your Supabase project's URL
 and anon key (Project Settings -> API in the Supabase dashboard).
+
+### Photo identification
+
+The "take a picture and fill in the fields" flow needs `OPENAI_API_KEY` set --
+it calls `app/api/identify-book`, a server-side route that sends the photo to a
+vision model and returns structured fields. The key is read only on the server
+and must never be prefixed with `NEXT_PUBLIC_`. `OPENAI_MODEL` optionally
+overrides the model.
+
+Every identification is a paid API call, so the route verifies the caller's
+Supabase session before spending anything, caps image size, and throttles per
+user (a few seconds between calls, 50 per day). That throttle lives in process
+memory, which on serverless means per-instance -- it stops runaway retries but
+is not a hard spend cap. A real cap needs a persisted per-user counter, which
+is worth adding before the app has many users.
+
+Values returned by this flow are model estimates from a single photograph, not
+appraisals, and the review screen says so.
 
 ### Delete-account feature
 
