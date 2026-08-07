@@ -1078,7 +1078,7 @@ export default function FirstFinderApp() {
     setItem({ ...emptyItem, ...sample });
     setItemPhotos([]);
     setReceiptPhotos([]);
-    setActiveView("add");
+    setActiveView("tutorial");
   }
 
   function resetFullForm() {
@@ -1635,8 +1635,8 @@ export default function FirstFinderApp() {
           {isLoggedIn ? (
             <>
               <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Dashboard</TabButton>
-              <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>Inventory ({activeInventory.length})</TabButton>
-              <TabButton active={activeView === "add"} onClick={() => setActiveView("add")}>Add Item</TabButton>
+              <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>My Collection ({activeInventory.length})</TabButton>
+              <TabButton active={activeView === "addItems"} onClick={() => setActiveView("addItems")}>Add Items</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
               <TabButton active={activeView === "feedback"} onClick={() => setActiveView("feedback")}>Feedback</TabButton>
@@ -1671,8 +1671,8 @@ export default function FirstFinderApp() {
             {isLoggedIn ? (
               <>
                 <MobileNavLink active={activeView === "dashboard"} onClick={() => go("dashboard")}>Dashboard</MobileNavLink>
-                <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>Inventory ({activeInventory.length})</MobileNavLink>
-                <MobileNavLink active={activeView === "add"} onClick={() => go("add")}>Add Item</MobileNavLink>
+                <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>My Collection ({activeInventory.length})</MobileNavLink>
+                <MobileNavLink active={activeView === "addItems"} onClick={() => go("addItems")}>Add Items</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
                 <MobileNavLink active={activeView === "feedback"} onClick={() => go("feedback")}>Feedback</MobileNavLink>
@@ -1689,17 +1689,20 @@ export default function FirstFinderApp() {
         </div>
       )}
 
-      {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "dashboard" : "login")} />}
+      {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
       {activeView === "about" && <AboutPage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
       {activeView === "login" && <LoginPage />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
-      {activeView === "dashboard" && isLoggedIn && <DashboardPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("add")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
-      {activeView === "add" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
-      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("dashboard")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
+      {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} />}
+      {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
+      {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
+      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
+
+      <SiteFooter isLoggedIn={isLoggedIn} onNavigate={go} />
 
       {pendingImport && (
         <BulkImportPreviewDialog
@@ -2733,7 +2736,7 @@ function DeleteAccountDialog({ deleting, onCancel, onConfirm }) {
   );
 }
 
-function DashboardPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, autofillMessage, onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
+function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, autofillMessage, onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
   return (
     <section className="mx-auto max-w-6xl px-6 py-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -3344,6 +3347,306 @@ function InsuranceExportPage({ items, onBack }) {
         ))}
       </div>
     </section>
+  );
+}
+
+const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function monthLabel(key) {
+  const [year, month] = key.split("-");
+  return `${monthNames[Number(month) - 1]} ${year.slice(2)}`;
+}
+
+// Buckets items by month on a given date field, filling in the months where
+// nothing happened. Empty months matter: collapsing them would turn an
+// 18-month gap into a single tick and misrepresent the pace of collecting.
+function monthlyBuckets(items, dateField, amountField) {
+  const rows = items
+    .filter((item) => /^\d{4}-\d{2}/.test(String(item[dateField] || "")))
+    .map((item) => ({ key: String(item[dateField]).slice(0, 7), amount: toNumber(item[amountField]) }));
+
+  if (rows.length === 0) return [];
+
+  const sorted = rows.map((row) => row.key).sort();
+  let [year, month] = sorted[0].split("-").map(Number);
+  const [lastYear, lastMonth] = sorted[sorted.length - 1].split("-").map(Number);
+
+  const buckets = [];
+  while ((year < lastYear || (year === lastYear && month <= lastMonth)) && buckets.length < 360) {
+    buckets.push({ key: `${year}-${String(month).padStart(2, "0")}`, count: 0, amount: 0 });
+    month += 1;
+    if (month > 12) { month = 1; year += 1; }
+  }
+
+  const byKey = new Map(buckets.map((bucket) => [bucket.key, bucket]));
+  rows.forEach((row) => {
+    const bucket = byKey.get(row.key);
+    if (!bucket) return;
+    bucket.count += 1;
+    bucket.amount += row.amount;
+  });
+
+  return buckets;
+}
+
+// Rounds the axis top up to a value whose halfway point is also a round number,
+// so the mid gridline's label is exact rather than a rounded approximation of
+// wherever the line happens to fall.
+function niceScaleMax(value, integerOnly) {
+  if (value <= 0) return integerOnly ? 2 : 1;
+  if (integerOnly) return Math.max(2, Math.ceil(value / 2) * 2);
+
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  const steps = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+  const step = steps.find((candidate) => candidate * magnitude >= value);
+  return (step ?? 10) * magnitude;
+}
+
+// Rounded only at the data end, anchored to the baseline.
+function barPath(x, y, width, height, radius) {
+  const r = Math.max(0, Math.min(radius, width / 2, height));
+  return `M${x},${y + height} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + width - r},${y} Q${x + width},${y} ${x + width},${y + r} L${x + width},${y + height} Z`;
+}
+
+// One measure over time. Deliberately one series per chart: volume and dollars
+// live on different scales, and putting them on one plot would need a second
+// y-axis, which invents a correlation that isn't in the data.
+function TimeSeriesChart({ title, buckets, metric, color, formatValue }) {
+  const values = buckets.map((bucket) => bucket[metric]);
+  const max = Math.max(...values, 0);
+
+  if (buckets.length === 0 || max <= 0) {
+    return (
+      <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+        <CardContent className="p-6">
+          <h3 className="font-semibold">{title}</h3>
+          <p className="mt-6 text-sm text-[#8a7a64]">Nothing to chart yet.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const width = 640;
+  // Headroom above the plot so the peak's direct label can't clip the top.
+  const plotTop = 24;
+  const plotBottom = 150;
+  const plotLeft = 52;
+  const plotRight = 632;
+  const plotWidth = plotRight - plotLeft;
+  const plotHeight = plotBottom - plotTop;
+
+  const scaleMax = niceScaleMax(max, metric === "count");
+  const slot = plotWidth / buckets.length;
+  // Capped so a collection with only a few months doesn't render as a row of
+  // heavy blocks. Thin marks read better and stay on-brand.
+  const barWidth = Math.max(2, Math.min(48, slot - 2));
+  const peakIndex = values.indexOf(max);
+
+  // Label the ends and the peak only. A number on every bar is unreadable.
+  const labelledTicks = new Set([0, buckets.length - 1, peakIndex]);
+
+  return (
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+      <CardContent className="p-6">
+        <h3 className="font-semibold">{title}</h3>
+
+        <svg viewBox={`0 0 ${width} 186`} className="mt-4 w-full" role="img" aria-label={title}>
+          {[0, 0.5, 1].map((fraction) => {
+            const y = plotBottom - fraction * plotHeight;
+            return (
+              <g key={fraction}>
+                <line x1={plotLeft} y1={y} x2={plotRight} y2={y} stroke="#e0d2bc" strokeWidth="1" />
+                <text x={plotLeft - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#8a7a64" style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {formatValue(scaleMax * fraction)}
+                </text>
+              </g>
+            );
+          })}
+
+          {buckets.map((bucket, index) => {
+            const value = bucket[metric];
+            const height = scaleMax > 0 ? (value / scaleMax) * plotHeight : 0;
+            const x = plotLeft + index * slot + (slot - barWidth) / 2;
+            const y = plotBottom - height;
+            return (
+              <g key={bucket.key}>
+                {height > 0 && <path d={barPath(x, y, barWidth, height, 4)} fill={color} />}
+                <title>{`${monthLabel(bucket.key)}: ${formatValue(value)}`}</title>
+                {index === peakIndex && height > 0 && (
+                  <text x={x + barWidth / 2} y={y - 6} textAnchor="middle" fontSize="11" fontWeight="600" fill="#201a14">
+                    {formatValue(value)}
+                  </text>
+                )}
+                {labelledTicks.has(index) && (
+                  <text x={x + barWidth / 2} y={plotBottom + 18} textAnchor="middle" fontSize="11" fill="#8a7a64">
+                    {monthLabel(bucket.key)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-[#8a7a64] hover:text-[#665746]">Table view</summary>
+          <div className="mt-2 max-h-48 overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-[#8a7a64]">
+                <tr><th className="py-1">Month</th><th className="py-1 text-right">{metric === "count" ? "Items" : "Amount"}</th></tr>
+              </thead>
+              <tbody>
+                {buckets.map((bucket) => (
+                  <tr key={bucket.key} className="border-t border-[#e0d2bc]">
+                    <td className="py-1">{monthLabel(bucket.key)}</td>
+                    <td className="py-1 text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{formatValue(bucket[metric])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatTile({ label, value, sublabel }) {
+  return (
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+      <CardContent className="p-6">
+        <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</div>
+        <div className="mt-2 text-3xl font-semibold text-[#201a14]">{value}</div>
+        {sublabel && <div className="mt-1 truncate text-sm text-[#665746]" title={sublabel}>{sublabel}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DashboardPage({ inventory, onAddItems, onCollection }) {
+  const sold = useMemo(() => inventory.filter((item) => item.status === "Sold"), [inventory]);
+  const held = useMemo(() => inventory.filter((item) => item.status !== "Sold"), [inventory]);
+
+  const topHeld = useMemo(
+    () => held.reduce((best, item) => (toNumber(item.estimatedValue) > toNumber(best?.estimatedValue ?? 0) ? item : best), null),
+    [held]
+  );
+  const topSold = useMemo(
+    () => sold.reduce((best, item) => (toNumber(item.soldPrice) > toNumber(best?.soldPrice ?? 0) ? item : best), null),
+    [sold]
+  );
+
+  const totalHeldValue = held.reduce((sum, item) => {
+    const value = itemValueForTotals(item);
+    return value === null ? sum : sum + value;
+  }, 0);
+  const totalSoldValue = sold.reduce((sum, item) => sum + toNumber(item.soldPrice), 0);
+
+  const acquisitions = useMemo(() => monthlyBuckets(inventory, "purchaseDate", "purchasePrice"), [inventory]);
+  const sales = useMemo(() => monthlyBuckets(sold, "soldDate", "soldPrice"), [sold]);
+
+  const wholeNumber = (value) => String(Math.round(value));
+
+  if (inventory.length === 0) {
+    return (
+      <section className="mx-auto max-w-6xl px-6 py-12">
+        <h1 className="text-5xl font-semibold tracking-tight">Dashboard.</h1>
+        <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+          <CardContent className="p-8 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name="dollar" size={26} /></div>
+            <h2 className="mt-5 text-2xl font-semibold">Nothing to show yet</h2>
+            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">Your dashboard fills in as you add items — what you hold, what you've sold, and how both change over time.</p>
+            <Button onClick={onAddItems} className="mt-6 h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add your first item</Button>
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mx-auto max-w-6xl px-6 py-12">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-5xl font-semibold tracking-tight">Dashboard.</h1>
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">What you hold, what you've sold, and how the collection has grown.</p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button variant="outline" onClick={onCollection} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">My Collection</Button>
+          <Button onClick={onAddItems} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add items</Button>
+        </div>
+      </div>
+
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile label="Most expensive held" value={topHeld ? formatCurrency(topHeld.estimatedValue) : "—"} sublabel={topHeld?.name || (held.length > 0 ? "No estimates yet" : "Nothing held")} />
+        <StatTile label="Most expensive sold" value={topSold ? formatCurrency(topSold.soldPrice) : "—"} sublabel={topSold?.name || "Nothing sold yet"} />
+        <StatTile label="Total value held" value={formatCurrency(totalHeldValue)} sublabel={`${held.length} item${held.length === 1 ? "" : "s"}`} />
+        <StatTile label="Total value sold" value={formatCurrency(totalSoldValue)} sublabel={`${sold.length} item${sold.length === 1 ? "" : "s"}`} />
+      </div>
+
+      <h2 className="mt-12 text-2xl font-semibold">Acquisitions over time</h2>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <TimeSeriesChart title="Items acquired" buckets={acquisitions} metric="count" color="#2f7d6b" formatValue={wholeNumber} />
+        <TimeSeriesChart title="Amount spent" buckets={acquisitions} metric="amount" color="#2f7d6b" formatValue={formatCurrency} />
+      </div>
+
+      <h2 className="mt-12 text-2xl font-semibold">Sales over time</h2>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <TimeSeriesChart title="Items sold" buckets={sales} metric="count" color="#b07d2a" formatValue={wholeNumber} />
+        <TimeSeriesChart title="Amount realized" buckets={sales} metric="amount" color="#b07d2a" formatValue={formatCurrency} />
+      </div>
+    </section>
+  );
+}
+
+function FooterLink({ children, onClick, href }) {
+  const className = "text-sm text-[#fff7ea]/70 transition hover:text-[#fff7ea]";
+  if (href) {
+    return <a href={href} className={className} target={href.startsWith("mailto:") ? undefined : "_blank"} rel="noopener noreferrer">{children}</a>;
+  }
+  return <button type="button" onClick={onClick} className={`${className} text-left`}>{children}</button>;
+}
+
+function SiteFooter({ isLoggedIn, onNavigate }) {
+  // Footer links to logged-in areas send signed-out visitors to log in rather
+  // than to a page that would render nothing.
+  const go = (view) => () => onNavigate(isLoggedIn ? view : "login");
+
+  return (
+    <footer className="mt-20 bg-[#123f38] text-[#fff7ea] print:hidden">
+      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-14 md:grid-cols-[1.5fr_1fr_1fr]">
+        <div>
+          <div className="flex items-center gap-3">
+            <img src="/firstfinder-mark-exact.png" alt="" className="h-9 w-9 rounded-lg object-cover" />
+            <div className="font-display text-xl font-semibold tracking-tight">FirstFinder</div>
+          </div>
+          <p className="mt-4 max-w-xs text-sm leading-6 text-[#fff7ea]/70">
+            Item photos, receipt proof, purchase details, and value — one ledger for the collection you swore you'd keep track of this time.
+          </p>
+          <p className="mt-6 text-xs text-[#fff7ea]/50" suppressHydrationWarning>
+            © {new Date().getFullYear()} FirstFinder. All rights reserved.
+          </p>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-[0.18em] text-[#fff7ea]/50">Features</div>
+          <div className="mt-4 flex flex-col gap-3">
+            <FooterLink onClick={go("tutorial")}>How to / Tutorial</FooterLink>
+            <FooterLink onClick={go("inventory")}>My Collection</FooterLink>
+            <FooterLink onClick={go("account")}>My Account</FooterLink>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-[0.18em] text-[#fff7ea]/50">Support</div>
+          <div className="mt-4 flex flex-col gap-3">
+            <FooterLink onClick={() => onNavigate("roadmap")}>Roadmap</FooterLink>
+            {isLoggedIn
+              ? <FooterLink onClick={() => onNavigate("feedback")}>Contact Support</FooterLink>
+              : <FooterLink href="mailto:thebookbarterer@gmail.com">Contact Support</FooterLink>}
+            <FooterLink href="mailto:thebookbarterer@gmail.com?subject=Business%20inquiry">Business Inquiries</FooterLink>
+          </div>
+        </div>
+      </div>
+    </footer>
   );
 }
 
