@@ -1528,14 +1528,19 @@ export default function FirstFinderApp() {
     trackEvent("photo_identified", {
       confidence: result.confidence || "unknown",
       category: result.category || "Other",
-      photo_count: photos.length
+      photo_count: photos.length,
+      comparable_count: Array.isArray(result.comparables) ? result.comparables.length : 0,
+      has_value_estimate: Number(result.estimatedValueLow) > 0 || Number(result.estimatedValueHigh) > 0
     });
     return result;
   }
 
   // Maps an identification result onto item fields. Only touches what the model
   // produces -- cost basis, purchase date, source, and notes belong to the user
-  // and survive a re-identification.
+  // and survive a re-identification. estimatedValue is deliberately left out:
+  // the result now carries a range plus its supporting comparables, and the
+  // user picks a number from that rather than the field being silently
+  // pre-filled with a point estimate the schema can no longer even produce.
   function identifiedFields(result) {
     return {
       name: result.title || "",
@@ -1544,9 +1549,19 @@ export default function FirstFinderApp() {
       bookGenre: result.genre || "",
       bookEdition: result.edition || "",
       bookPrinting: result.printing || "",
-      condition: result.condition || "",
-      estimatedValue: Number(result.estimatedValue) > 0 ? String(result.estimatedValue) : ""
+      condition: result.condition || ""
     };
+  }
+
+  // A model can return low > high, or one side missing, if search evidence
+  // was thin -- clamp rather than show a nonsensical range in the UI.
+  function toValueRange(result, lowKey, highKey) {
+    const low = Number(result[lowKey]) || 0;
+    const high = Number(result[highKey]) || 0;
+    if (low <= 0 && high <= 0) return null;
+    if (low <= 0) return { low: high, high };
+    if (high <= 0) return { low, high: low };
+    return low <= high ? { low, high } : { low: high, high: low };
   }
 
   async function handleIdentifyPhoto(event) {
@@ -1581,11 +1596,15 @@ export default function FirstFinderApp() {
       setIdentifyDraft({
         // Cost basis is deliberately left blank: only the collector knows what
         // they actually paid, and guessing it would corrupt gain calculations.
-        item: { ...emptyItem, ...identifiedFields(result), purchasePrice: "", purchaseDate: todayIso() },
+        item: { ...emptyItem, ...identifiedFields(result), estimatedValue: "", purchasePrice: "", purchaseDate: todayIso() },
         photos: [photo],
-        firstEditionValue: Number(result.firstEditionFirstPrintingValue) || 0,
+        valueRange: toValueRange(result, "estimatedValueLow", "estimatedValueHigh"),
+        firstEditionRange: toValueRange(result, "firstEditionFirstPrintingValueLow", "firstEditionFirstPrintingValueHigh"),
+        editionRationale: result.editionRationale || "",
         summary: result.summary || "",
         conditionNotes: result.conditionNotes || "",
+        comparables: Array.isArray(result.comparables) ? result.comparables : [],
+        citations: Array.isArray(result.citations) ? result.citations : [],
         confidence: result.confidence || "low"
       });
       setActiveView("identify");
@@ -1643,9 +1662,13 @@ export default function FirstFinderApp() {
       setIdentifyDraft((draft) => ({
         ...draft,
         item: { ...draft.item, ...identifiedFields(result) },
-        firstEditionValue: Number(result.firstEditionFirstPrintingValue) || 0,
+        valueRange: toValueRange(result, "estimatedValueLow", "estimatedValueHigh"),
+        firstEditionRange: toValueRange(result, "firstEditionFirstPrintingValueLow", "firstEditionFirstPrintingValueHigh"),
+        editionRationale: result.editionRationale || "",
         summary: result.summary || "",
         conditionNotes: result.conditionNotes || "",
+        comparables: Array.isArray(result.comparables) ? result.comparables : [],
+        citations: Array.isArray(result.citations) ? result.citations : [],
         confidence: result.confidence || "low"
       }));
       pushToast("Updated using all of your photos.", "success");
@@ -3800,8 +3823,9 @@ const identifyingSteps = [
   "Matching the title and author…",
   "Looking for edition points…",
   "Checking the number line…",
-  "Weighing the condition…",
-  "Estimating what it's worth…"
+  "Searching for comparable sales…",
+  "Weighing sold prices over asking prices…",
+  "Weighing the condition…"
 ];
 
 // Shown while the identification call is in flight. The photo the user just
@@ -3909,8 +3933,56 @@ function IdentifyPhotoCard({ onPhoto, identifying }) {
 // Review screen for an identified photo: the picture beside the fields it
 // produced. Everything stays editable, and nothing reaches the collection until
 // the user submits.
+const saleTypeLabel = {
+  sold: "Sold",
+  auction_result: "Auction result",
+  active_listing: "Asking price",
+  unknown: "Unclear"
+};
+
+// Asking prices get visually deprioritized -- they're the thing the model was
+// told not to lean on, so the UI shouldn't present them with equal weight to
+// an actual sale.
+const saleTypeTone = {
+  sold: "bg-[#edf4f2] text-[#123f38]",
+  auction_result: "bg-[#edf4f2] text-[#123f38]",
+  active_listing: "bg-[#f0e2cf] text-[#665746]",
+  unknown: "bg-[#f0e2cf] text-[#665746]"
+};
+
+function ValueRangeBlock({ label, range, onUseLow, onUseHigh, caveat }) {
+  if (!range) {
+    return (
+      <div className="rounded-2xl bg-[#f7efe3] p-4">
+        <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</div>
+        <p className="mt-1 text-sm leading-6 text-[#8a7a64]">No supported estimate — search didn't turn up usable comparables.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl bg-[#f7efe3] p-4">
+      <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</div>
+      <div className="mt-1 text-2xl font-semibold text-[#123f38]">
+        {range.low === range.high ? formatCurrency(range.low) : `${formatCurrency(range.low)}–${formatCurrency(range.high)}`}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+        <button type="button" onClick={onUseLow} className="text-sm font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+          Use {formatCurrency(range.low)}
+        </button>
+        {range.high !== range.low && (
+          <button type="button" onClick={onUseHigh} className="text-sm font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+            Use {formatCurrency(range.high)}
+          </button>
+        )}
+      </div>
+      {caveat && <p className="mt-2 text-sm leading-6 text-[#665746]">{caveat}</p>}
+    </div>
+  );
+}
+
 function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAddPhotos, onRemovePhoto, onReIdentify, identifying }) {
-  const { item, photos, summary, conditionNotes, firstEditionValue, confidence } = draft;
+  const { item, photos, summary, conditionNotes, valueRange, firstEditionRange, editionRationale, comparables, citations, confidence } = draft;
   const tone = confidenceTone[confidence] || confidenceTone.low;
   const setItem = (changes) => setDraft({ ...draft, item: { ...item, ...changes } });
   const atPhotoLimit = photos.length >= 4;
@@ -3991,6 +4063,12 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
             <CardContent className="p-6">
               <h2 className="font-semibold">What this is</h2>
               <p className="mt-3 leading-7 text-[#665746]">{summary || "No summary was returned for this photo."}</p>
+              {editionRationale && (
+                <>
+                  <h3 className="mt-5 font-semibold">Why this edition and printing</h3>
+                  <p className="mt-2 leading-7 text-[#665746]">{editionRationale}</p>
+                </>
+              )}
               {conditionNotes && (
                 <>
                   <h3 className="mt-5 font-semibold">What condition does to the value</h3>
@@ -3998,8 +4076,52 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
                 </>
               )}
               <p className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">
-                These figures are an AI estimate from one photograph, not an appraisal. Check comparable sales before relying on them for insurance or a sale.
+                These figures come from live web research, not a formal appraisal. Review the comparables below before relying on them for insurance or a sale.
               </p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+            <CardContent className="p-6">
+              <h2 className="font-semibold">Comparable sales</h2>
+              {comparables.length === 0 ? (
+                <p className="mt-3 text-sm leading-6 text-[#8a7a64]">No comparables were found for this specific edition and printing.</p>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {comparables.map((comp, index) => (
+                    <div key={`${comp.url}-${index}`} className="rounded-xl border border-[#e0d2bc] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <a href={comp.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+                          {comp.source || "Source"}
+                        </a>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${saleTypeTone[comp.saleType] || saleTypeTone.unknown}`}>
+                          {saleTypeLabel[comp.saleType] || "Unclear"}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-baseline gap-2 text-sm text-[#665746]">
+                        <span className="font-semibold text-[#201a14]">{formatCurrency(comp.price)}</span>
+                        {comp.date && <span>· {comp.date}</span>}
+                      </div>
+                      {comp.editionMatch && <p className="mt-1 text-xs leading-5 text-[#8a7a64]">{comp.editionMatch}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {citations.length > 0 && (
+                <>
+                  <h3 className="mt-5 text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Sources checked</h3>
+                  <ul className="mt-2 space-y-1">
+                    {citations.map((citation) => (
+                      <li key={citation.url}>
+                        <a href={citation.url} target="_blank" rel="noopener noreferrer" className="text-sm text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+                          {citation.title || citation.url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -4029,24 +4151,24 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
               <Field label="Notes" value={item.notes} onChange={(value) => setItem({ notes: value })} />
             </div>
 
-            {firstEditionValue > 0 && (
-              <div className="mt-5 rounded-2xl bg-[#f7efe3] p-4">
-                <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">If it were a first edition, first printing</div>
-                <div className="mt-1 flex flex-wrap items-baseline gap-3">
-                  <span className="text-2xl font-semibold text-[#123f38]">{formatCurrency(firstEditionValue)}</span>
-                  <button
-                    type="button"
-                    onClick={() => setItem({ estimatedValue: String(firstEditionValue) })}
-                    className="text-sm font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]"
-                  >
-                    Use this as the estimated value
-                  </button>
-                </div>
-                <p className="mt-2 text-sm leading-6 text-[#665746]">
-                  Shown for comparison. Only apply it if you've confirmed the edition and printing yourself — a photo of the cover can't prove either.
-                </p>
-              </div>
-            )}
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <ValueRangeBlock
+                label="Estimated value, as pictured"
+                range={valueRange}
+                onUseLow={() => setItem({ estimatedValue: String(valueRange.low) })}
+                onUseHigh={() => setItem({ estimatedValue: String(valueRange.high) })}
+              />
+              <ValueRangeBlock
+                label="If it were a first edition, first printing"
+                range={firstEditionRange}
+                onUseLow={() => setItem({ estimatedValue: String(firstEditionRange.low) })}
+                onUseHigh={() => setItem({ estimatedValue: String(firstEditionRange.high) })}
+                caveat="Only apply this if you've confirmed the edition and printing yourself — a cover photo alone can't prove either."
+              />
+            </div>
+            <p className="mt-3 text-xs leading-5 text-[#8a7a64]">
+              Neither figure fills in the Estimated value field automatically — pick a number from the range, or from the comparables below, and enter it yourself.
+            </p>
 
             <div className="mt-6 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">
               Cost basis was left blank on purpose — only you know what you actually paid, and it drives your gain/loss.
