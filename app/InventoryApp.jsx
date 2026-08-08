@@ -1485,14 +1485,7 @@ export default function FirstFinderApp() {
   }
 
   async function fileToPhoto(file) {
-    // Trimmed from 1400px -- smaller payload uploads and embeds faster, and
-    // this is still generous for reading a copyright page or number line in
-    // a normal, well-lit phone photo. This is a minor lever, not the main
-    // one: most of the wait is the web_search round trip itself, which is
-    // the actual cost of the valuation being grounded in real search results
-    // instead of a guess. Making that faster by searching less would trade
-    // back the accuracy the last change was for.
-    const compressed = await compressImage(file, 1200, 0.8);
+    const compressed = await compressImage(file, 1400, 0.8);
     return { id: `identify-${Date.now()}-${Math.random()}`, name: file.name, url: URL.createObjectURL(compressed), file: compressed };
   }
 
@@ -3842,7 +3835,7 @@ function IdentifyLoadingOverlay({ photos }) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setStep((current) => (current + 1) % identifyingSteps.length), 1200);
+    const timer = window.setInterval(() => setStep((current) => (current + 1) % identifyingSteps.length), 1700);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -3867,7 +3860,7 @@ function IdentifyLoadingOverlay({ photos }) {
               className="pointer-events-none absolute inset-x-0 h-24"
               style={{ background: "linear-gradient(to bottom, rgba(47,125,107,0), rgba(47,125,107,0.5), rgba(47,125,107,0))" }}
               animate={{ y: ["-30%", "130%"] }}
-              transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
+              transition={{ duration: 1.9, repeat: Infinity, ease: "easeInOut" }}
             />
           </div>
         )}
@@ -3899,7 +3892,7 @@ function IdentifyLoadingOverlay({ photos }) {
           <motion.div
             className="h-full w-1/3 rounded-full bg-[#2f7d6b]"
             animate={{ x: ["-110%", "320%"] }}
-            transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
           />
         </div>
 
