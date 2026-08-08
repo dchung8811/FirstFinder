@@ -3884,8 +3884,15 @@ function IdentifyLoadingOverlay({ photos }) {
 
         {/* Keyed so each message remounts and fades in. Deliberately not wrapped
             in AnimatePresence: with mode="wait" the enter animation could be
-            left un-run, leaving the message stuck at opacity 0. */}
-        <div className="mt-5 h-7 text-center">
+            left un-run, leaving the message stuck at opacity 0.
+            min-h-7, not a fixed h-7: h-7 is exactly one line at this text
+            size, so a longer message (e.g. "Weighing sold prices over
+            asking prices…") wrapping to two lines on a narrow phone
+            overflowed the fixed box and visually collided with the
+            progress bar directly below it. min-h-7 keeps short messages
+            compact but lets the box grow for a wrapped one, pushing the
+            progress bar down instead of overlapping it. */}
+        <div className="mt-5 min-h-7 text-center">
           <motion.div
             key={step}
             initial={{ opacity: 0, y: 8 }}
