@@ -1485,7 +1485,14 @@ export default function FirstFinderApp() {
   }
 
   async function fileToPhoto(file) {
-    const compressed = await compressImage(file, 1400, 0.8);
+    // Trimmed from 1400px -- smaller payload uploads and embeds faster, and
+    // this is still generous for reading a copyright page or number line in
+    // a normal, well-lit phone photo. This is a minor lever, not the main
+    // one: most of the wait is the web_search round trip itself, which is
+    // the actual cost of the valuation being grounded in real search results
+    // instead of a guess. Making that faster by searching less would trade
+    // back the accuracy the last change was for.
+    const compressed = await compressImage(file, 1200, 0.8);
     return { id: `identify-${Date.now()}-${Math.random()}`, name: file.name, url: URL.createObjectURL(compressed), file: compressed };
   }
 
@@ -3835,7 +3842,7 @@ function IdentifyLoadingOverlay({ photos }) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setStep((current) => (current + 1) % identifyingSteps.length), 1700);
+    const timer = window.setInterval(() => setStep((current) => (current + 1) % identifyingSteps.length), 1200);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -3849,13 +3856,18 @@ function IdentifyLoadingOverlay({ photos }) {
         className="w-full max-w-sm rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-6 shadow-2xl"
       >
         {cover && (
-          <div className="relative overflow-hidden rounded-2xl bg-black">
-            <img src={cover.url} alt="" className="max-h-72 w-full object-contain opacity-85" />
+          // Fixed aspect + object-cover rather than a max-height with
+          // object-contain: a portrait phone photo inside a variable-height
+          // box got scaled down to fit the height, leaving it much narrower
+          // than the card and boxed in by black bars on both sides. A fixed
+          // box that always fills works the same for portrait and landscape.
+          <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-black">
+            <img src={cover.url} alt="" className="h-full w-full object-cover opacity-85" />
             <motion.div
               className="pointer-events-none absolute inset-x-0 h-24"
               style={{ background: "linear-gradient(to bottom, rgba(47,125,107,0), rgba(47,125,107,0.5), rgba(47,125,107,0))" }}
               animate={{ y: ["-30%", "130%"] }}
-              transition={{ duration: 1.9, repeat: Infinity, ease: "easeInOut" }}
+              transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
             />
           </div>
         )}
@@ -3887,7 +3899,7 @@ function IdentifyLoadingOverlay({ photos }) {
           <motion.div
             className="h-full w-1/3 rounded-full bg-[#2f7d6b]"
             animate={{ x: ["-110%", "320%"] }}
-            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+            transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
           />
         </div>
 
