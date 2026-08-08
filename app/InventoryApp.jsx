@@ -1686,6 +1686,17 @@ export default function FirstFinderApp() {
     const saved = await insertItemWithPhotos(identifyDraft.item, identifyDraft.photos, [], "photo_identify");
     if (!saved) return;
 
+    // Separate from the generic inventory_item_submitted event (which every
+    // entry path fires) so this specific feature's completion rate -- click
+    // to submit -- can be read on its own rather than filtered out of a
+    // shared event.
+    trackEvent("identify_item_submitted", {
+      confidence: identifyDraft.confidence || "unknown",
+      category: identifyDraft.item.category || "Other",
+      photo_count: identifyDraft.photos.length,
+      has_estimated_value: hasValue(identifyDraft.item.estimatedValue)
+    });
+
     clearPhotoUrls(identifyDraft.photos);
     setIdentifyDraft(null);
     setActiveView("inventory");
@@ -2258,7 +2269,7 @@ function HomePage({ onGetStarted }) {
         <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
             <h1 className="font-display max-w-2xl text-5xl font-semibold leading-[1.02] tracking-tight text-[#201a14] md:text-[4.4rem]">
-              Inventory collectibles like you may actually sell them one day.
+              Catalogue collectibles like you may actually sell them one day.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-[#665746]">
               Item photos, receipt proof, purchase details, and value in one ledger — for the first editions, cards, and programs you swore you'd keep track of this time.
@@ -3925,7 +3936,10 @@ function IdentifyPhotoCard({ onPhoto, identifying }) {
             Photograph the cover and we'll identify the title, edition, and a rough value, then hand you an editable draft. The photo is attached to the record. You'll still enter what you paid.
           </p>
         </div>
-        <label className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${identifying ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}>
+        <label
+          onClick={() => trackEvent("identify_button_clicked", { source_page: "add_items" })}
+          className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${identifying ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}
+        >
           <Icon name="camera" size={18} />
           {identifying ? "Identifying..." : "Take or upload a photo"}
           <input type="file" accept="image/*" capture="environment" onChange={onPhoto} disabled={identifying} className="hidden" />
