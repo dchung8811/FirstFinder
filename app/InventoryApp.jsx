@@ -957,6 +957,17 @@ export default function FirstFinderApp() {
     trackEvent("view_changed", { view: activeView, auth_state: isLoggedIn ? "logged_in" : "logged_out" });
   }, [activeView, isLoggedIn]);
 
+  // Every "page" here is really just a conditional render inside the same
+  // scrollable document, so switching views doesn't get the scroll reset a
+  // real page navigation would. Most obvious from the footer, since those
+  // links are clicked from the bottom of the page and the next view then
+  // opens still scrolled to the bottom. Keyed on activeView like the
+  // tracking effect above, so it covers every way a view can change --
+  // footer, top nav, mobile nav, and in-page buttons -- not just the footer.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [activeView]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -3922,12 +3933,6 @@ function IdentifyLoadingOverlay({ photos }) {
   );
 }
 
-const confidenceTone = {
-  high: { label: "High confidence", className: "bg-[#edf4f2] text-[#123f38]" },
-  medium: { label: "Medium confidence", className: "bg-[#fff3d8] text-[#6d5526]" },
-  low: { label: "Low confidence", className: "bg-[#fbf1ec] text-[#8a3b22]" }
-};
-
 // The entry point for photo identification. Sits between the summary cards and
 // the manual form, so the fast path is the first thing you see.
 function IdentifyPhotoCard({ onPhoto, identifying }) {
@@ -4008,22 +4013,18 @@ function ValueRangeBlock({ label, range, onUseLow, onUseHigh, caveat }) {
 }
 
 function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAddPhotos, onRemovePhoto, onReIdentify, identifying }) {
-  const { item, photos, summary, conditionNotes, valueRange, firstEditionRange, editionRationale, comparables, citations, confidence } = draft;
-  const tone = confidenceTone[confidence] || confidenceTone.low;
+  const { item, photos, summary, conditionNotes, valueRange, firstEditionRange, editionRationale, comparables, citations } = draft;
   const setItem = (changes) => setDraft({ ...draft, item: { ...item, ...changes } });
   const atPhotoLimit = photos.length >= 4;
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Review before saving</div>
-          <h1 className="mt-1 text-5xl font-semibold tracking-tight">Is this right?</h1>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
-            Everything below was read from your photo and can be changed. Nothing is saved until you submit.
-          </p>
-        </div>
-        <span className={`inline-flex shrink-0 items-center rounded-full px-4 py-2 text-sm font-medium ${tone.className}`}>{tone.label}</span>
+      <div>
+        <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Review before saving</div>
+        <h1 className="mt-1 text-5xl font-semibold tracking-tight">Is this right?</h1>
+        <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
+          Everything below was read from your photo and can be changed. Nothing is saved until you submit.
+        </p>
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
