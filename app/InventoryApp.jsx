@@ -2992,7 +2992,7 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
             Quick Add
           </Button>
           <Button onClick={onInventory} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Inventory</Button>
-          <Button onClick={onFullAdd} variant="outline" className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Add Item</Button>
+          <Button onClick={onFullAdd} variant="outline" className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Tutorial</Button>
         </div>
       </div>
 
