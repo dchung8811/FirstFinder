@@ -2280,7 +2280,7 @@ function HomePage({ onGetStarted }) {
         <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
             <h1 className="font-display max-w-2xl text-5xl font-semibold leading-[1.02] tracking-tight text-[#201a14] md:text-[4.4rem]">
-              Catalogue collectibles like you may actually sell them one day.
+              All your favorite finds catalogued.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-[#665746]">
               Item photos, receipt proof, purchase details, and value in one ledger — for the first editions, cards, and programs you swore you'd keep track of this time.
