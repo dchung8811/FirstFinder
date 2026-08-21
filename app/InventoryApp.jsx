@@ -2150,84 +2150,25 @@ function AboutPage({ onGoToFeedback }) {
 // player appears on the homepage in place of the three-step strip's header.
 const demoVideoId = "3RTVD9LqoEI";
 
-// Plain <iframe src> embeds have no playback-rate control, so this loads
-// the YouTube IFrame API and calls setPlaybackRate once the player is
-// ready. Falls back to a normal embed if the API script fails to load.
+// A standard click-to-play embed: YouTube renders its own thumbnail and play
+// button, and the visitor starts it deliberately.
+//
+// Deliberately not autoplaying. This is a ~57 second walkthrough, not an
+// ambient background loop -- muted autoplay would drop people into the middle
+// of it with no context and no sound. Because the viewer is choosing to
+// watch, the player keeps its own controls (play/pause, scrub, speed,
+// fullscreen), which also means none of the previous chrome-hiding
+// workarounds are needed: no controls=0, no pointer-events-none, and no
+// oversized/offset crop to push YouTube's title bar out of frame. That crop
+// would now hide the control bar along the bottom edge.
 function DemoVideoPlayer({ videoId }) {
-  const iframeRef = useRef(null);
-
-  useEffect(() => {
-    if (!videoId || !iframeRef.current) return;
-
-    let cancelled = false;
-
-    function createPlayer() {
-      if (cancelled || !iframeRef.current || !window.YT?.Player) return;
-      new window.YT.Player(iframeRef.current, {
-        events: {
-          // Calling play/mute here too (not just via the URL's autoplay=1)
-          // makes playback start reliably -- a JS-triggered play on an
-          // already-muted player is allowed by every browser's autoplay
-          // policy, where the bare URL param is sometimes delayed or
-          // ignored. Starting reliably matters here beyond just seeing the
-          // video sooner: while the player sits paused waiting on autoplay,
-          // YouTube shows its own title bar and center play/pause/seek
-          // overlay -- the "youtube stuff" this is meant to avoid -- and
-          // that overlay isn't reachable through controls=0.
-          onReady: (event) => {
-            event.target.mute();
-            event.target.setPlaybackRate(1.5);
-            event.target.playVideo();
-          },
-          // Belt-and-suspenders loop: the loop=1/playlist URL params usually
-          // handle this alone, but restarting on ENDED covers players where
-          // that trick doesn't take.
-          onStateChange: (event) => {
-            if (event.data === window.YT.PlayerState.ENDED) {
-              event.target.seekTo(0);
-              event.target.playVideo();
-            }
-          }
-        }
-      });
-    }
-
-    if (window.YT?.Player) {
-      createPlayer();
-    } else {
-      const previousCallback = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => {
-        if (typeof previousCallback === "function") previousCallback();
-        createPlayer();
-      };
-
-      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-        const script = document.createElement("script");
-        script.src = "https://www.youtube.com/iframe_api";
-        document.body.appendChild(script);
-      }
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [videoId]);
-
   return (
     <iframe
-      ref={iframeRef}
-      // Pointer events off: this is a decorative, always-looping background
-      // clip, not a player the visitor is meant to pause, seek, or click
-      // into -- keeps hover from ever reaching YouTube's own overlay.
-      // Oversized and offset within the clipped parent (see the wrapper's
-      // overflow-hidden) because YouTube renders its title bar even with
-      // controls=0 and there's no param to turn it off -- this pushes it
-      // above the visible crop instead.
-      className="pointer-events-none absolute left-0 w-full"
-      style={{ top: "-12%", height: "124%" }}
-      src={`https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3`}
+      className="absolute inset-0 h-full w-full"
+      src={`https://www.youtube-nocookie.com/embed/${videoId}?rel=0&playsinline=1`}
       title="FirstFinder demo"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowFullScreen
     />
   );
 }
