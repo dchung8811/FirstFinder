@@ -182,43 +182,39 @@ never be prefixed with `NEXT_PUBLIC_` and is never sent to the browser.
 ### Feedback to GitHub issues
 
 The in-app feedback form writes to the `feedback` table, and
-`app/api/feedback-intake` triages each submission and files it as a GitHub issue
-as it arrives. There is no review step and no admin screen.
+`app/api/feedback-intake` files each submission as a GitHub issue as it arrives.
 
-Issues quote the user's report first, then a clearly-marked machine-written
-triage — type, severity, area, a suggested approach naming real files in this
-repo, open questions, and possible duplicates among the currently open issues.
-The footer says which half is which and never implies a maintainer read it.
+**Every submission becomes an issue.** Nothing classifies, scores, or summarizes
+it — no model is involved, and there is no review screen. The issue body is the
+user's report, quoted verbatim, and you triage it on GitHub the way you would
+any other issue. Issues are filed without labels, since labelling is part of
+that triage.
 
-Two kinds of submission are not filed. They stay in the `feedback` table with a
-`triage_status` saying why, readable in the Supabase table editor:
+The title is taken from the first line of the report. The footer records which
+feedback row it came from and says plainly that nobody has read or reproduced it
+yet.
 
-- **Not actionable** — greetings, test submissions, kind words. Marked
-  `dismissed`.
-- **Still looks personal after redaction** — the issue would be public and
-  permanently indexed, and nobody is going to read it first. Left `triaged`,
-  with the triage stored, so it can be filed by hand if it's worth it.
+Three things happen to a submission before it is filed:
 
-Anything that fails to file, or is past the per-user rate limit, stays there too.
+- **Personal details are masked.** Emails, phone numbers, street addresses, and
+  card-like numbers are replaced. The issue is public and permanently indexed,
+  and the person writing thought they were filling in a support form. ISBNs
+  survive, since they're the most useful thing a user can give you about a book.
+- **The text is defused, not trusted.** `@mentions` and `#123` cross-references
+  in a stranger's report would otherwise ping real people and link real issues,
+  so they're escaped, along with code fences that would break out of the quote.
+- **Screenshots stay private.** Attached photos remain in the private storage
+  bucket. The issue notes they exist; it doesn't publish them. The user id is
+  never selected by the route.
 
-Before a submission is filed or even sent to the model, the pipeline:
-
-- **Masks personal details.** Emails, phone numbers, street addresses, and
-  card-like numbers are replaced. ISBNs survive, since they're the most useful
-  thing a user can give you about a book.
-- **Treats the feedback as untrusted.** It's text a stranger wrote. The triage
-  prompt says so, and instructions embedded in feedback get reported rather than
-  followed. The model's label choices are filtered against an allowlist and its
-  duplicate references against the issues actually open, so neither can invent
-  repository state.
-- **Keeps screenshots private.** Attached photos stay in the private storage
-  bucket. The issue notes they exist; it doesn't publish them.
-- **Never publishes who sent it.** The user id is never selected by the route.
-
-Set `GITHUB_TOKEN` (write access to issues) and `OPENAI_API_KEY` and filing is
-on. `FEEDBACK_AUTO_FILE=false` turns it off; `FEEDBACK_AUTO_FILE_DAILY_LIMIT`
-(default 5) caps how many issues one person can file in 24 hours.
+Set `GITHUB_TOKEN` (write access to issues) and filing is on.
+`FEEDBACK_AUTO_FILE=false` turns it off; `FEEDBACK_AUTO_FILE_DAILY_LIMIT`
+(default 5) caps how many issues one person can file in 24 hours — with every
+submission filed, that cap is what protects the tracker.
 `GITHUB_PROJECT_NUMBER` optionally adds new issues to a project board.
+
+Anything not filed — rate-limited, or a GitHub failure — stays in the `feedback`
+table with a status saying why.
 
 ## Project structure
 
