@@ -10,8 +10,8 @@ import { createIssue, fetchOpenIssueTitles } from "../../../src/lib/feedbackGith
 // that flow already works), then calls this with the row's id. This route
 // verifies the caller actually owns that row, triages it, and files it.
 //
-// Two kinds of feedback are deliberately NOT filed, and are parked in the
-// review queue at /api/feedback-review instead:
+// Two kinds of feedback are deliberately NOT filed. They stay in the feedback
+// table with a triage_status saying why, readable in the Supabase table editor:
 //
 //   - anything triage judges not actionable. Feedback forms collect a steady
 //     trickle of "hi", test submissions, and kind words, and a repo whose
@@ -31,7 +31,7 @@ const MAX_ISSUE_TITLE_CHARS = 240;
 // One person can only put so many issues into a public repo per day. This is
 // the backstop against both a stuck retry loop and someone who works out that
 // the feedback box writes to a public tracker. Past the cap, feedback is still
-// saved and still reaches the review queue -- it just isn't filed unattended.
+// saved -- it just isn't filed.
 const AUTO_FILE_DAILY_LIMIT = Number(process.env.FEEDBACK_AUTO_FILE_DAILY_LIMIT) || 5;
 
 function autoFileEnabled() {
@@ -41,8 +41,7 @@ function autoFileEnabled() {
   return Boolean(process.env.GITHUB_TOKEN && process.env.OPENAI_API_KEY);
 }
 
-// Records why a piece of feedback was not filed, leaving it in the state the
-// review queue picks up. Never throws: the user's feedback is already saved,
+// Records why a piece of feedback was not filed. Never throws: the user's feedback is already saved,
 // and none of this is their problem.
 async function park(supabaseAdmin, id, status, reason) {
   try {
@@ -112,8 +111,7 @@ export async function POST(request) {
   }
 
   if (!autoFileEnabled()) {
-    // Nothing to do and nothing wrong: the feedback is saved and will show up
-    // in the review queue for a maintainer to triage by hand.
+    // Nothing to do and nothing wrong: the feedback is saved either way.
     return NextResponse.json({ filed: false, reason: "auto_file_disabled" });
   }
 
@@ -127,7 +125,7 @@ export async function POST(request) {
     .gte("created_at", since);
 
   if (!countError && (count || 0) > AUTO_FILE_DAILY_LIMIT) {
-    await park(supabaseAdmin, row.id, TRIAGE_STATUS.NEW, `Not auto-filed: more than ${AUTO_FILE_DAILY_LIMIT} submissions from this user in 24 hours.`);
+    await park(supabaseAdmin, row.id, TRIAGE_STATUS.NEW, `Not filed: more than ${AUTO_FILE_DAILY_LIMIT} submissions from this user in 24 hours.`);
     return NextResponse.json({ filed: false, reason: "rate_limited" });
   }
 
@@ -158,16 +156,18 @@ export async function POST(request) {
     })
     .eq("id", row.id);
 
-  // Not a bug report. Closed out rather than filed -- it stays readable in the
-  // review queue's Dismissed tab if you want to see what people are sending.
+  // Not a bug report -- a greeting, a test, or kind words. Marked dismissed
+  // rather than filed; still readable in the feedback table if you want to see
+  // what people are sending.
   if (!triage.actionable) {
     await park(supabaseAdmin, row.id, TRIAGE_STATUS.DISMISSED, null);
     return NextResponse.json({ filed: false, reason: "not_actionable" });
   }
 
-  // Real feedback, but something identifying survived redaction. Left triaged
-  // so it surfaces at the top of the review queue with the warning already
-  // attached, one click from being filed once you've read it.
+  // Real feedback, but something identifying survived redaction. Not filed:
+  // the issue would be public and permanent, and nobody is going to read it
+  // first. Left as `triaged` with the triage stored, so it can be filed by hand
+  // from the Supabase table if it turns out to be worth it.
   if (triage.containsPersonalInfo) {
     return NextResponse.json({ filed: false, reason: "needs_review" });
   }
@@ -191,7 +191,7 @@ export async function POST(request) {
     issue = await createIssue({ token: process.env.GITHUB_TOKEN, title, body: issueBody, labels: triage.labels });
   } catch (error) {
     console.error("Feedback intake publish error:", row.id, error.message);
-    await park(supabaseAdmin, row.id, TRIAGE_STATUS.TRIAGED, `Couldn't file automatically: ${error.message}`);
+    await park(supabaseAdmin, row.id, TRIAGE_STATUS.TRIAGED, `Couldn't file: ${error.message}`);
     return NextResponse.json({ filed: false, reason: "publish_failed" });
   }
 
@@ -206,8 +206,8 @@ export async function POST(request) {
     })
     .eq("id", row.id);
 
-  // The issue is live regardless. Log loudly, because a row that still looks
-  // unfiled is a row the review queue will offer to file a second time.
+  // The issue is live regardless -- log loudly so a row that still looks
+  // unfiled doesn't get filed a second time by hand.
   if (updateError) {
     console.error("Feedback intake bookkeeping error:", row.id, issue.url, updateError.message);
   }
