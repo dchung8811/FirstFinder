@@ -3196,11 +3196,17 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
         </div>
       )}
 
-      <div className="mt-5 flex items-center justify-between gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff8ee] p-2">
-        <div className="text-sm text-[#665746]">
+      {/* flex-wrap + shrink-0 on the toggle: TabButton is shrink-0, so when
+          this row ran out of width the toggle's own box was squeezed narrower
+          than the buttons inside it and they spilled past its rounded border.
+          Now the toggle keeps its natural width and drops to its own line
+          instead, and min-w-0 lets the label wrap rather than forcing the
+          overflow in the first place. */}
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff8ee] p-2">
+        <div className="min-w-0 text-sm text-[#665746]">
           Showing {statusView === "sold" ? "sold records" : "active inventory"}
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
+        <div className="flex shrink-0 items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
           <TabButton active={statusView === "active"} onClick={() => setStatusView("active")}>Active ({activeCount})</TabButton>
           <TabButton active={statusView === "sold"} onClick={() => setStatusView("sold")}>Sold ({soldCount})</TabButton>
         </div>
