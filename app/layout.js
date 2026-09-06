@@ -14,7 +14,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 const siteUrl = "https://firstfinder.app";
-const description = "Collectible inventory for people who keep the receipt.";
+const description = "A free, open-source catalog for collectors — not for shops. Photograph a find and get its edition, condition, and what copies like it actually sell for.";
 
 export const metadata = {
   metadataBase: new URL(siteUrl),

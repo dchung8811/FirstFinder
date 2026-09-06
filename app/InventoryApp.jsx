@@ -47,7 +47,7 @@ const sampleItems = [
     source: "Used bookstore",
     purchasePrice: "45",
     estimatedValue: "850",
-    notes: "Need to confirm jacket state. Receipt saved for cost basis."
+    notes: "Need to confirm jacket state. Receipt saved."
   },
   {
     name: "Beloved",
@@ -1025,7 +1025,7 @@ export default function FirstFinderApp() {
   }
 
   // Tracks every view the nav (desktop, mobile, or a same-page button like
-  // "Add inventory") switches to, so navigation doesn't need a manual
+  // "Add to collection") switches to, so navigation doesn't need a manual
   // trackEvent at every call site -- skips the initial mount, which isn't a
   // real navigation.
   const isFirstViewRenderRef = useRef(true);
@@ -1236,7 +1236,7 @@ export default function FirstFinderApp() {
   // the photo paths back on the row. Returns the final row, or null on failure.
   async function insertItemWithPhotos(sourceItem, itemPhotoList, receiptPhotoList, entryType) {
     if (!currentUser) {
-      pushToast("Please log in before saving inventory.", "error");
+      pushToast("Please log in before saving to your collection.", "error");
       return null;
     }
 
@@ -1303,7 +1303,7 @@ export default function FirstFinderApp() {
       if (failures.length > 0) {
         pushToast(`Item saved, but some photos failed to upload: ${failures.join(", ")}. Make sure the item-photos storage bucket is set up, then re-add the photos.`, "warning");
       } else {
-        pushToast("Saved to your inventory.", "success");
+        pushToast("Saved to your collection.", "success");
       }
 
       return finalRow;
@@ -1467,7 +1467,7 @@ export default function FirstFinderApp() {
 
   async function updateInventoryItem({ draft, newItemPhotos, newReceiptPhotos, removedItemPhotoPaths, removedReceiptPhotoPaths }) {
     if (!currentUser) {
-      pushToast("Please log in before saving inventory.", "error");
+      pushToast("Please log in before saving to your collection.", "error");
       return;
     }
 
@@ -1834,7 +1834,7 @@ export default function FirstFinderApp() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "firstfinder-inventory-template.csv";
+    link.download = "firstfinder-collection-template.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -1847,7 +1847,7 @@ export default function FirstFinderApp() {
 
     reader.onload = async () => {
       if (!currentUser) {
-        pushToast("Please log in before importing inventory.", "error");
+        pushToast("Please log in before importing a collection.", "error");
         return;
       }
 
@@ -1975,7 +1975,7 @@ export default function FirstFinderApp() {
 
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5 print:hidden">
         <button onClick={() => go(isLoggedIn ? "dashboard" : "home")} className="flex items-center gap-3 text-left">
-          <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 rounded-xl object-cover" /><div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Collectible inventory</div></div>
+          <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 rounded-xl object-cover" /><div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Your collection, catalogued</div></div>
         </button>
 
         <div className="hidden max-w-full items-center gap-1 overflow-x-auto rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1 md:flex">
@@ -2116,6 +2116,11 @@ const roadmapHorizons = [
         category: "Trust & Provenance",
         title: "Separate book & dust-jacket grades",
         text: "Grade the book and its dust jacket separately (e.g. VG/VG, NF/VG+), matching how booksellers actually describe first editions — the jacket wears differently and often carries most of the value."
+      },
+      {
+        category: "Discovery",
+        title: "A real want list",
+        text: "Give \"Wishlist\" its own view with a target price, instead of it being just another status buried in the collection tabs. Collecting is as much about the chase as the shelf, and right now FirstFinder only tracks the half you already own."
       }
     ]
   },
@@ -2128,11 +2133,6 @@ const roadmapHorizons = [
         category: "Trust & Provenance",
         title: "First-edition identification helper",
         text: "A per-book checklist for the points that actually prove a true first — number line, stated edition, issue points — the feature the FirstFinder name promises."
-      },
-      {
-        category: "Discovery",
-        title: "A real want list",
-        text: "Give \"Wishlist\" its own view with a target price, instead of it being just another status buried in the inventory tabs."
       },
       {
         category: "Cataloging",
@@ -2194,7 +2194,7 @@ const roadmapHorizons = [
       {
         category: "Valuation",
         title: "Value-over-time charting",
-        text: "Cost basis and realized sales are already tracked, so a value trend line is mostly a visualization problem once there's enough history per item."
+        text: "What you paid and what you sold for are already tracked, so a value trend line is mostly a visualization problem once there's enough history per item."
       }
     ]
   }
@@ -2644,6 +2644,20 @@ const aboutParagraphs = [
   "We're constantly improving the app and would love to hear your ideas. Thank you for being part of the journey."
 ];
 
+const aboutAudience = [
+  "The hobbyist whose collection outgrew a spreadsheet",
+  "Anyone who wants receipts, condition, and provenance kept together",
+  "Collectors who need a record their insurer or family could actually use",
+  "People who collect across categories — books, cards, comics, memorabilia"
+];
+
+const aboutNonAudience = [
+  "Booksellers and dealers running stock",
+  "Anyone who needs invoicing, consignment, or point of sale",
+  "Multi-user teams with shared accounts and permissions",
+  "Marketplace sellers looking for listing automation"
+];
+
 function AboutPage({ onGoToFeedback }) {
   return (
     <section className="mx-auto max-w-3xl px-6 py-16 md:py-20">
@@ -2655,6 +2669,43 @@ function AboutPage({ onGoToFeedback }) {
             {paragraph}
           </p>
         ))}
+      </div>
+
+      {/* Naming who FirstFinder isn't for is what makes the rest of this page
+          credible. Every feature decision gets weighed against the collector
+          described here, so it's worth stating plainly rather than leaving
+          people to infer it from the roadmap. */}
+      <div className="mt-14 rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-7 md:p-9">
+        <div className="font-ledger text-xs uppercase tracking-[0.2em] text-[#8a7a64]">Who FirstFinder is for</div>
+        <p className="mt-4 text-lg leading-8 text-[#665746]">
+          <span className="font-medium text-[#201a14]">The collector with forty books, not the shop with four thousand.</span>{" "}
+          FirstFinder is built for people who collect because they love it — who know the story of how each piece was
+          found, and who want that story kept somewhere better than a spreadsheet.
+        </p>
+        <div className="mt-6 grid gap-6 sm:grid-cols-2">
+          <div>
+            <div className="font-display text-lg font-semibold text-[#201a14]">Built for</div>
+            <ul className="mt-3 space-y-2 text-[#665746]">
+              {aboutAudience.map((line) => (
+                <li key={line} className="flex items-start gap-2 leading-7">
+                  <Icon name="check" size={15} className="mt-1.5 shrink-0 text-[#2f7d6b]" />
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="font-display text-lg font-semibold text-[#201a14]">Not built for</div>
+            <ul className="mt-3 space-y-2 text-[#665746]">
+              {aboutNonAudience.map((line) => (
+                <li key={line} className="flex items-start gap-2 leading-7">
+                  <Icon name="x" size={15} className="mt-1.5 shrink-0 text-[#b09a78]" />
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </div>
 
       <div className="mt-12 flex justify-center">
@@ -2716,7 +2767,7 @@ const termsSections = [
     paragraphs: [
       "You must be at least 13 years old to hold a FirstFinder account. If you are under the age of majority where you live, you may use FirstFinder only with a parent or guardian who agrees to these Terms on your behalf.",
       "Accounts belong to one person. Keep your password to yourself, don't reuse a password from somewhere else, and tell us promptly if you think someone has gotten into your account. You are responsible for what happens under it.",
-      "Give us accurate account information and keep it current. You can permanently delete your account, your inventory, and your stored photos at any time from My Account — you don't need to ask us first."
+      "Give us accurate account information and keep it current. You can permanently delete your account, your collection, and your stored photos at any time from My Account — you don't need to ask us first."
     ]
   },
   {
@@ -2918,98 +2969,57 @@ function TermsPage() {
   );
 }
 
-// Both home page films are served from /public rather than embedded from
-// YouTube. They are silent screen recordings -- every second of both audio
-// tracks measures as silence -- so muting them costs nothing, and self-hosting
-// is what makes a clean autoplaying loop possible at all: YouTube serves a
-// vertical clip through its Shorts player, which rests as a black rectangle
-// wearing the Shorts logo, a mute button and Like/Share until someone presses
-// play, with no frame of the video showing.
+// Drop a YouTube video id in here (e.g. "dQw4w9WgXcQ") and the demo video
+// player appears on the homepage in place of the three-step strip's header.
+const demoVideoId = "3RTVD9LqoEI";
+
+// A standard click-to-play embed: YouTube renders its own thumbnail and play
+// button, and the visitor starts it deliberately.
 //
-// preload="none" plus the observer below means neither file is fetched until
-// it is actually scrolled to, so a visitor who reads the hero and leaves pays
-// nothing for either one.
-const demoVideoSrc = "/firstfinder-demo.mp4";
-const demoVideoPoster = "/firstfinder-demo-poster.jpg";
-const aiFeatureVideoSrc = "/firstfinder-ai-feature.mp4";
-const aiFeatureVideoPoster = "/firstfinder-ai-feature-poster.jpg";
-
-// Plays while it is on screen and pauses when it is not, so a loop that has
-// scrolled away is not still decoding frames on someone's phone.
-function LoopingVideo({ src, poster, label, className = "" }) {
-  const videoRef = useRef(null);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Anyone who has asked their system to reduce motion gets the poster frame
-    // and real controls instead of a loop that starts on its own. The video is
-    // still here to watch -- it just waits to be asked.
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    if (reducedMotion?.matches) {
-      video.controls = true;
-      return;
-    }
-
-    if (typeof IntersectionObserver === "undefined") {
-      video.controls = true;
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          // play() rejects when the browser refuses autoplay outright -- iOS
-          // Low Power Mode is the usual reason. There is no recovery worth
-          // attempting, and the poster frame is a fine resting state, so
-          // swallow it rather than leave an unhandled rejection in the console.
-          video.play().catch(() => {});
-        } else {
-          video.pause();
-        }
-      },
-      // Low enough that a tall portrait clip on a short phone screen still
-      // counts as "on screen" -- a 0.5 threshold can never be met when the
-      // video is taller than the viewport.
-      { threshold: 0.25 }
-    );
-
-    observer.observe(video);
-    return () => observer.disconnect();
-  }, []);
-
+// Deliberately not autoplaying. This is a ~57 second walkthrough, not an
+// ambient background loop -- muted autoplay would drop people into the middle
+// of it with no context and no sound. Because the viewer is choosing to
+// watch, the player keeps its own controls (play/pause, scrub, speed,
+// fullscreen), which also means none of the previous chrome-hiding
+// workarounds are needed: no controls=0, no pointer-events-none, and no
+// oversized/offset crop to push YouTube's title bar out of frame. That crop
+// would now hide the control bar along the bottom edge.
+function DemoVideoPlayer({ videoId }) {
   return (
-    <video
-      ref={videoRef}
-      className={`absolute inset-0 h-full w-full object-cover ${className}`}
-      src={src}
-      poster={poster}
-      preload="none"
-      muted
-      loop
-      playsInline
-      aria-label={label}
+    <iframe
+      className="absolute inset-0 h-full w-full"
+      src={`https://www.youtube-nocookie.com/embed/${videoId}?rel=0&playsinline=1`}
+      title="FirstFinder demo"
+      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowFullScreen
     />
   );
 }
 
-function DemoVideoPlayer() {
-  return (
-    <LoopingVideo
-      src={demoVideoSrc}
-      poster={demoVideoPoster}
-      label="A walkthrough of cataloguing a collection in FirstFinder"
-    />
-  );
-}
+// The AI walkthrough is a YouTube Short, not the 16:9 demo film, so it gets a
+// phone-shaped frame -- letterboxing a portrait clip into a widescreen well
+// would leave it a thin strip between two black bars.
+//
+// Click to play, like the demo film above it, rather than a muted autoplaying
+// loop. Autoplay was the obvious fit for a silent 35-second screen recording,
+// but YouTube serves Shorts through its own player: with playback blocked (or
+// simply not yet started) the frame rests as a black rectangle wearing the
+// Shorts logo, a mute button, and Like/Share, and no frame of the video shows
+// at all. Left to click-to-play the same player rests on the video's own
+// thumbnail instead, which is the picture the section is here to show.
+const aiFeatureVideoId = "knGsP_J8VSI";
 
 function AiFeatureVideo() {
   return (
-    <LoopingVideo
-      src={aiFeatureVideoSrc}
-      poster={aiFeatureVideoPoster}
-      label="Identifying a book from a photo in FirstFinder"
+    <iframe
+      className="absolute inset-0 h-full w-full"
+      src={`https://www.youtube-nocookie.com/embed/${aiFeatureVideoId}?rel=0&playsinline=1`}
+      title="Identifying a book from a photo in FirstFinder"
+      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      // Nothing loads until the frame is near the viewport, so a visitor who
+      // never scrolls this far pays nothing for the embed.
+      loading="lazy"
+      allowFullScreen
     />
   );
 }
@@ -3049,12 +3059,6 @@ function SpecimenCard({ index, kind, title, detail, paid, value, chips, classNam
   );
 }
 
-// Quoted in two places -- the home page section and the card inside the app --
-// and it must match IDENTIFY_DAILY_LIMIT in app/api/identify-book/route.js,
-// which is the only place it is actually enforced. This constant is copy, not
-// a limit.
-const identifyDailyLimitCopy = 2;
-
 // Deliberately narrow claims: the identification is grounded in a real search
 // for comparable sales and every field lands in an editable draft, so the copy
 // promises a head start rather than an answer.
@@ -3069,7 +3073,7 @@ function HomePage({ onGetStarted }) {
   const steps = [
     { number: "01", icon: "camera", title: "Snap it", text: "Photograph the item and the receipt the day it comes home. Proof beats memory." },
     { number: "02", icon: "file", title: "Log it", text: "Edition points, condition, where you found it, what you paid. Thirty seconds per item." },
-    { number: "03", icon: "dollar", title: "Track it", text: "Cost basis, estimated value, and what actually changed when you sold." }
+    { number: "03", icon: "dollar", title: "Track it", text: "What you paid, what it's worth now, and how that changed if you ever let it go." }
   ];
 
   return (
@@ -3188,14 +3192,6 @@ function HomePage({ onGetStarted }) {
               <Button variant="outline" onClick={onGetStarted} className="h-12 border-transparent px-7 text-base">
                 Try it on your next find <Icon name="arrow" size={18} className="ml-1" />
               </Button>
-              {/* Said plainly and up front rather than discovered on the third
-                  attempt. Every identification is a search-grounded model call
-                  with a real per-call cost on a self-funded app, and a cap
-                  someone runs into unwarned reads as the feature being broken. */}
-              <p className="mt-5 max-w-md text-sm leading-6 text-[#a9c4bd]">
-                {identifyDailyLimitCopy} identifications per account per day. Each one is a paid, search-grounded
-                API call, so it's capped — and it can pause altogether if the budget runs out.
-              </p>
             </div>
           </div>
         </div>
@@ -3205,12 +3201,18 @@ function HomePage({ onGetStarted }) {
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
           <div className="mx-auto max-w-3xl">
             <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in 60 seconds.</h2>
-            {/* aspect-[1152/720], not aspect-video: the recording is 16:10, and
-                cropping it to 16:9 would shave the top and bottom off a screen
-                capture whose edges are the app's own chrome. */}
-            <div className="relative mt-8 aspect-[1152/720] w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
-              <DemoVideoPlayer />
-            </div>
+            {demoVideoId ? (
+              <div className="relative mt-8 aspect-video w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
+                <DemoVideoPlayer videoId={demoVideoId} />
+              </div>
+            ) : (
+              <div className="mt-8 flex aspect-video w-full flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl border border-[#d3c1a4] bg-[#123f38] shadow-xl">
+                <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#fff7ea]/40 text-[#fff7ea]">
+                  <Icon name="play" size={26} className="ml-1" />
+                </span>
+                <div className="font-ledger text-xs uppercase tracking-[0.24em] text-[#d8e6e2]">Demo film · Coming soon</div>
+              </div>
+            )}
           </div>
 
           <div className="mt-12 grid gap-6 md:grid-cols-3">
@@ -3240,7 +3242,7 @@ function HomePage({ onGetStarted }) {
 const authModeCopy = {
   signin: {
     heading: "Log in to your collection.",
-    sub: "Sign in with Google or use your email and password to access your collectible inventory.",
+    sub: "Sign in with Google or use your email and password to get back to your collection.",
     formTitle: "Email and password",
     formSub: "Log in with the email and password you signed up with.",
     submit: "Log in",
@@ -3248,7 +3250,7 @@ const authModeCopy = {
   },
   signup: {
     heading: "Start your collection.",
-    sub: "Create a free account to track item photos, receipts, cost basis, and estimated values.",
+    sub: "Create a free account to track item photos, receipts, what you paid, and what it's worth now.",
     formTitle: "Create your account",
     formSub: "Sign up with your email and a password of at least 8 characters.",
     submit: "Create account",
@@ -3894,15 +3896,15 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
           >
             Quick Add
           </Button>
-          <Button onClick={onInventory} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Inventory</Button>
+          <Button onClick={onInventory} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">My Collection</Button>
           <Button onClick={onFullAdd} variant="outline" className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Tutorial</Button>
         </div>
       </div>
 
       <div className="mt-8 grid gap-4 md:grid-cols-3">
-        <DashboardCard icon="box" label="Active inventory" value={inventory.length} />
-        <DashboardCard icon="receipt" label="Cost basis" value={formatCurrency(totalCostBasis)} />
-        <DashboardCard icon="dollar" label="Est. gain/loss" value={formatCurrency(totalGain)} />
+        <DashboardCard icon="box" label="In your collection" value={inventory.length} />
+        <DashboardCard icon="receipt" label="What you paid" value={formatCurrency(totalCostBasis)} />
+        <DashboardCard icon="dollar" label="Change in value" value={formatCurrency(totalGain)} />
       </div>
 
       <IdentifyPhotoCard onPhoto={onIdentifyPhoto} identifying={identifying} />
@@ -3921,7 +3923,7 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
             <div className="mt-6 grid gap-3 md:grid-cols-4">
               <Field label="Item name" value={quickItem.name} onChange={(value) => setQuickItem({ ...quickItem, name: value })} />
               <SelectField label="Category" value={quickItem.category} options={quickCategories} onChange={(value) => setQuickItem({ ...quickItem, category: value })} />
-              <Field label="Cost basis" type="number" value={quickItem.purchasePrice} onChange={(value) => setQuickItem({ ...quickItem, purchasePrice: value })} />
+              <Field label="What you paid" type="number" value={quickItem.purchasePrice} onChange={(value) => setQuickItem({ ...quickItem, purchasePrice: value })} />
               <Field
                 label={quickItem.status === "Sold" ? "Sold for" : "Estimated value"}
                 type="number"
@@ -3974,7 +3976,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:py-16">
       <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
-      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><SelectField label="Edition" value={item.bookEdition} options={bookEditionOptions} placeholder="Select edition" onChange={(value) => setItem({ ...item, bookEdition: value })} /><SelectField label="Printing" value={item.bookPrinting} options={bookPrintingOptions} placeholder="Select printing" onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ ...item, condition: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="Cost basis / purchase price" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill cost basis." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} has a cost basis of {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>an estimated value of {formatEstimatedValue(item)}. Current estimated gain/loss is {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want documentation for cost basis later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to inventory"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
+      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><SelectField label="Edition" value={item.bookEdition} options={bookEditionOptions} placeholder="Select edition" onChange={(value) => setItem({ ...item, bookEdition: value })} /><SelectField label="Printing" value={item.bookPrinting} options={bookPrintingOptions} placeholder="Select printing" onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ ...item, condition: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="What you paid" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill what you paid." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} cost you {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>is worth an estimated {formatEstimatedValue(item)}. That's a change of {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want to be able to prove what you paid later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to collection"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
     </section>
   );
 }
@@ -4057,22 +4059,22 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
           <h1 className="text-5xl font-semibold tracking-tight">{statusView === "sold" ? "Sold collectibles" : "Your active collectibles"}</h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
             {statusView === "sold"
-              ? "Sold items stay preserved here for reporting, resale history, and cost-basis records."
-              : "Sold items are removed from active inventory counts and moved into the Sold tab."}
+              ? "Sold items stay preserved here, with what you paid and what you got for them."
+              : "Sold items move out of these counts and into the Sold tab."}
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button variant="outline" onClick={() => { trackEvent("insurance_export_viewed"); onExport(); }} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export for insurance</Button>
-          <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add inventory</Button>
+          <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add to collection</Button>
         </div>
       </div>
 
       {bulkMessage && <div className="mt-6 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}
 
       <div className="mt-8 grid gap-4 md:grid-cols-3">
-        <DashboardCard icon="receipt" label={isSoldView ? "Sold cost basis" : "Active cost basis"} value={formatCurrency(totalCostBasis)} />
-        <DashboardCard icon="dollar" label={isSoldView ? "Sold for (total)" : "Active estimated value"} value={formatCurrency(totalEstimatedValue)} />
-        <DashboardCard icon="search" label={isSoldView ? "Realized gain/loss" : "Active est. gain/loss"} value={formatCurrency(totalGain)} />
+        <DashboardCard icon="receipt" label="What you paid" value={formatCurrency(totalCostBasis)} />
+        <DashboardCard icon="dollar" label={isSoldView ? "Sold for (total)" : "Estimated value"} value={formatCurrency(totalEstimatedValue)} />
+        <DashboardCard icon="search" label={isSoldView ? "Realized gain/loss" : "Change in value"} value={formatCurrency(totalGain)} />
       </div>
 
       <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto_auto]">
@@ -4155,7 +4157,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
           overflow in the first place. */}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff8ee] px-4 py-3">
         <div className="min-w-0 text-sm text-[#665746]">
-          Showing {statusView === "sold" ? "sold records" : "active inventory"}
+          Showing {statusView === "sold" ? "sold records" : "your active collection"}
         </div>
         <div className="flex shrink-0 items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
           <TabButton active={statusView === "active"} onClick={() => setStatusView("active")}>Active ({activeCount})</TabButton>
@@ -4167,7 +4169,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
           <CardContent className="p-8 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name="receipt" size={26} /></div>
-            <h2 className="mt-5 text-2xl font-semibold">No active inventory</h2>
+            <h2 className="mt-5 text-2xl font-semibold">Nothing in your collection yet</h2>
             <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">Add an item or import a CSV to start building your cost-basis record.</p>
           </CardContent>
         </Card>
@@ -4218,7 +4220,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                     </td>
                     <td className="px-5 py-4">
                       <InlineCell
-                        label="cost basis"
+                        label="what you paid"
                         type="number"
                         value={entry.purchasePrice}
                         display={formatCurrency(entry.purchasePrice)}
@@ -4247,7 +4249,7 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                         ) : (
                           <Button variant="outline" onClick={() => setPendingMarkSold(entry)} className="px-4 py-2">Sold</Button>
                         )}
-                        <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "inventory item"}`}><Icon name="trash" size={17} /></button>
+                        <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "this item"}`}><Icon name="trash" size={17} /></button>
                       </div>
                     </td>
                   </tr>
@@ -4270,13 +4272,13 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
                     <h2 className="mt-3 text-2xl font-semibold">{entry.name || "Untitled item"}</h2>
                     <p className="text-[#665746]">{entry.maker || "Unknown maker"}</p>
                   </div>
-                  <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "inventory item"}`}><Icon name="trash" size={17} /></button>
+                  <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "this item"}`}><Icon name="trash" size={17} /></button>
                 </div>
 
                 <div className="mt-5 grid gap-3 md:grid-cols-3">
-                  <SmallMetric label="Cost" value={formatCurrency(entry.purchasePrice)} />
+                  <SmallMetric label="Paid" value={formatCurrency(entry.purchasePrice)} />
                   <SmallMetric label="Value" value={formatEstimatedValue(entry)} />
-                  <SmallMetric label="Gain" value={formatGain(calculateGain(entry))} />
+                  <SmallMetric label="Change" value={formatGain(calculateGain(entry))} />
                 </div>
 
                 {entry.status === "Sold" && hasValue(entry.soldPrice) && (
@@ -4379,7 +4381,7 @@ function InsuranceExportPage({ items, onBack }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "firstfinder-inventory-export.csv";
+    link.download = "firstfinder-collection-export.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -4389,10 +4391,10 @@ function InsuranceExportPage({ items, onBack }) {
       <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-4xl font-semibold tracking-tight">Collection report.</h1>
-          <p className="mt-2 max-w-xl text-[#665746]">A printable summary of your active inventory — for insurance, estate planning, or your own records. Use your browser's print dialog to save it as a PDF, or export the raw data as a CSV (photos aren't included in the CSV).</p>
+          <p className="mt-2 max-w-xl text-[#665746]">A printable summary of your active collection — for insurance, estate planning, or your own records. Use your browser's print dialog to save it as a PDF, or export the raw data as a CSV (photos aren't included in the CSV).</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Button variant="outline" onClick={onBack} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Back to inventory</Button>
+          <Button variant="outline" onClick={onBack} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Back to collection</Button>
           <Button variant="outline" onClick={handleExportCsv} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export as CSV</Button>
           <Button onClick={() => { trackEvent("insurance_export_printed", { item_count: items.length }); window.print(); }} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="file" size={16} className="mr-2" /> Print / Save as PDF</Button>
         </div>
@@ -4663,6 +4665,74 @@ function StatTile({ label, value, sublabel }) {
   );
 }
 
+// The dashboard opens on the collection itself, not on its balance sheet.
+// Six most recent finds, newest first, using each item's first photo. Items
+// without a photo are skipped rather than shown as empty frames -- a gap in
+// the strip reads as a bug, a shorter strip doesn't.
+function RecentFinds({ inventory, onCollection }) {
+  const recent = useMemo(
+    () =>
+      [...inventory]
+        .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
+        .filter((item) => (item.itemPhotos || []).some((photo) => photo.path || photo.url))
+        .slice(0, 6),
+    [inventory]
+  );
+
+  const [covers, setCovers] = useState([]);
+
+  useEffect(() => {
+    if (recent.length === 0) {
+      setCovers([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    // One signed-URL round trip for the whole strip rather than one per
+    // thumbnail: these expire in an hour, so they can't be cached with the row.
+    fetchSignedPhotoUrls(recent.map((item) => (item.itemPhotos || []).find((photo) => photo.path || photo.url))).then(
+      (photos) => {
+        if (cancelled) return;
+        setCovers(recent.map((item, index) => ({ item, url: photos[index]?.url })).filter((cover) => cover.url));
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [recent]);
+
+  if (covers.length === 0) return null;
+
+  return (
+    <div className="mt-8">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-2xl font-semibold">Recent finds</h2>
+        <button type="button" onClick={onCollection} className="text-sm font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+          See everything
+        </button>
+      </div>
+      <div className="mt-4 flex gap-4 overflow-x-auto pb-2">
+        {covers.map(({ item, url }) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={onCollection}
+            className="group w-32 shrink-0 text-left"
+          >
+            <div className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3]">
+              <img src={url} alt="" className="aspect-[3/4] w-full object-cover transition group-hover:opacity-90" />
+            </div>
+            <div className="mt-2 truncate text-sm font-medium" title={item.name || "Untitled item"}>{item.name || "Untitled item"}</div>
+            <div className="truncate text-xs text-[#7d6c5a]" title={item.maker || ""}>{item.maker || "Unknown maker"}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DashboardPage({ inventory, onAddItems, onCollection }) {
   const sold = useMemo(() => inventory.filter((item) => item.status === "Sold"), [inventory]);
   const held = useMemo(() => inventory.filter((item) => item.status !== "Sold"), [inventory]);
@@ -4682,6 +4752,11 @@ function DashboardPage({ inventory, onAddItems, onCollection }) {
   }, 0);
   const totalSoldValue = sold.reduce((sum, item) => sum + toNumber(item.soldPrice), 0);
 
+  const categoryCount = useMemo(
+    () => new Set(held.map((item) => item.category).filter(Boolean)).size,
+    [held]
+  );
+
   const acquisitions = useMemo(() => monthlyBuckets(inventory, "purchaseDate", "purchasePrice"), [inventory]);
   const sales = useMemo(() => monthlyBuckets(sold, "soldDate", "soldPrice"), [sold]);
 
@@ -4690,13 +4765,13 @@ function DashboardPage({ inventory, onAddItems, onCollection }) {
   if (inventory.length === 0) {
     return (
       <section className="mx-auto max-w-6xl px-6 py-12">
-        <h1 className="text-5xl font-semibold tracking-tight">Dashboard.</h1>
+        <h1 className="text-5xl font-semibold tracking-tight">Your collection.</h1>
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
           <CardContent className="p-8 text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name="dollar" size={26} /></div>
-            <h2 className="mt-5 text-2xl font-semibold">Nothing to show yet</h2>
-            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">Your dashboard fills in as you add items — what you hold, what you've sold, and how both change over time.</p>
-            <Button onClick={onAddItems} className="mt-6 h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add your first item</Button>
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name="camera" size={26} /></div>
+            <h2 className="mt-5 text-2xl font-semibold">Nothing catalogued yet</h2>
+            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">This page fills in as you add finds — what you have, what it's worth, and how the collection has grown.</p>
+            <Button onClick={onAddItems} className="mt-6 h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add your first find</Button>
           </CardContent>
         </Card>
       </section>
@@ -4707,23 +4782,32 @@ function DashboardPage({ inventory, onAddItems, onCollection }) {
     <section className="mx-auto max-w-6xl px-6 py-12">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-5xl font-semibold tracking-tight">Dashboard.</h1>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">What you hold, what you've sold, and how the collection has grown.</p>
+          <h1 className="text-5xl font-semibold tracking-tight">Your collection.</h1>
+          {/* Leads with the shelf, not the ledger: how much is here and how
+              varied it is, before any figure with a dollar sign on it. */}
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
+            {held.length} item{held.length === 1 ? "" : "s"}
+            {categoryCount > 1 ? ` across ${categoryCount} categories` : ""}
+            {sold.length > 0 ? `, plus ${sold.length} you've since let go` : ""}.
+          </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Button variant="outline" onClick={onCollection} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">My Collection</Button>
-          <Button onClick={onAddItems} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add items</Button>
+          <Button variant="outline" onClick={onCollection} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Browse all</Button>
+          <Button onClick={onAddItems} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add a find</Button>
         </div>
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Most expensive held" value={topHeld ? formatCurrency(topHeld.estimatedValue) : "—"} sublabel={topHeld?.name || (held.length > 0 ? "No estimates yet" : "Nothing held")} />
-        <StatTile label="Most expensive sold" value={topSold ? formatCurrency(topSold.soldPrice) : "—"} sublabel={topSold?.name || "Nothing sold yet"} />
+      <RecentFinds inventory={inventory} onCollection={onCollection} />
+
+      <h2 className="mt-12 text-2xl font-semibold">What it's worth</h2>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Total value held" value={formatCurrency(totalHeldValue)} sublabel={`${held.length} item${held.length === 1 ? "" : "s"}`} />
+        <StatTile label="Most expensive held" value={topHeld ? formatCurrency(topHeld.estimatedValue) : "—"} sublabel={topHeld?.name || (held.length > 0 ? "No estimates yet" : "Nothing held")} />
         <StatTile label="Total value sold" value={formatCurrency(totalSoldValue)} sublabel={`${sold.length} item${sold.length === 1 ? "" : "s"}`} />
+        <StatTile label="Most expensive sold" value={topSold ? formatCurrency(topSold.soldPrice) : "—"} sublabel={topSold?.name || "Nothing sold yet"} />
       </div>
 
-      <h2 className="mt-12 text-2xl font-semibold">Acquisitions over time</h2>
+      <h2 className="mt-12 text-2xl font-semibold">How it's grown</h2>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <TimeSeriesChart title="Items acquired" buckets={acquisitions} metric="count" color="#2f7d6b" formatValue={wholeNumber} />
         <TimeSeriesChart title="Amount spent" buckets={acquisitions} metric="amount" color="#2f7d6b" formatValue={formatCurrency} />
@@ -4844,11 +4928,6 @@ function IdentifyPhotoCard({ onPhoto, identifying }) {
           <h2 className="mt-3 text-2xl font-semibold">Take a picture, we'll fill in the rest.</h2>
           <p className="mt-2 max-w-xl leading-7 text-[#365c53]">
             Photograph the cover and we'll identify the title, edition, and a rough value, then hand you an editable draft. The photo is attached to the record. You'll still enter what you paid.
-          </p>
-          {/* Stated before the button, not after the refusal. */}
-          <p className="mt-3 max-w-xl text-sm leading-6 text-[#5c7a72]">
-            Limited to {identifyDailyLimitCopy} identifications a day per account, and they can pause if the budget
-            runs out — each one is a live, search-grounded API call, and this is a self-funded app.
           </p>
         </div>
         <label
@@ -4984,7 +5063,7 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
               </div>
 
               <p className="mt-3 text-xs leading-5 text-[#5c7d74]">
-                Re-checking replaces the identified fields above. Anything you typed yourself — cost basis, purchase date, source, notes — is kept.
+                Re-checking replaces the identified fields above. Anything you typed yourself — what you paid, purchase date, source, notes — is kept.
               </p>
             </CardContent>
           </Card>
@@ -5073,7 +5152,7 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
               <SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem({ status: value })} />
               <Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ purchaseDate: value })} />
               <Field label="Where purchased" value={item.source} onChange={(value) => setItem({ source: value })} />
-              <Field label="Cost basis (what you paid)" type="number" value={item.purchasePrice} onChange={(value) => setItem({ purchasePrice: value })} />
+              <Field label="What you paid" type="number" value={item.purchasePrice} onChange={(value) => setItem({ purchasePrice: value })} />
               <Field label="Estimated value" type="number" value={item.estimatedValue} onChange={(value) => setItem({ estimatedValue: value })} />
             </div>
 
@@ -5101,7 +5180,7 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
             </p>
 
             <div className="mt-6 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">
-              Cost basis was left blank on purpose — only you know what you actually paid, and it drives your gain/loss.
+              We left "what you paid" blank on purpose — only you know that, and it's what turns an estimate into a real number.
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -5452,7 +5531,7 @@ function MarkSoldDialog({ entry, submitting, onCancel, onConfirm }) {
 
 function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
   return (
-    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import inventory by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Leave the <span className="font-medium">ref</span> column empty for new items — FirstFinder assigns those. Photos can be added later item-by-item.</p><p className="mt-3 leading-7 text-[#665746]">You can also edit in bulk: export your collection from the Inventory page, change what you need in a spreadsheet, and upload it back. Rows keep their <span className="font-medium">ref</span> so they update instead of duplicating, and putting <span className="font-medium">yes</span> in the <span className="font-medium">delete</span> column removes them. You'll see exactly what will change before anything is saved.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className={`flex h-11 items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] ${bulkUploading ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}><Icon name="upload" size={17} className="mr-2" /> {bulkUploading ? "Importing..." : "Upload CSV"}<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} disabled={bulkUploading} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import your collection by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Leave the <span className="font-medium">ref</span> column empty for new items — FirstFinder assigns those. Photos can be added later item-by-item.</p><p className="mt-3 leading-7 text-[#665746]">You can also edit in bulk: export your collection from the My Collection page, change what you need in a spreadsheet, and upload it back. Rows keep their <span className="font-medium">ref</span> so they update instead of duplicating, and putting <span className="font-medium">yes</span> in the <span className="font-medium">delete</span> column removes them. You'll see exactly what will change before anything is saved.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className={`flex h-11 items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] ${bulkUploading ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}><Icon name="upload" size={17} className="mr-2" /> {bulkUploading ? "Importing..." : "Upload CSV"}<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} disabled={bulkUploading} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
   );
 }
 
@@ -5576,7 +5655,7 @@ function EditItemModal({ item, onClose, onSave, saving }) {
           <SelectField label="Condition" value={draft.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setDraft({ ...draft, condition: value })} />
           <Field label="Purchase date" type="date" value={draft.purchaseDate} onChange={(value) => setDraft({ ...draft, purchaseDate: value })} />
           <Field label="Where purchased" value={draft.source} onChange={(value) => setDraft({ ...draft, source: value })} />
-          <Field label="Cost basis" type="number" value={draft.purchasePrice} onChange={(value) => setDraft({ ...draft, purchasePrice: value })} />
+          <Field label="What you paid" type="number" value={draft.purchasePrice} onChange={(value) => setDraft({ ...draft, purchasePrice: value })} />
           <Field
             label={draft.status === "Sold" ? "Sold for" : "Estimated value"}
             type="number"
