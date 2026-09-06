@@ -1,7 +1,5 @@
-// Everything that talks to GitHub on behalf of the feedback pipeline. Shared by
-// the automatic path (app/api/feedback-intake, which files as feedback arrives)
-// and the manual queue (app/api/feedback-review, which files the exceptions the
-// automatic path parks).
+// Everything that talks to GitHub on behalf of the feedback pipeline, used by
+// app/api/feedback-intake as each piece of feedback arrives.
 
 import { GITHUB_SLUG } from "./project";
 

@@ -79,7 +79,7 @@ export const REPO_MAP = `Repository layout (Next.js App Router, JavaScript, no T
 - app/api/identify-book/route.js -- the paid, web-search-grounded OpenAI call behind AI photo identification.
 - app/api/delete-account/route.js -- account deletion, runs with the Supabase service role key.
 - app/api/contribute/route.js -- reads open GitHub issues for the Contribute page.
-- app/api/feedback-review/route.js -- this route: feedback triage and issue filing.
+- app/api/feedback-intake/route.js -- this route: triages feedback and files it as an issue.
 - src/lib/supabaseClient.js (browser) and src/lib/supabaseAdmin.js (server, service role).
 - src/lib/project.js -- GitHub owner/repo/labels, shared by client and server.
 - supabase/*.sql -- one file per migration, applied by hand in the Supabase dashboard. Schema changes need a new file here.
