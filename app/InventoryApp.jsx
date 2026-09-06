@@ -343,6 +343,54 @@ function hasValue(value) {
   return value !== "" && value !== null && value !== undefined;
 }
 
+// Case/punctuation-insensitive comparison key so "The Gunslinger" and "the
+// gunslinger." match, and blank fields don't accidentally match each other.
+function normalizeForMatch(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+// Edition/printing signature used to tell "same copy" from "different
+// collectible copy." Books compare edition+printing; everything else
+// compares the free-text edition/variant field.
+function editionMatchKey(entry) {
+  return entry.category === "Book"
+    ? normalizeForMatch(`${entry.bookEdition} ${entry.bookPrinting}`)
+    : normalizeForMatch(entry.edition);
+}
+
+// Flags items already in the collection that look like the one being added.
+// There's no ISBN/barcode yet (see issue #43), so matching is loose: same
+// normalized name + maker. Non-blocking by design -- collectors legitimately
+// keep multiple copies, upgrades, and variant states (issue #47) -- so this
+// only informs, it never prevents the save.
+function findPossibleDuplicates(candidate, inventory) {
+  const name = normalizeForMatch(candidate.name);
+  if (!name) return [];
+  const maker = normalizeForMatch(candidate.maker);
+  const candidateEditionKey = editionMatchKey(candidate);
+  const candidateConditionRank = conditionOptions.indexOf(candidate.condition);
+
+  const matches = inventory
+    .filter((entry) => normalizeForMatch(entry.name) === name && normalizeForMatch(entry.maker) === maker)
+    .map((entry) => {
+      const editionKey = editionMatchKey(entry);
+      const sameEdition = Boolean(candidateEditionKey) && candidateEditionKey === editionKey;
+      const entryConditionRank = conditionOptions.indexOf(entry.condition);
+      // Lower index in conditionOptions means better condition (see its
+      // definition), so a smaller rank than the existing copy is an upgrade.
+      const isUpgrade = sameEdition && candidateConditionRank !== -1 && entryConditionRank !== -1 && candidateConditionRank < entryConditionRank;
+
+      let matchType = "possible_duplicate";
+      if (isUpgrade) matchType = "potential_upgrade";
+      else if (candidateEditionKey && editionKey && !sameEdition) matchType = "different_copy";
+
+      return { entry, matchType };
+    });
+
+  const priority = { possible_duplicate: 0, potential_upgrade: 1, different_copy: 2 };
+  return matches.sort((a, b) => priority[a.matchType] - priority[b.matchType]);
+}
+
 // Builds marketplace search URLs for "find similar copies" -- plain search
 // links, no API keys or scraping involved.
 // Appends a clarifying word (e.g. "edition") only if the value doesn't
@@ -916,6 +964,7 @@ export default function FirstFinderApp() {
   const [bulkMessage, setBulkMessage] = useState("");
   const [bulkUploading, setBulkUploading] = useState(false);
   const [pendingImport, setPendingImport] = useState(null);
+  const [pendingDuplicateReview, setPendingDuplicateReview] = useState(null);
   const [applyingImport, setApplyingImport] = useState(false);
   const [identifying, setIdentifying] = useState(false);
   const [identifyingPhotos, setIdentifyingPhotos] = useState([]);
@@ -1232,6 +1281,29 @@ export default function FirstFinderApp() {
   }
 
   async function saveItem() {
+    const matches = findPossibleDuplicates(item, inventory);
+    if (matches.length > 0) {
+      setPendingDuplicateReview({ entryType: "tutorial", matches });
+      return;
+    }
+    await commitSaveItem();
+  }
+
+  async function saveQuickItem(event) {
+    event.preventDefault();
+
+    const matches = findPossibleDuplicates(quickItem, inventory);
+    if (matches.length > 0) {
+      setPendingDuplicateReview({ entryType: "quick_add", matches });
+      return;
+    }
+    await commitSaveQuickItem();
+  }
+
+  // The actual writes, split out from saveItem/saveQuickItem so the duplicate
+  // warning dialog's "Add anyway" button can trigger them directly once the
+  // user has seen the possible matches and chosen to proceed.
+  async function commitSaveItem() {
     const saved = await insertItemWithPhotos(item, itemPhotos, receiptPhotos, "tutorial");
     if (!saved) return;
 
@@ -1243,9 +1315,7 @@ export default function FirstFinderApp() {
     setActiveView("inventory");
   }
 
-  async function saveQuickItem(event) {
-    event.preventDefault();
-
+  async function commitSaveQuickItem() {
     const saved = await insertItemWithPhotos(quickItem, quickItemPhotos, quickReceiptPhotos, "quick_add");
     if (!saved) return;
 
@@ -1256,6 +1326,13 @@ export default function FirstFinderApp() {
     setQuickReceiptPhotos([]);
     setAutofillMessage("");
     setActiveView("inventory");
+  }
+
+  async function confirmPendingDuplicateAndSave() {
+    const entryType = pendingDuplicateReview?.entryType;
+    setPendingDuplicateReview(null);
+    if (entryType === "tutorial") await commitSaveItem();
+    else if (entryType === "quick_add") await commitSaveQuickItem();
   }
 
   async function deleteItem(id) {
@@ -1962,6 +2039,15 @@ export default function FirstFinderApp() {
           onClose={() => setEditingItem(null)}
           onSave={updateInventoryItem}
           saving={saving}
+        />
+      )}
+
+      {pendingDuplicateReview && (
+        <DuplicateWarningDialog
+          matches={pendingDuplicateReview.matches}
+          saving={saving}
+          onCancel={() => setPendingDuplicateReview(null)}
+          onConfirm={confirmPendingDuplicateAndSave}
         />
       )}
 
@@ -4732,6 +4818,54 @@ function BulkImportPreviewDialog({ fileName, batch, applying, onCancel, onConfir
           className={`h-11 rounded-full px-6 text-[#fff7ea] ${deletes.length > 0 ? "bg-[#8a3b22] hover:bg-[#7a331d]" : "bg-[#123f38] hover:bg-[#0f332d]"}`}
         >
           {applying ? "Applying..." : "Apply changes"}
+        </Button>
+      </div>
+    </ModalShell>
+  );
+}
+
+const duplicateMatchCopy = {
+  possible_duplicate: { label: "Possible duplicate", tone: "bg-[#fbf1ec] text-[#8a3b22]" },
+  different_copy: { label: "Different collectible copy", tone: "bg-[#f0e2cf] text-[#665746]" },
+  potential_upgrade: { label: "Potential upgrade", tone: "bg-[#edf4f2] text-[#123f38]" }
+};
+
+// Non-blocking by design (see findPossibleDuplicates) -- this informs, it
+// never stops the save. "Add anyway" is always available.
+function DuplicateWarningDialog({ matches, saving, onCancel, onConfirm }) {
+  return (
+    <ModalShell onClose={saving ? () => {} : onCancel} contentClassName="max-w-lg">
+      <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Before you add this</div>
+      <h2 className="mt-1 text-2xl font-semibold">Already something like this in your collection</h2>
+      <p className="mt-3 leading-7 text-[#665746]">
+        This won't stop you from saving it -- collectors deliberately keep multiple copies and upgrades. Just flagging what looks related.
+      </p>
+      <div className="mt-5 max-h-64 space-y-3 overflow-y-auto">
+        {matches.map(({ entry, matchType }) => {
+          const copy = duplicateMatchCopy[matchType];
+          const details = [
+            entry.maker,
+            entry.category === "Book" ? [entry.bookEdition, entry.bookPrinting].filter(Boolean).join(" / ") : entry.edition,
+            entry.condition
+          ].filter(Boolean).join(" • ");
+
+          return (
+            <div key={entry.id} className="rounded-2xl border border-[#e7dcc7] bg-[#fffaf1] p-4">
+              <div className={`inline-flex rounded-full px-3 py-1 text-xs font-medium uppercase tracking-[0.08em] ${copy.tone}`}>{copy.label}</div>
+              <div className="mt-2 font-medium">
+                {entry.name || "Untitled item"}{entry.referenceNumber ? ` (${formatReference(entry.referenceNumber)})` : ""}
+              </div>
+              <div className="mt-1 text-sm text-[#7d6c5a]">{details || "No extra details on file"}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={saving} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+          Go back and edit
+        </Button>
+        <Button type="button" onClick={onConfirm} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+          {saving ? "Saving..." : "Add anyway"}
         </Button>
       </div>
     </ModalShell>
