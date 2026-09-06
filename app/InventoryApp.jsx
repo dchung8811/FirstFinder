@@ -1930,7 +1930,8 @@ export default function FirstFinderApp() {
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
       {activeView === "about" && <AboutPage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
-      {activeView === "login" && <LoginPage />}
+      {activeView === "terms" && <TermsPage />}
+      {activeView === "login" && <LoginPage onViewTerms={() => setActiveView("terms")} />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} />}
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
@@ -2142,6 +2143,243 @@ function AboutPage({ onGoToFeedback }) {
           <Icon name="heart" size={16} /> Buy me a coffee
         </a>
       </div>
+    </section>
+  );
+}
+
+
+// Terms of Service. Kept as data rather than a wall of JSX so sections can be
+// edited, reordered, or added without touching layout, and so the jump links
+// at the top of the page generate from the same source they link into.
+//
+// Update termsLastUpdated whenever the substance below changes -- section 12
+// tells people that date is how they know the terms moved.
+const termsLastUpdated = "September 6, 2026";
+
+// A plain-English gloss shown above the binding text. It is explicitly not a
+// substitute for the sections themselves, and it stays short enough that
+// people actually read it before scrolling past.
+const termsSummary = [
+  "FirstFinder is a free cataloging tool. Your collection, photos, and records stay yours.",
+  "Don't upload anything illegal, and don't use FirstFinder to catalog stolen or trafficked property.",
+  "We can suspend or close an account that breaks these rules.",
+  "Illegal content gets preserved and reported to law enforcement.",
+  "Estimated values are estimates, not appraisals. Don't file an insurance claim on one."
+];
+
+const termsSections = [
+  {
+    id: "agreement",
+    heading: "1. The agreement",
+    paragraphs: [
+      "These Terms of Service (the \"Terms\") are a binding agreement between you and FirstFinder (\"FirstFinder,\" \"we,\" \"us\"). They cover the FirstFinder website and app, and everything you do with them.",
+      "By creating an account, logging in, or otherwise using FirstFinder, you accept these Terms. If you don't agree with them, don't use FirstFinder."
+    ]
+  },
+  {
+    id: "account",
+    heading: "2. Your account",
+    paragraphs: [
+      "You must be at least 13 years old to hold a FirstFinder account. If you are under the age of majority where you live, you may use FirstFinder only with a parent or guardian who agrees to these Terms on your behalf.",
+      "Accounts belong to one person. Keep your password to yourself, don't reuse a password from somewhere else, and tell us promptly if you think someone has gotten into your account. You are responsible for what happens under it.",
+      "Give us accurate account information and keep it current. You can permanently delete your account, your inventory, and your stored photos at any time from My Account — you don't need to ask us first."
+    ]
+  },
+  {
+    id: "acceptable-use",
+    heading: "3. Acceptable use",
+    paragraphs: [
+      "FirstFinder is a cataloging tool for collectors. Use it for that. You agree not to use FirstFinder to do, upload, store, or share any of the following:"
+    ],
+    list: [
+      "Sexual content involving minors, in any form. This is the one rule with no discretion attached: we report it and we close the account.",
+      "Anything illegal to create, possess, or distribute where you are or where we operate.",
+      "Intimate images of another person shared without their consent.",
+      "Threats, harassment, stalking, incitement to violence, or content promoting terrorism or violent extremism.",
+      "Cataloging or documenting property you know or reasonably suspect to be stolen, looted, illegally trafficked, or unlawfully removed from a library, archive, museum, or protected site.",
+      "Forged, altered, or fabricated provenance, receipts, certificates, or condition records — including using FirstFinder records to support a fraudulent sale, insurance claim, or appraisal.",
+      "Impersonating another person, or presenting a collection that isn't yours as your own.",
+      "Content that infringes someone else's copyright, trademark, or other rights.",
+      "Malware, phishing, spam, or anything built to damage or disrupt FirstFinder or the people using it.",
+      "Attempting to reach another person's account, collection, or photos; probing or bypassing our authentication, access controls, or security; or scraping, crawling, or automating access without our written permission.",
+      "Reverse engineering the service, or reselling, sublicensing, or commercially exploiting any part of it.",
+      "Deliberately overloading our storage, database, or the photo identification feature — for example, bulk uploads unrelated to a real collection."
+    ],
+    closing: "That list isn't exhaustive. If you are using FirstFinder in a way a reasonable person would call abusive, assume it's covered."
+  },
+  {
+    id: "your-content",
+    heading: "4. Your content",
+    paragraphs: [
+      "Your collection is yours. Photos, records, notes, receipts — you keep every right you already had in them, and we don't claim ownership of any of it.",
+      "To run the service, you give us a limited, non-exclusive, worldwide, royalty-free license to store, back up, transmit, resize, and display your content, solely to operate and support FirstFinder for you. That license ends when you delete the content or your account, apart from copies in routine backups that age out on their own and anything we are required to keep under section 6.",
+      "When you use photo identification, the photo you submit is sent to a third-party AI provider (currently OpenAI) to be analyzed and returned as suggested details. Don't submit photos you aren't comfortable having processed that way.",
+      "You are responsible for having the right to upload whatever you upload."
+    ]
+  },
+  {
+    id: "termination",
+    heading: "5. Review, suspension, and termination",
+    paragraphs: [
+      "We do not routinely browse private collections. Items and photos are stored privately and access is restricted.",
+      "We reserve the right to access, review, or remove content, and to suspend or permanently terminate any account and delete everything in it, at our sole discretion and with or without prior notice, when we believe in good faith that:"
+    ],
+    list: [
+      "these Terms, including the acceptable use rules in section 3, have been broken;",
+      "the account is being used for fraud, abuse, or activity that harms FirstFinder, the people using it, or a third party;",
+      "we are required to act by law, legal process, or a government request;",
+      "access is necessary to investigate a report, a security incident, or a technical problem; or",
+      "continuing to host the account would expose us or anyone else to legal liability or risk of harm."
+    ],
+    closing: "Where it is safe, lawful, and practical, we will tell you what happened and why, and give you a chance to respond. We won't do that when it would interfere with an investigation, risk the destruction of evidence, or put someone in danger. If you think we got it wrong, write to us at the address in section 14 and we'll take another look. FirstFinder is free, so there is nothing to refund on termination.",
+    trailing: [
+      "We may also change, limit, or stop offering FirstFinder, or any part of it, at any time. If we deliberately shut the service down, we'll make a reasonable effort to give notice and a window to export your collection first."
+    ]
+  },
+  {
+    id: "law-enforcement",
+    heading: "6. Illegal content and law enforcement",
+    paragraphs: [
+      "If we find, or are told about, content on FirstFinder that we believe is illegal, we may preserve it — including account records, photos, and access logs — and report and disclose it to law enforcement or the appropriate authorities. We may do this without notifying you, and we will not notify you where the law forbids it or where doing so could interfere with an investigation or endanger someone.",
+      "Apparent child sexual abuse material is reported to the National Center for Missing & Exploited Children as required by 18 U.S.C. § 2258A, and the account is terminated immediately and permanently.",
+      "We will respond to valid subpoenas, court orders, warrants, and other lawful requests for account information.",
+      "Deleting your account does not delete content we are legally required to preserve or have already reported."
+    ]
+  },
+  {
+    id: "reporting",
+    heading: "7. Reporting abuse",
+    paragraphs: [
+      "If you come across something on FirstFinder that breaks these rules, tell us at thebookbarterer@gmail.com and include enough detail for us to find it. Logged-in users can also use Send feedback.",
+      "If someone is in immediate danger, contact local emergency services first."
+    ]
+  },
+  {
+    id: "valuations",
+    heading: "8. Estimated values are estimates",
+    paragraphs: [
+      "FirstFinder shows estimated values, comparable sales, and identification suggestions produced by automated tools and third-party sources. They are informational only.",
+      "They are not appraisals, and they are not financial, investment, insurance, tax, or legal advice. They may be wrong, out of date, or built on a misread of your item. Don't rely on them for a sale, a purchase, an insurance claim, an estate valuation, or a tax filing — get a qualified professional appraisal instead.",
+      "Reports you generate from FirstFinder, including the insurance report, carry the same caveat. Your insurer decides what it will accept."
+    ]
+  },
+  {
+    id: "as-is",
+    heading: "9. Free service, provided as is",
+    paragraphs: [
+      "FirstFinder is free. It is run as a passion project, not a company with a support desk and an uptime commitment.",
+      "The service is provided \"as is\" and \"as available,\" without warranties of any kind, express or implied, including any implied warranty of merchantability, fitness for a particular purpose, title, or non-infringement. We don't promise that the service will be uninterrupted, secure, error-free, or that any data will be preserved.",
+      "Keep your own copies. Export your collection to CSV from time to time, and make sure your photos exist somewhere other than FirstFinder."
+    ]
+  },
+  {
+    id: "liability",
+    heading: "10. Limitation of liability",
+    paragraphs: [
+      "To the fullest extent the law allows, FirstFinder and anyone working on it will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, lost data, lost collections, or the cost of substitute services, arising out of or relating to your use of FirstFinder — even if we were told such damages were possible.",
+      "To the fullest extent the law allows, our total liability for any claim relating to FirstFinder is limited to one hundred U.S. dollars ($100).",
+      "Some places don't allow some of these exclusions. Where that's true, they apply only as far as the law permits, and nothing here limits liability that cannot lawfully be limited."
+    ]
+  },
+  {
+    id: "indemnity",
+    heading: "11. Your responsibility for claims",
+    paragraphs: [
+      "You agree to indemnify and hold harmless FirstFinder and the people who run it from any claim, demand, loss, or expense — including reasonable legal fees — arising from your content, your use of FirstFinder, or your breach of these Terms or of anyone else's rights."
+    ]
+  },
+  {
+    id: "changes",
+    heading: "12. Changes to these Terms",
+    paragraphs: [
+      "We may revise these Terms as FirstFinder changes or as the law requires. The \"Last updated\" date at the top of this page always reflects the current version.",
+      "For material changes we'll make a reasonable effort to give notice in the app or by email before they take effect. Continuing to use FirstFinder after a change means you accept the revised Terms. If you don't accept them, delete your account."
+    ]
+  },
+  {
+    id: "governing-law",
+    heading: "13. Governing law and disputes",
+    paragraphs: [
+      "These Terms are governed by the laws of the Commonwealth of Pennsylvania, United States, without regard to its conflict-of-laws rules.",
+      "Any dispute arising out of or relating to these Terms or the service will be brought exclusively in the state or federal courts located in the Commonwealth of Pennsylvania, and we each consent to personal jurisdiction there. Nothing here stops either of us from seeking an injunction to protect intellectual property or account security in any court with jurisdiction.",
+      "If any part of these Terms is found unenforceable, the rest stays in force. Not enforcing a provision isn't a waiver of it. These Terms are the entire agreement between us about FirstFinder."
+    ]
+  },
+  {
+    id: "contact",
+    heading: "14. Contact",
+    paragraphs: [
+      "Questions about these Terms, abuse reports, and account appeals all go to thebookbarterer@gmail.com."
+    ]
+  }
+];
+
+function TermsPage() {
+  return (
+    <section className="mx-auto max-w-3xl px-6 py-16 md:py-20">
+      <div className="font-ledger inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#655644]">
+        Terms of Service
+      </div>
+      <h1 className="font-display mt-5 text-4xl font-semibold tracking-tight md:text-5xl">The rules of the shelf.</h1>
+      <p className="font-ledger mt-4 text-sm text-[#8a7a64]">Last updated {termsLastUpdated}</p>
+
+      <div className="mt-10 rounded-[2rem] border border-[#d8c7ad] bg-[#fbf5e9] p-6 md:p-7">
+        <div className="font-ledger text-xs uppercase tracking-[0.2em] text-[#8a7a64]">The short version</div>
+        <ul className="mt-4 grid gap-2.5 text-[#4c4034]">
+          {termsSummary.map((point) => (
+            <li key={point} className="flex items-start gap-2.5 leading-7">
+              <Icon name="check" size={15} className="mt-1.5 shrink-0 text-[#123f38]" />
+              {point}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-5 text-sm leading-6 text-[#7d6c5a]">
+          That summary is here to be read, not to be relied on. The sections below are the actual agreement.
+        </p>
+      </div>
+
+      <nav aria-label="Terms sections" className="mt-10 rounded-2xl border border-dashed border-[#d3c1a4] bg-[#fffdf8] p-6">
+        <div className="font-ledger text-xs uppercase tracking-[0.2em] text-[#8a7a64]">Jump to</div>
+        <div className="mt-3 grid gap-1.5 text-sm sm:grid-cols-2">
+          {termsSections.map((section) => (
+            <a key={section.id} href={`#${section.id}`} className="text-[#665746] underline decoration-[#cdbb9d] underline-offset-4 transition hover:text-[#123f38]">
+              {section.heading}
+            </a>
+          ))}
+        </div>
+      </nav>
+
+      <div className="mt-12 space-y-12">
+        {termsSections.map((section) => (
+          <div key={section.id} id={section.id} className="scroll-mt-8">
+            <h2 className="font-display text-2xl font-semibold tracking-tight">{section.heading}</h2>
+
+            <div className="mt-4 space-y-4 leading-8 text-[#665746]">
+              {section.paragraphs.map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
+            </div>
+
+            {section.list && (
+              <ul className="mt-4 grid gap-2.5 border-l-2 border-[#e0d2bc] pl-5 text-[#665746]">
+                {section.list.map((entry) => (
+                  <li key={entry} className="leading-7">{entry}</li>
+                ))}
+              </ul>
+            )}
+
+            {section.closing && <p className="mt-4 leading-8 text-[#665746]">{section.closing}</p>}
+
+            {section.trailing && section.trailing.map((paragraph, index) => (
+              <p key={index} className="mt-4 leading-8 text-[#665746]">{paragraph}</p>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-16 border-t border-[#e0d2bc] pt-8 text-sm leading-7 text-[#8a7a64]">
+        FirstFinder is a personal project, and these Terms are written to be read by collectors rather than by lawyers. They are not legal advice, and they don't create any relationship beyond the one described here.
+      </p>
     </section>
   );
 }
@@ -2460,7 +2698,23 @@ function AuthLink({ children, onClick }) {
   );
 }
 
-function LoginPage() {
+// Consent notice shown under every control that can create an account --
+// the email sign-up submit and the Google button, which signs up and signs in
+// through the same click. Deliberately not shown on the sign-in or forgot-
+// password forms, where no account is being created.
+function AuthTermsNotice({ onViewTerms, action }) {
+  return (
+    <p className="mt-4 text-xs leading-5 text-[#7d6c5a]">
+      {action} means you agree to FirstFinder's{" "}
+      <button type="button" onClick={onViewTerms} className="underline decoration-[#cdbb9d] underline-offset-2 hover:text-[#123f38]">
+        Terms of Service
+      </button>
+      , including the acceptable use rules.
+    </p>
+  );
+}
+
+function LoginPage({ onViewTerms }) {
   const [method, setMethod] = useState("password");
   const [mode, setMode] = useState("signin");
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "" });
@@ -2617,6 +2871,7 @@ function LoginPage() {
                 <Icon name="google" size={20} />
                 <span>Continue with Google</span>
               </button>
+              <AuthTermsNotice onViewTerms={onViewTerms} action="Continuing with Google" />
             </div>
           ) : (
             <form onSubmit={submitHandler}>
@@ -2635,6 +2890,8 @@ function LoginPage() {
               <Button type="submit" disabled={loading} className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
                 {loading ? copy.submitting : copy.submit}
               </Button>
+
+              {mode === "signup" && <AuthTermsNotice onViewTerms={onViewTerms} action="Creating an account" />}
 
               <div className="mt-5 flex flex-col gap-2 text-sm text-[#665746]">
                 {mode === "signin" && (
@@ -4320,6 +4577,7 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
               ? <FooterLink onClick={() => onNavigate("feedback")}>Contact Support</FooterLink>
               : <FooterLink href="mailto:thebookbarterer@gmail.com">Contact Support</FooterLink>}
             <FooterLink href="mailto:thebookbarterer@gmail.com?subject=Business%20inquiry">Business Inquiries</FooterLink>
+            <FooterLink onClick={() => onNavigate("terms")}>Terms of Service</FooterLink>
           </div>
         </div>
       </div>
