@@ -2173,6 +2173,34 @@ function DemoVideoPlayer({ videoId }) {
   );
 }
 
+// The AI walkthrough is a YouTube Short, not the 16:9 demo film, so it gets a
+// phone-shaped frame -- letterboxing a portrait clip into a widescreen well
+// would leave it a thin strip between two black bars.
+//
+// Click to play, like the demo film above it, rather than a muted autoplaying
+// loop. Autoplay was the obvious fit for a silent 35-second screen recording,
+// but YouTube serves Shorts through its own player: with playback blocked (or
+// simply not yet started) the frame rests as a black rectangle wearing the
+// Shorts logo, a mute button, and Like/Share, and no frame of the video shows
+// at all. Left to click-to-play the same player rests on the video's own
+// thumbnail instead, which is the picture the section is here to show.
+const aiFeatureVideoId = "knGsP_J8VSI";
+
+function AiFeatureVideo() {
+  return (
+    <iframe
+      className="absolute inset-0 h-full w-full"
+      src={`https://www.youtube-nocookie.com/embed/${aiFeatureVideoId}?rel=0&playsinline=1`}
+      title="Identifying a book from a photo in FirstFinder"
+      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      // Nothing loads until the frame is near the viewport, so a visitor who
+      // never scrolls this far pays nothing for the embed.
+      loading="lazy"
+      allowFullScreen
+    />
+  );
+}
+
 function LedgerRow({ label, value, strong = false }) {
   return (
     <div className="flex items-baseline gap-2 text-sm">
@@ -2207,6 +2235,16 @@ function SpecimenCard({ index, kind, title, detail, paid, value, chips, classNam
     </div>
   );
 }
+
+// Deliberately narrow claims: the identification is grounded in a real search
+// for comparable sales and every field lands in an editable draft, so the copy
+// promises a head start rather than an answer.
+const aiFeaturePoints = [
+  { icon: "search", title: "Grounded in real sales", text: "It searches for comparable copies and weighs sold prices over asking prices." },
+  { icon: "file", title: "Edition points read for you", text: "Publisher, printing, and the number line — the details that decide the value." },
+  { icon: "check", title: "You approve every field", text: "The draft opens for review. Correct anything, then save it to your ledger." },
+  { icon: "camera", title: "The photo comes along", text: "The picture you took is attached to the record as proof, not thrown away." }
+];
 
 function HomePage({ onGetStarted }) {
   const steps = [
@@ -2260,6 +2298,79 @@ function HomePage({ onGetStarted }) {
               className="relative z-20 ml-auto -mt-1 rotate-[2.5deg]"
             />
           </motion.div>
+        </div>
+      </section>
+
+      {/* Sits between the hero and the walkthrough on purpose: the hero says
+          what the ledger is, this says the part that is actually novel, and
+          "See it in 60 seconds" then covers the whole flow end to end. The
+          deep green band also keeps the page alternating rather than running
+          two cream sections together. */}
+      <section id="ai" className="border-y border-[#0d2f2a] bg-[#123f38] text-[#fff7ea]">
+        <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
+          {/* Three cells placed explicitly rather than two columns with the
+              button nested inside the copy: nesting it made a phone read
+              heading -> copy -> call to action -> video, which strands the
+              video after the section has already closed. Placed on the grid,
+              the same three blocks fall as copy -> video -> button on a phone
+              and still resolve to phone-left, copy-above-button on desktop. */}
+          <div className="grid items-center gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-x-16 lg:gap-y-8">
+            <div className="lg:col-start-2 lg:row-start-1">
+              <div className="inline-flex items-center gap-2 rounded-full bg-[#fff7ea]/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#d8e6e2]">
+                <Icon name="camera" size={14} /> Fastest way in
+              </div>
+              <h2 className="font-display mt-5 text-3xl font-semibold leading-tight tracking-tight md:text-4xl">
+                Take a picture, we'll fill in the rest.
+              </h2>
+              <p className="mt-5 max-w-xl text-lg leading-8 text-[#d8e6e2]">
+                Photograph the cover and FirstFinder reads the title, author, and edition points, then searches for
+                what copies like yours actually sold for. You get an editable draft in a few seconds &mdash; nothing is
+                saved until you say so.
+              </p>
+
+              <ul className="mt-8 grid gap-4 sm:grid-cols-2">
+                {aiFeaturePoints.map((point) => (
+                  <li key={point.title} className="flex gap-3">
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#fff7ea]/10 text-[#fff7ea]">
+                      <Icon name={point.icon} size={16} />
+                    </span>
+                    <div>
+                      <div className="font-medium">{point.title}</div>
+                      <p className="mt-1 text-sm leading-6 text-[#a9c4bd]">{point.text}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* lg:row-span-2 so the phone stands beside the copy and the button
+                together instead of forcing a third row of its own. */}
+            <div className="relative mx-auto w-full max-w-[248px] sm:max-w-[268px] lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:mx-0">
+              <div className="pointer-events-none absolute -inset-x-6 -inset-y-6 rounded-[3rem] border border-dashed border-[#fff7ea]/20" aria-hidden="true" />
+              {/* aspect-[588/1280] is the clip's own ratio, so the player is
+                  exactly as tall as the footage and YouTube adds no bar at
+                  either end. The border is the bezel. */}
+              <div className="relative overflow-hidden rounded-[2.25rem] border-[6px] border-[#201a14] bg-[#201a14] shadow-[0_30px_60px_-25px_rgba(0,0,0,0.7)]">
+                <div className="relative aspect-[588/1280] overflow-hidden rounded-[1.75rem] bg-black">
+                  <AiFeatureVideo />
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-start-2 lg:row-start-2">
+              {/* The outline variant rather than the primary one with an
+                  inverted palette passed through className: the primary's own
+                  text-[#fff7ea] and a text color from className are the same
+                  utility at the same specificity, so which one wins comes down
+                  to their order in the generated stylesheet, not the order
+                  they are written here -- and the label rendered cream on
+                  cream. Outline is already a cream button with dark text, so
+                  nothing needs overriding. */}
+              <Button variant="outline" onClick={onGetStarted} className="h-12 border-transparent px-7 text-base">
+                Try it on your next find <Icon name="arrow" size={18} className="ml-1" />
+              </Button>
+            </div>
+          </div>
         </div>
       </section>
 
