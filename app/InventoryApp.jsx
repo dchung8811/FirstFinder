@@ -3,6 +3,19 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
+import {
+  REPO_URL,
+  CONTRIBUTING_URL,
+  CODE_OF_CONDUCT_URL,
+  LICENSE_URL,
+  SECURITY_URL,
+  BUG_REPORT_URL,
+  FEATURE_REQUEST_URL,
+  GOOD_FIRST_ISSUE_LABEL,
+  HELP_WANTED_LABEL,
+  labelSearchUrl,
+  DONATE_URL
+} from "../src/lib/project";
 
 const emptyItem = {
   name: "",
@@ -245,6 +258,25 @@ function Icon({ name, size = 20, className = "" }) {
     ),
     heart: (
       <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z" />
+    ),
+    github: (
+      <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+    ),
+    code: (
+      <>
+        <path d="m16 18 6-6-6-6" />
+        <path d="m8 6-6 6 6 6" />
+      </>
+    ),
+    bug: (
+      <>
+        <path d="M9 7a3 3 0 0 1 6 0" />
+        <path d="M7 10a5 5 0 0 1 10 0v3a5 5 0 0 1-10 0Z" />
+        <path d="M2 12h5M17 12h5M4 7l3 2M20 7l-3 2M4 18l3-2M20 18l-3-2" />
+      </>
+    ),
+    star: (
+      <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9Z" />
     )
   };
 
@@ -1954,6 +1986,7 @@ export default function FirstFinderApp() {
               <TabButton active={activeView === "addItems"} onClick={() => setActiveView("addItems")}>Add Items</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
+              <TabButton active={activeView === "contribute"} onClick={() => setActiveView("contribute")}>Contribute</TabButton>
               <TabButton active={activeView === "feedback"} onClick={() => setActiveView("feedback")}>Feedback</TabButton>
               <TabButton active={activeView === "account"} onClick={() => setActiveView("account")}>My Account</TabButton>
             </>
@@ -1962,6 +1995,7 @@ export default function FirstFinderApp() {
               <TabButton active={activeView === "home"} onClick={() => setActiveView("home")}>Get Started</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
+              <TabButton active={activeView === "contribute"} onClick={() => setActiveView("contribute")}>Contribute</TabButton>
             </>
           )}
         </div>
@@ -1990,6 +2024,7 @@ export default function FirstFinderApp() {
                 <MobileNavLink active={activeView === "addItems"} onClick={() => go("addItems")}>Add Items</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
+                <MobileNavLink active={activeView === "contribute"} onClick={() => go("contribute")}>Contribute</MobileNavLink>
                 <MobileNavLink active={activeView === "feedback"} onClick={() => go("feedback")}>Feedback</MobileNavLink>
                 <MobileNavLink active={activeView === "account"} onClick={() => go("account")}>My Account</MobileNavLink>
               </>
@@ -1998,6 +2033,7 @@ export default function FirstFinderApp() {
                 <MobileNavLink active={activeView === "home"} onClick={() => go("home")}>Get Started</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
+                <MobileNavLink active={activeView === "contribute"} onClick={() => go("contribute")}>Contribute</MobileNavLink>
               </>
             )}
           </div>
@@ -2007,6 +2043,7 @@ export default function FirstFinderApp() {
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
       {activeView === "about" && <AboutPage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
+      {activeView === "contribute" && <ContributePage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
       {activeView === "terms" && <TermsPage />}
       {activeView === "login" && <LoginPage onViewTerms={() => setActiveView("terms")} />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
@@ -2071,14 +2108,14 @@ const roadmapHorizons = [
     framing: "In progress or up next in the build queue.",
     items: [
       {
-        category: "Cataloging",
-        title: "ISBN barcode scan, auto-filled",
-        text: "Scan a book's barcode and pull real title, author, publisher, and year from a public books API — replacing the mock-data autofill entirely."
-      },
-      {
         category: "Trust & Provenance",
         title: "Grading & cert fields",
         text: "Grading company, grade, and cert number fields for graded cards and comics, with a direct link out to the grader's public cert-verification page."
+      },
+      {
+        category: "Trust & Provenance",
+        title: "Separate book & dust-jacket grades",
+        text: "Grade the book and its dust jacket separately (e.g. VG/VG, NF/VG+), matching how booksellers actually describe first editions — the jacket wears differently and often carries most of the value."
       }
     ]
   },
@@ -2096,6 +2133,16 @@ const roadmapHorizons = [
         category: "Discovery",
         title: "A real want list",
         text: "Give \"Wishlist\" its own view with a target price, instead of it being just another status buried in the inventory tabs."
+      },
+      {
+        category: "Cataloging",
+        title: "Physical location / storage",
+        text: "Structured or freeform storage locations — Home → Office → Bookcase B → Shelf 3 — so a growing collection stays findable, not just catalogued."
+      },
+      {
+        category: "Trust & Provenance",
+        title: "Provenance timeline",
+        text: "Turn source, receipts, and notes into a structured ownership history — signed by the author, acquired by a previous owner, listed by a dealer — instead of separate, unlinked fields."
       }
     ]
   },
@@ -2110,14 +2157,44 @@ const roadmapHorizons = [
         text: "A public, read-only link to show off a shelf or set — the same instinct that makes PSA's and PCGS's set registries so sticky."
       },
       {
-        category: "Valuation",
-        title: "Value-over-time charting",
-        text: "Cost basis and realized sales are already tracked, so a value trend line is mostly a visualization problem once there's enough history per item."
+        category: "Trust & Provenance",
+        title: "Evidence completeness scoring",
+        text: "Score how defensible each record is for an insurance or estate claim — photos, receipt, purchase price, condition — and flag what's still missing."
+      },
+      {
+        category: "Cataloging",
+        title: "Linked records & set completion",
+        text: "Connect related records — a dust jacket to its book, a volume to its set, a bookplate to its copy — instead of treating every item independently."
       },
       {
         category: "Valuation",
-        title: "Live pricing integration",
-        text: "Wire in eBay's or PSA's pricing APIs for real-time value estimates, once the manual deep-links above prove people actually want this."
+        title: "Appraisal fields & re-appraisal reminders",
+        text: "Track a professional appraisal separately from the self-entered estimate, with a reminder to refresh it every three to five years the way insurers expect."
+      },
+      {
+        category: "Cataloging",
+        title: "Offline support for fairs and shops",
+        text: "Keep adding and browsing items with no signal — the moments FirstFinder is most useful (a book fair, a shop basement, an estate sale) are exactly where connectivity is worst."
+      },
+      {
+        category: "Cataloging",
+        title: "Tags & custom fields",
+        text: "Free-form tags and custom fields so collectors can organize by press, binding, series, or \"needs upgrading\" — the flexibility spreadsheets have that a fixed schema doesn't."
+      },
+      {
+        category: "Discovery",
+        title: "Import from LibraryThing, Goodreads, and Libib",
+        text: "Accept those services' own export formats directly, since the real barrier to switching is the hundreds of items already catalogued somewhere else."
+      },
+      {
+        category: "Discovery",
+        title: "Sell directly through eBay",
+        text: "List an item for sale on eBay straight from its FirstFinder record — the next tier up from today's AbeBooks/eBay search links."
+      },
+      {
+        category: "Valuation",
+        title: "Value-over-time charting",
+        text: "Cost basis and realized sales are already tracked, so a value trend line is mostly a visualization problem once there's enough history per item."
       }
     ]
   }
@@ -2184,6 +2261,377 @@ function RoadmapPage() {
     </section>
   );
 }
+
+// The Contribute page.
+//
+// FirstFinder is AGPL-licensed, and section 13 of that license expects an app
+// people reach over a network to offer those people its source. This page is
+// that offer -- and it doubles as the front door for anyone who wants to help,
+// which is why it sits in the main nav next to Roadmap rather than being a
+// link buried in the footer.
+//
+// The issue lists are read live from GitHub through app/api/contribute, so the
+// page can't quietly go stale the way a hand-written "here's what needs doing"
+// list always does. Everything else on the page is static and renders fine
+// when that fetch fails.
+const contributeWays = [
+  {
+    icon: "code",
+    title: "Write some code",
+    text: "The whole app is a Next.js and Supabase project you can clone and run locally in about ten minutes. Issues labeled good first issue are scoped small on purpose.",
+    href: CONTRIBUTING_URL,
+    cta: "Read the contributing guide",
+    target: "contributing_guide"
+  },
+  {
+    icon: "bug",
+    title: "Report a bug",
+    text: "Something not adding up in your collection? A precise bug report is worth as much as a patch: what you did, what you expected, and what you got instead.",
+    href: BUG_REPORT_URL,
+    cta: "File a bug report",
+    target: "bug_report"
+  },
+  {
+    icon: "plus",
+    title: "Ask for a feature",
+    text: "Describe the collecting problem rather than the solution. The Roadmap page shows what's already planned, and what's deliberately ruled out.",
+    href: FEATURE_REQUEST_URL,
+    cta: "Suggest a feature",
+    target: "feature_request"
+  },
+  {
+    icon: "search",
+    title: "Test it on a real collection",
+    text: "Rare books, comics, cards, memorabilia — real inventories break software in ways sample data never does. The odd edge case in your shelf is genuinely useful.",
+    // Handled in-app rather than on GitHub, so collectors without a GitHub
+    // account have a way in too.
+    href: null,
+    cta: "Send feedback in the app",
+    target: "feedback"
+  },
+  {
+    icon: "file",
+    title: "Improve the docs",
+    text: "If the setup steps didn't work on your machine, that's a bug in the documentation. Fixing one confusing paragraph helps more people than it looks like.",
+    href: CONTRIBUTING_URL,
+    cta: "See what's documented",
+    target: "docs"
+  },
+  {
+    icon: "heart",
+    title: "Help pay for it",
+    text: "Hosting, storage, the database, and every AI identification come out of one person's pocket so the app can stay free. Any donation keeps it that way.",
+    href: DONATE_URL,
+    cta: "Buy me a coffee",
+    target: "donate"
+  }
+];
+
+const contributeSetupCommands = [
+  "git clone https://github.com/dchung8811/FirstFinder.git",
+  "cd FirstFinder",
+  "npm install",
+  "cp .env.example .env.local   # add your Supabase URL and anon key",
+  "npm run dev"
+];
+
+// "3 days ago" reads as a liveness signal in a way a formatted date doesn't --
+// the question someone weighing a contribution is really asking is whether
+// anyone is still working on this.
+function formatRelativeTime(value) {
+  if (!value) return null;
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return null;
+
+  const days = Math.floor((Date.now() - then) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`;
+  const years = Math.round(days / 365);
+  return `${years} year${years === 1 ? "" : "s"} ago`;
+}
+
+function ContributeIssueList({ heading, blurb, label, issues, loading, failed }) {
+  return (
+    <div className="rounded-[2rem] border border-[#d8c7ad] bg-[#fbf5e9] p-5">
+      <div className="flex items-baseline justify-between px-2">
+        <h3 className="font-display text-2xl font-semibold">{heading}</h3>
+        {!loading && !failed && (
+          <span className="font-ledger text-xs text-[#8a7a64]">
+            {issues.length} open
+          </span>
+        )}
+      </div>
+      <p className="mt-1 px-2 text-sm leading-6 text-[#7d6c5a]">{blurb}</p>
+
+      <div className="mt-4 flex flex-col gap-3">
+        {loading && (
+          <div className="rounded-2xl border border-dashed border-[#e0d2bc] bg-[#fffdf8] p-4 text-sm text-[#8a7a64]">
+            Checking GitHub…
+          </div>
+        )}
+
+        {!loading && failed && (
+          <div className="rounded-2xl border border-dashed border-[#e0d2bc] bg-[#fffdf8] p-4 text-sm leading-6 text-[#665746]">
+            Couldn't reach GitHub just now.{" "}
+            <a
+              href={labelSearchUrl(label)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => trackEvent("contribute_link_clicked", { target: "issue_label_fallback" })}
+              className="underline decoration-[#cdbb9d] underline-offset-2 hover:text-[#123f38]"
+            >
+              See the list on GitHub
+            </a>
+            .
+          </div>
+        )}
+
+        {!loading && !failed && issues.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-[#e0d2bc] bg-[#fffdf8] p-4 text-sm leading-6 text-[#665746]">
+            Nothing open under this label right now. That's a good sign, not a closed door — pick anything from the roadmap, or open an issue with what you'd like to build.
+          </div>
+        )}
+
+        {!loading &&
+          !failed &&
+          issues.map((issue) => (
+            <a
+              key={issue.number}
+              href={issue.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => trackEvent("contribute_issue_opened", { issue_number: issue.number, label })}
+              className="block rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-4 shadow-sm transition hover:border-[#123f38]/30 hover:bg-white"
+            >
+              <div className="flex items-baseline gap-2">
+                <span className="font-ledger text-xs text-[#8a7a64]">#{issue.number}</span>
+                {issue.assigned && (
+                  <span className="rounded-full bg-[#f0e2cf] px-2 py-0.5 text-[11px] text-[#665746]">Taken</span>
+                )}
+              </div>
+              <div className="mt-1.5 font-semibold leading-snug">{issue.title}</div>
+              {issue.labels.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {issue.labels.map((name) => (
+                    <span key={name} className="rounded-full bg-[#edf4f2] px-2.5 py-1 text-[11px] font-medium text-[#123f38]">
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </a>
+          ))}
+      </div>
+
+      {!loading && !failed && issues.length > 0 && (
+        <a
+          href={labelSearchUrl(label)}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => trackEvent("contribute_link_clicked", { target: "issue_label_all" })}
+          className="font-ledger mt-4 inline-flex items-center gap-1 px-2 text-xs uppercase tracking-[0.15em] text-[#655644] hover:text-[#123f38]"
+        >
+          All on GitHub <Icon name="arrow" size={12} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function ContributePage({ onGoToFeedback }) {
+  // null until the fetch settles. A failed fetch stores an ok:false payload so
+  // the lists can say so instead of spinning forever.
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/contribute")
+      .then((response) => response.json())
+      .then((payload) => {
+        if (!cancelled) setData(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setData({ ok: false, repo: null, goodFirstIssues: [], helpWanted: [] });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loading = data === null;
+  const failed = Boolean(data) && !data.ok;
+  const repo = data?.repo || null;
+  const lastPush = formatRelativeTime(repo?.lastPushedAt);
+
+  function trackOutbound(target) {
+    trackEvent("contribute_link_clicked", { target });
+  }
+
+  return (
+    <section className="mx-auto max-w-6xl px-6 py-16 md:py-20">
+      <div className="max-w-3xl">
+        <div className="font-ledger inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#655644]">
+          <Icon name="github" size={13} /> Open source
+        </div>
+        <h1 className="font-display mt-5 text-4xl font-semibold tracking-tight md:text-6xl">
+          FirstFinder is yours to build on.
+        </h1>
+        <p className="mt-5 max-w-2xl text-lg leading-8 text-[#665746]">
+          Every line of this app is public, and free to read, run, fork, and improve. It's built and paid for by one collector, which means the fastest way to get the feature you want is often to help build it — and the second fastest is to say clearly what's missing.
+        </p>
+      </div>
+
+      <div className="mt-8 flex flex-wrap items-center gap-3">
+        <a
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => trackOutbound("repository")}
+          className="inline-flex h-12 items-center gap-2 rounded-full bg-[#123f38] px-7 text-base font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
+        >
+          <Icon name="github" size={18} /> View the source
+        </a>
+        <a
+          href={CONTRIBUTING_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => trackOutbound("contributing_guide_hero")}
+          className="inline-flex h-12 items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-6 text-base font-medium text-[#665746] transition hover:bg-white"
+        >
+          Contributing guide <Icon name="arrow" size={16} />
+        </a>
+
+        {repo && (
+          <div className="font-ledger flex flex-wrap items-center gap-4 text-xs text-[#8a7a64] sm:ml-2">
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="star" size={13} /> {repo.stars} star{repo.stars === 1 ? "" : "s"}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="code" size={13} /> {repo.forks} fork{repo.forks === 1 ? "" : "s"}
+            </span>
+            {lastPush && <span>Last commit {lastPush}</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {contributeWays.map((way) => (
+          <div key={way.title} className="flex flex-col rounded-[1.75rem] border border-[#d8c7ad] bg-[#fffdf8] p-6 shadow-sm">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[#edf4f2] text-[#123f38]">
+              <Icon name={way.icon} size={18} />
+            </span>
+            <h2 className="font-display mt-4 text-xl font-semibold">{way.title}</h2>
+            <p className="mt-2 flex-1 text-sm leading-6 text-[#665746]">{way.text}</p>
+
+            {way.href ? (
+              <a
+                href={way.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackOutbound(way.target)}
+                className="font-ledger mt-4 inline-flex items-center gap-1 text-xs uppercase tracking-[0.15em] text-[#655644] hover:text-[#123f38]"
+              >
+                {way.cta} <Icon name="arrow" size={12} />
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  trackOutbound(way.target);
+                  onGoToFeedback();
+                }}
+                className="font-ledger mt-4 inline-flex items-center gap-1 text-left text-xs uppercase tracking-[0.15em] text-[#655644] hover:text-[#123f38]"
+              >
+                {way.cta} <Icon name="arrow" size={12} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-14">
+        <h2 className="font-display text-3xl font-semibold tracking-tight">Ready for someone to pick up</h2>
+        <p className="mt-2 max-w-2xl leading-7 text-[#665746]">
+          Read straight from GitHub, so this is what's genuinely open right now.
+        </p>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <ContributeIssueList
+            heading="Good first issues"
+            blurb="Small, self-contained, and safe to get wrong the first time."
+            label={GOOD_FIRST_ISSUE_LABEL}
+            issues={data?.goodFirstIssues || []}
+            loading={loading}
+            failed={failed}
+          />
+          <ContributeIssueList
+            heading="Help wanted"
+            blurb="Bigger pieces that are scoped and waiting on someone with time."
+            label={HELP_WANTED_LABEL}
+            issues={data?.helpWanted || []}
+            loading={loading}
+            failed={failed}
+          />
+        </div>
+      </div>
+
+      <div className="mt-14 grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+        {/* min-w-0: without it this grid item refuses to shrink below the
+            width of the longest setup command, and the whole page scrolls
+            sideways on a phone instead of the code block scrolling on its own. */}
+        <div className="min-w-0 rounded-[2rem] border border-[#d8c7ad] bg-[#fbf5e9] p-6 md:p-8">
+          <h2 className="font-display text-2xl font-semibold">Run it on your own machine</h2>
+          <p className="mt-2 leading-7 text-[#665746]">
+            You'll need Node 20.9 or newer and a free Supabase project. Paste <span className="font-ledger text-[#4a3f33]">supabase/schema.sql</span> into Supabase's SQL editor to create the database, then:
+          </p>
+          <pre className="font-ledger mt-4 overflow-x-auto rounded-2xl bg-[#123f38] p-5 text-xs leading-6 text-[#fff7ea]">
+{contributeSetupCommands.join("\n")}
+          </pre>
+          <a
+            href={`${CONTRIBUTING_URL}#local-setup`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackOutbound("local_setup")}
+            className="font-ledger mt-4 inline-flex items-center gap-1 text-xs uppercase tracking-[0.15em] text-[#655644] hover:text-[#123f38]"
+          >
+            Full setup walkthrough <Icon name="arrow" size={12} />
+          </a>
+        </div>
+
+        <div className="rounded-[2rem] border border-dashed border-[#d3c1a4] bg-[#fffdf8] p-6 md:p-8">
+          <div className="font-ledger text-xs uppercase tracking-[0.2em] text-[#8a7a64]">The license, in plain words</div>
+          <p className="mt-3 leading-7 text-[#665746]">
+            FirstFinder is released under the GNU AGPL v3. Use it, study it, change it, run your own copy for your own shelf — all fine. The one condition: if you run a modified version as a service other people can reach, you have to publish your changes too. That's what keeps this app, and anything built from it, open for collectors.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
+            {[
+              { label: "Read the license", href: LICENSE_URL, target: "license" },
+              { label: "Code of Conduct", href: CODE_OF_CONDUCT_URL, target: "code_of_conduct" },
+              { label: "Report a vulnerability", href: SECURITY_URL, target: "security_policy" }
+            ].map((link) => (
+              <a
+                key={link.target}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackOutbound(link.target)}
+                className="font-ledger text-xs uppercase tracking-[0.15em] text-[#655644] underline decoration-[#cdbb9d] underline-offset-4 hover:text-[#123f38]"
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 
 const aboutParagraphs = [
   "There's something magical about discovering your first rare or collectible book. It's more than finding an old volume on a shelf—it's stepping into a world filled with history, craftsmanship, and stories that have survived generations. Every collector remembers that first find.",
@@ -4632,7 +5080,7 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
 
   return (
     <footer className="mt-20 bg-[#123f38] text-[#fff7ea] print:hidden">
-      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-14 md:grid-cols-[1.5fr_1fr_1fr]">
+      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-14 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div>
           <div className="flex items-center gap-3">
             <img src="/firstfinder-mark-exact.png" alt="" className="h-9 w-9 rounded-lg object-cover" />
@@ -4642,7 +5090,16 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
             Item photos, receipt proof, purchase details, and value — one ledger for the collection you swore you'd keep track of this time.
           </p>
           <p className="mt-6 text-xs text-[#fff7ea]/50" suppressHydrationWarning>
-            © {new Date().getFullYear()} FirstFinder. All rights reserved.
+            © {new Date().getFullYear()} FirstFinder. Free and open source under the{" "}
+            <a
+              href={LICENSE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-[#fff7ea]/30 underline-offset-2 hover:text-[#fff7ea]"
+            >
+              AGPL-3.0
+            </a>
+            .
           </p>
         </div>
 
@@ -4664,6 +5121,17 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
               : <FooterLink href="mailto:thebookbarterer@gmail.com">Contact Support</FooterLink>}
             <FooterLink href="mailto:thebookbarterer@gmail.com?subject=Business%20inquiry">Business Inquiries</FooterLink>
             <FooterLink onClick={() => onNavigate("terms")}>Terms of Service</FooterLink>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-[0.18em] text-[#fff7ea]/50">Open source</div>
+          <div className="mt-4 flex flex-col gap-3">
+            {/* Public pages, so these don't route signed-out visitors to log in. */}
+            <FooterLink onClick={() => onNavigate("contribute")}>Contribute</FooterLink>
+            <FooterLink href={REPO_URL}>Source on GitHub</FooterLink>
+            <FooterLink href={labelSearchUrl(GOOD_FIRST_ISSUE_LABEL)}>Good first issues</FooterLink>
+            <FooterLink href={DONATE_URL}>Buy me a coffee</FooterLink>
           </div>
         </div>
       </div>

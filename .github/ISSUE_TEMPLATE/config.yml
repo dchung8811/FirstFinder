@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/dchung8811/FirstFinder/security/advisories/new
+    about: Please report security problems privately, never as a public issue.
+  - name: Send feedback without a GitHub account
+    url: https://first-finder.vercel.app
+    about: Log in and use the Feedback page inside the app.
+  - name: Help keep FirstFinder free
+    url: https://buymeacoffee.com/firstfinder
+    about: Hosting, storage, and AI calls are paid for out of pocket.
