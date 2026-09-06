@@ -5,11 +5,7 @@ import { GITHUB_SLUG } from "./project";
 
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_SLUG}`;
 
-// Open issues shown to the model for duplicate detection. Titles only -- the
-// bodies would dwarf the actual feedback in the prompt.
-const DUPLICATE_CANDIDATES = 60;
-
-export function githubHeaders(token) {
+function githubHeaders(token) {
   return {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
@@ -17,26 +13,6 @@ export function githubHeaders(token) {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json"
   };
-}
-
-export async function fetchOpenIssueTitles(token) {
-  if (!token) return [];
-
-  try {
-    const response = await fetch(
-      `${GITHUB_API}/issues?state=open&per_page=${DUPLICATE_CANDIDATES}&sort=updated&direction=desc`,
-      { headers: githubHeaders(token), cache: "no-store" }
-    );
-    if (!response.ok) return [];
-    const issues = await response.json();
-    return (Array.isArray(issues) ? issues : [])
-      .filter((issue) => !issue.pull_request)
-      .map((issue) => ({ number: issue.number, title: issue.title }));
-  } catch (error) {
-    // Duplicate detection is a nicety. Losing it must not block triage.
-    console.error("Feedback: could not list open issues:", error.message);
-    return [];
-  }
 }
 
 // Adds a freshly filed issue to the project board, if one is configured. Best
