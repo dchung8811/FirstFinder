@@ -1,9 +1,15 @@
 # FirstFinder
 
-**A free, open-source inventory app for people who collect things.** Photograph
-a book, and its title, edition, printing, condition, and a search-grounded value
+**A free, open-source catalog for people who collect things.** Photograph a
+book, and its title, edition, printing, condition, and a search-grounded value
 range come back filled in. Keep receipts, purchase prices, and current values in
-one ledger instead of the spreadsheet that got away from you.
+one place instead of the spreadsheet that got away from you.
+
+Built for the collector with forty books, not the shop with four thousand.
+FirstFinder is for hobbyists and avid collectors — the people who remember how
+they found each piece. It is deliberately **not** a dealer tool: no invoicing,
+no consignment, no point of sale, no shared team accounts. If you run a
+bookshop, you want something else.
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-123f38.svg)](LICENSE)
 [![CI](https://github.com/dchung8811/FirstFinder/actions/workflows/ci.yml/badge.svg)](https://github.com/dchung8811/FirstFinder/actions/workflows/ci.yml)
@@ -152,38 +158,12 @@ confident edition/printing read.
 Every identification is a paid, search-grounded API call -- meaningfully more
 expensive than a plain vision request -- so the route verifies the caller's
 Supabase session before spending anything, caps image size and count, and
-enforces `IDENTIFY_DAILY_LIMIT` calls per user per day (default 2).
-
-That daily cap is persisted in Postgres, not process memory. `identify_usage`
-holds one row per user per UTC day, and `claim_identify_call` claims a call in
-a single atomic statement -- the limit check lives in an `ON CONFLICT ... WHERE`
-clause, so two requests arriving together can't both read "one used" and both
-proceed. Run `supabase/identify-daily-limit.sql` once in the SQL editor to
-create it. **Until that SQL is run the cap falls back to a per-instance
-counter of the same size**, which on serverless means a caller landing on a
-cold instance gets a fresh allowance; the route logs loudly when it takes that
-path. The allowance is claimed only after every free validation passes and
-immediately before the paid call, so a rejected upload doesn't cost the user
-one of their two.
-
-Individual accounts can be given a different cap by putting a row in
-`identify_limits` -- a raised allowance for a beta tester, or `0` to switch the
-feature off for one account. Anyone without a row follows
-`IDENTIFY_DAILY_LIMIT`, so the table stays empty until someone actually needs a
-different number, and it takes effect on their next call with no deploy. The
-limit that was actually applied comes back from the function as `day_limit`, so
-a user on a raised cap is never told they have two. There is deliberately no
-admin UI for this: raising a cap spends real money and should take a deliberate
-act. The SQL file carries the copy-paste queries for setting, clearing, and
-reviewing overrides.
-
-A short in-process cooldown (a few seconds between calls) still guards against
-a stuck retry loop, which hits the same instance anyway and isn't worth a
-database round-trip.
-
-The backstop behind all of it is a prepaid credit balance with auto-recharge
-off on the OpenAI account. Both the home page and the card inside the app say
-the limit out loud, so nobody discovers it by being refused.
+throttles per user (a few seconds between calls, `IDENTIFY_DAILY_LIMIT` per
+day, default 10). That throttle lives in process memory, which on serverless
+means per-instance -- it stops runaway retries but is not a hard spend cap.
+The real cap is a prepaid credit balance with auto-recharge off on the OpenAI
+account; a persisted per-user counter is worth adding before the app has many
+users.
 
 Values returned by this flow are model estimates from a single photograph, not
 appraisals, and the review screen says so.
