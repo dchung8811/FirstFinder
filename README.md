@@ -98,12 +98,27 @@ confident edition/printing read.
 Every identification is a paid, search-grounded API call -- meaningfully more
 expensive than a plain vision request -- so the route verifies the caller's
 Supabase session before spending anything, caps image size and count, and
-throttles per user (a few seconds between calls, `IDENTIFY_DAILY_LIMIT` per
-day, default 10). That throttle lives in process memory, which on serverless
-means per-instance -- it stops runaway retries but is not a hard spend cap.
-The real cap is a prepaid credit balance with auto-recharge off on the OpenAI
-account; a persisted per-user counter is worth adding before the app has many
-users.
+enforces `IDENTIFY_DAILY_LIMIT` calls per user per day (default 2).
+
+That daily cap is persisted in Postgres, not process memory. `identify_usage`
+holds one row per user per UTC day, and `claim_identify_call` claims a call in
+a single atomic statement -- the limit check lives in an `ON CONFLICT ... WHERE`
+clause, so two requests arriving together can't both read "one used" and both
+proceed. Run `supabase/identify-daily-limit.sql` once in the SQL editor to
+create both. **Until that SQL is run the cap falls back to a per-instance
+counter of the same size**, which on serverless means a caller landing on a
+cold instance gets a fresh allowance; the route logs loudly when it takes that
+path. The allowance is claimed only after every free validation passes and
+immediately before the paid call, so a rejected upload doesn't cost the user
+one of their two.
+
+A short in-process cooldown (a few seconds between calls) still guards against
+a stuck retry loop, which hits the same instance anyway and isn't worth a
+database round-trip.
+
+The backstop behind all of it is a prepaid credit balance with auto-recharge
+off on the OpenAI account. Both the home page and the card inside the app say
+the limit out loud, so nobody discovers it by being refused.
 
 Values returned by this flow are model estimates from a single photograph, not
 appraisals, and the review screen says so.

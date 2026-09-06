@@ -2470,57 +2470,98 @@ function TermsPage() {
   );
 }
 
-// Drop a YouTube video id in here (e.g. "dQw4w9WgXcQ") and the demo video
-// player appears on the homepage in place of the three-step strip's header.
-const demoVideoId = "3RTVD9LqoEI";
-
-// A standard click-to-play embed: YouTube renders its own thumbnail and play
-// button, and the visitor starts it deliberately.
+// Both home page films are served from /public rather than embedded from
+// YouTube. They are silent screen recordings -- every second of both audio
+// tracks measures as silence -- so muting them costs nothing, and self-hosting
+// is what makes a clean autoplaying loop possible at all: YouTube serves a
+// vertical clip through its Shorts player, which rests as a black rectangle
+// wearing the Shorts logo, a mute button and Like/Share until someone presses
+// play, with no frame of the video showing.
 //
-// Deliberately not autoplaying. This is a ~57 second walkthrough, not an
-// ambient background loop -- muted autoplay would drop people into the middle
-// of it with no context and no sound. Because the viewer is choosing to
-// watch, the player keeps its own controls (play/pause, scrub, speed,
-// fullscreen), which also means none of the previous chrome-hiding
-// workarounds are needed: no controls=0, no pointer-events-none, and no
-// oversized/offset crop to push YouTube's title bar out of frame. That crop
-// would now hide the control bar along the bottom edge.
-function DemoVideoPlayer({ videoId }) {
+// preload="none" plus the observer below means neither file is fetched until
+// it is actually scrolled to, so a visitor who reads the hero and leaves pays
+// nothing for either one.
+const demoVideoSrc = "/firstfinder-demo.mp4";
+const demoVideoPoster = "/firstfinder-demo-poster.jpg";
+const aiFeatureVideoSrc = "/firstfinder-ai-feature.mp4";
+const aiFeatureVideoPoster = "/firstfinder-ai-feature-poster.jpg";
+
+// Plays while it is on screen and pauses when it is not, so a loop that has
+// scrolled away is not still decoding frames on someone's phone.
+function LoopingVideo({ src, poster, label, className = "" }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Anyone who has asked their system to reduce motion gets the poster frame
+    // and real controls instead of a loop that starts on its own. The video is
+    // still here to watch -- it just waits to be asked.
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (reducedMotion?.matches) {
+      video.controls = true;
+      return;
+    }
+
+    if (typeof IntersectionObserver === "undefined") {
+      video.controls = true;
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          // play() rejects when the browser refuses autoplay outright -- iOS
+          // Low Power Mode is the usual reason. There is no recovery worth
+          // attempting, and the poster frame is a fine resting state, so
+          // swallow it rather than leave an unhandled rejection in the console.
+          video.play().catch(() => {});
+        } else {
+          video.pause();
+        }
+      },
+      // Low enough that a tall portrait clip on a short phone screen still
+      // counts as "on screen" -- a 0.5 threshold can never be met when the
+      // video is taller than the viewport.
+      { threshold: 0.25 }
+    );
+
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <iframe
-      className="absolute inset-0 h-full w-full"
-      src={`https://www.youtube-nocookie.com/embed/${videoId}?rel=0&playsinline=1`}
-      title="FirstFinder demo"
-      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-      allowFullScreen
+    <video
+      ref={videoRef}
+      className={`absolute inset-0 h-full w-full object-cover ${className}`}
+      src={src}
+      poster={poster}
+      preload="none"
+      muted
+      loop
+      playsInline
+      aria-label={label}
     />
   );
 }
 
-// The AI walkthrough is a YouTube Short, not the 16:9 demo film, so it gets a
-// phone-shaped frame -- letterboxing a portrait clip into a widescreen well
-// would leave it a thin strip between two black bars.
-//
-// Click to play, like the demo film above it, rather than a muted autoplaying
-// loop. Autoplay was the obvious fit for a silent 35-second screen recording,
-// but YouTube serves Shorts through its own player: with playback blocked (or
-// simply not yet started) the frame rests as a black rectangle wearing the
-// Shorts logo, a mute button, and Like/Share, and no frame of the video shows
-// at all. Left to click-to-play the same player rests on the video's own
-// thumbnail instead, which is the picture the section is here to show.
-const aiFeatureVideoId = "knGsP_J8VSI";
+function DemoVideoPlayer() {
+  return (
+    <LoopingVideo
+      src={demoVideoSrc}
+      poster={demoVideoPoster}
+      label="A walkthrough of cataloguing a collection in FirstFinder"
+    />
+  );
+}
 
 function AiFeatureVideo() {
   return (
-    <iframe
-      className="absolute inset-0 h-full w-full"
-      src={`https://www.youtube-nocookie.com/embed/${aiFeatureVideoId}?rel=0&playsinline=1`}
-      title="Identifying a book from a photo in FirstFinder"
-      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-      // Nothing loads until the frame is near the viewport, so a visitor who
-      // never scrolls this far pays nothing for the embed.
-      loading="lazy"
-      allowFullScreen
+    <LoopingVideo
+      src={aiFeatureVideoSrc}
+      poster={aiFeatureVideoPoster}
+      label="Identifying a book from a photo in FirstFinder"
     />
   );
 }
@@ -2559,6 +2600,12 @@ function SpecimenCard({ index, kind, title, detail, paid, value, chips, classNam
     </div>
   );
 }
+
+// Quoted in two places -- the home page section and the card inside the app --
+// and it must match IDENTIFY_DAILY_LIMIT in app/api/identify-book/route.js,
+// which is the only place it is actually enforced. This constant is copy, not
+// a limit.
+const identifyDailyLimitCopy = 2;
 
 // Deliberately narrow claims: the identification is grounded in a real search
 // for comparable sales and every field lands in an editable draft, so the copy
@@ -2693,6 +2740,14 @@ function HomePage({ onGetStarted }) {
               <Button variant="outline" onClick={onGetStarted} className="h-12 border-transparent px-7 text-base">
                 Try it on your next find <Icon name="arrow" size={18} className="ml-1" />
               </Button>
+              {/* Said plainly and up front rather than discovered on the third
+                  attempt. Every identification is a search-grounded model call
+                  with a real per-call cost on a self-funded app, and a cap
+                  someone runs into unwarned reads as the feature being broken. */}
+              <p className="mt-5 max-w-md text-sm leading-6 text-[#a9c4bd]">
+                {identifyDailyLimitCopy} identifications per account per day. Each one is a paid, search-grounded
+                API call, so it's capped — and it can pause altogether if the budget runs out.
+              </p>
             </div>
           </div>
         </div>
@@ -2702,18 +2757,12 @@ function HomePage({ onGetStarted }) {
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
           <div className="mx-auto max-w-3xl">
             <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in 60 seconds.</h2>
-            {demoVideoId ? (
-              <div className="relative mt-8 aspect-video w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
-                <DemoVideoPlayer videoId={demoVideoId} />
-              </div>
-            ) : (
-              <div className="mt-8 flex aspect-video w-full flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl border border-[#d3c1a4] bg-[#123f38] shadow-xl">
-                <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#fff7ea]/40 text-[#fff7ea]">
-                  <Icon name="play" size={26} className="ml-1" />
-                </span>
-                <div className="font-ledger text-xs uppercase tracking-[0.24em] text-[#d8e6e2]">Demo film · Coming soon</div>
-              </div>
-            )}
+            {/* aspect-[1152/720], not aspect-video: the recording is 16:10, and
+                cropping it to 16:9 would shave the top and bottom off a screen
+                capture whose edges are the app's own chrome. */}
+            <div className="relative mt-8 aspect-[1152/720] w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
+              <DemoVideoPlayer />
+            </div>
           </div>
 
           <div className="mt-12 grid gap-6 md:grid-cols-3">
@@ -4347,6 +4396,11 @@ function IdentifyPhotoCard({ onPhoto, identifying }) {
           <h2 className="mt-3 text-2xl font-semibold">Take a picture, we'll fill in the rest.</h2>
           <p className="mt-2 max-w-xl leading-7 text-[#365c53]">
             Photograph the cover and we'll identify the title, edition, and a rough value, then hand you an editable draft. The photo is attached to the record. You'll still enter what you paid.
+          </p>
+          {/* Stated before the button, not after the refusal. */}
+          <p className="mt-3 max-w-xl text-sm leading-6 text-[#5c7a72]">
+            Limited to {identifyDailyLimitCopy} identifications a day per account, and they can pause if the budget
+            runs out — each one is a live, search-grounded API call, and this is a self-funded app.
           </p>
         </div>
         <label
