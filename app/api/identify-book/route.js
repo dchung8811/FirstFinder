@@ -19,39 +19,102 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGES = 4;
 const MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 
-// Best-effort throttle. This lives in process memory, so on serverless it is
-// per-instance and a determined caller can get around it by landing on cold
-// instances. It is enough to stop an accidental loop or a stuck retry, which
-// is the realistic failure. A hard per-user cap needs a persisted counter --
-// see the note in README.
+// The daily cap is enforced in Postgres (see supabase/identify-daily-limit.sql)
+// so it survives across serverless instances. This in-process log is now only
+// the short cooldown between calls, plus a fallback allowance for the window
+// where this code is deployed but the SQL has not been run yet.
 const COOLDOWN_MS = 3000;
-// Tunable without a deploy. Lower than the previous default (20) because a
-// search-grounded call costs more than the old vision-only one -- start
-// conservative and raise it once real per-call cost is known.
-const DAILY_LIMIT = Number(process.env.IDENTIFY_DAILY_LIMIT) || 10;
+// Two per user per day. Every identification is a search-grounded model call
+// with one or more web round-trips, which costs real money on a self-funded
+// app -- this is the number that keeps the feature affordable to leave on.
+// Tunable without a deploy.
+const DAILY_LIMIT = Number(process.env.IDENTIFY_DAILY_LIMIT) || 2;
 const callLog = new Map();
 
-function checkThrottle(userId) {
-  const now = Date.now();
-  const entry = callLog.get(userId) || { last: 0, day: new Date(now).toDateString(), count: 0 };
+// The cooldown is deliberately still in process memory: it exists to stop a
+// stuck retry loop or an impatient double-tap, both of which hit the same
+// instance anyway, and it isn't worth a database round-trip.
+function checkCooldown(userId) {
+  const entry = callLog.get(userId);
+  if (entry && Date.now() - entry.last < COOLDOWN_MS) {
+    return "You're going a little fast — give it a few seconds and try again.";
+  }
+  return null;
+}
 
+// The in-process daily counter, used only when the database cap is unreachable.
+function fallbackClaim(userId) {
+  const now = Date.now();
   const today = new Date(now).toDateString();
+  const entry = callLog.get(userId) || { last: 0, day: today, count: 0 };
+
   if (entry.day !== today) {
     entry.day = today;
     entry.count = 0;
   }
 
-  if (now - entry.last < COOLDOWN_MS) {
-    return "You're going a little fast — give it a few seconds and try again.";
-  }
   if (entry.count >= DAILY_LIMIT) {
-    return `You've hit the daily limit of ${DAILY_LIMIT} photo identifications. It resets tomorrow.`;
+    return { error: atLimitMessage(DAILY_LIMIT) };
   }
 
   entry.last = now;
   entry.count += 1;
   callLog.set(userId, entry);
-  return null;
+  return { error: null, used: entry.count, limit: DAILY_LIMIT, remaining: Math.max(0, DAILY_LIMIT - entry.count) };
+}
+
+function noteCall(userId) {
+  const entry = callLog.get(userId) || { last: 0, day: new Date().toDateString(), count: 0 };
+  entry.last = Date.now();
+  callLog.set(userId, entry);
+}
+
+function atLimitMessage(limit) {
+  if (limit <= 0) {
+    return "Photo identification is switched off for this account.";
+  }
+  return `You've used your ${limit} photo identification${limit === 1 ? "" : "s"} for today. The count resets at midnight UTC.`;
+}
+
+// Claims one call against the user's daily allowance, atomically, in the
+// database -- so two tabs firing at once can't both slip through, and a caller
+// can't reset their count by landing on a fresh serverless instance.
+//
+// Fails open to the in-process counter rather than blocking the feature. The
+// realistic reason this errors is that the code is deployed but
+// supabase/identify-daily-limit.sql has not been run yet, and taking photo
+// identification down entirely for that window is a worse outcome than falling
+// back to a per-instance cap of the same size. It is logged loudly so the
+// window doesn't go unnoticed.
+async function claimDailyCall(supabaseAdmin, userId) {
+  const { data, error } = await supabaseAdmin.rpc("claim_identify_call", {
+    p_user_id: userId,
+    p_limit: DAILY_LIMIT
+  });
+
+  if (error) {
+    console.error(
+      "Identify daily-cap check failed, falling back to the in-process counter. Has supabase/identify-daily-limit.sql been run?",
+      error.message
+    );
+    return fallbackClaim(userId);
+  }
+
+  // supabase-js hands back an array for a set-returning function.
+  const row = Array.isArray(data) ? data[0] : data;
+
+  // day_limit is the limit that was actually applied, which is not necessarily
+  // DAILY_LIMIT: a row in identify_limits overrides the app default for one
+  // user. Everything the caller is told has to quote the effective number, or
+  // someone on a raised cap gets told they have two.
+  const effectiveLimit = Number.isInteger(row?.day_limit) ? row.day_limit : DAILY_LIMIT;
+
+  if (!row?.allowed) {
+    return { error: atLimitMessage(effectiveLimit) };
+  }
+
+  noteCall(userId);
+  return { error: null, used: row.used, limit: effectiveLimit, remaining: Math.max(0, effectiveLimit - row.used) };
 }
 
 // Every comparable the model uses must say where it came from and whether it
@@ -168,9 +231,9 @@ export async function POST(request) {
     return NextResponse.json({ error: "Photo identification isn't configured on the server yet." }, { status: 500 });
   }
 
-  const throttleError = checkThrottle(userData.user.id);
-  if (throttleError) {
-    return NextResponse.json({ error: throttleError }, { status: 429 });
+  const cooldownError = checkCooldown(userData.user.id);
+  if (cooldownError) {
+    return NextResponse.json({ error: cooldownError }, { status: 429 });
   }
 
   let images;
@@ -197,6 +260,15 @@ export async function POST(request) {
   }
   if (images.reduce((total, image) => total + image.length, 0) > MAX_TOTAL_BYTES) {
     return NextResponse.json({ error: "Those photos are too large together. Try fewer, or smaller ones." }, { status: 413 });
+  }
+
+  // Claimed here, after every free validation has passed and immediately before
+  // the paid call. Claiming any earlier would spend one of the day's two
+  // allowances on a photo that was about to be rejected for being too large or
+  // not an image at all.
+  const claim = await claimDailyCall(supabaseAdmin, userData.user.id);
+  if (claim.error) {
+    return NextResponse.json({ error: claim.error }, { status: 429 });
   }
 
   try {
@@ -282,7 +354,9 @@ export async function POST(request) {
     // pages, surfaced separately in case they don't fully overlap.
     result.citations = extractCitations(contentPart);
 
-    return NextResponse.json({ result });
+    // Sent back so the review screen can tell the user what is left of today's
+    // allowance, rather than letting them find out by being refused.
+    return NextResponse.json({ result, remaining: claim.remaining, dailyLimit: claim.limit });
   } catch (error) {
     console.error("Identify request error:", error.message);
     return NextResponse.json({ error: "Couldn't reach the identification service. Please try again." }, { status: 502 });
