@@ -105,12 +105,23 @@ holds one row per user per UTC day, and `claim_identify_call` claims a call in
 a single atomic statement -- the limit check lives in an `ON CONFLICT ... WHERE`
 clause, so two requests arriving together can't both read "one used" and both
 proceed. Run `supabase/identify-daily-limit.sql` once in the SQL editor to
-create both. **Until that SQL is run the cap falls back to a per-instance
+create it. **Until that SQL is run the cap falls back to a per-instance
 counter of the same size**, which on serverless means a caller landing on a
 cold instance gets a fresh allowance; the route logs loudly when it takes that
 path. The allowance is claimed only after every free validation passes and
 immediately before the paid call, so a rejected upload doesn't cost the user
 one of their two.
+
+Individual accounts can be given a different cap by putting a row in
+`identify_limits` -- a raised allowance for a beta tester, or `0` to switch the
+feature off for one account. Anyone without a row follows
+`IDENTIFY_DAILY_LIMIT`, so the table stays empty until someone actually needs a
+different number, and it takes effect on their next call with no deploy. The
+limit that was actually applied comes back from the function as `day_limit`, so
+a user on a raised cap is never told they have two. There is deliberately no
+admin UI for this: raising a cap spends real money and should take a deliberate
+act. The SQL file carries the copy-paste queries for setting, clearing, and
+reviewing overrides.
 
 A short in-process cooldown (a few seconds between calls) still guards against
 a stuck retry loop, which hits the same instance anyway and isn't worth a

@@ -60,7 +60,7 @@ function fallbackClaim(userId) {
   entry.last = now;
   entry.count += 1;
   callLog.set(userId, entry);
-  return { error: null, used: entry.count, remaining: Math.max(0, DAILY_LIMIT - entry.count) };
+  return { error: null, used: entry.count, limit: DAILY_LIMIT, remaining: Math.max(0, DAILY_LIMIT - entry.count) };
 }
 
 function noteCall(userId) {
@@ -70,6 +70,9 @@ function noteCall(userId) {
 }
 
 function atLimitMessage(limit) {
+  if (limit <= 0) {
+    return "Photo identification is switched off for this account.";
+  }
   return `You've used your ${limit} photo identification${limit === 1 ? "" : "s"} for today. The count resets at midnight UTC.`;
 }
 
@@ -100,12 +103,18 @@ async function claimDailyCall(supabaseAdmin, userId) {
   // supabase-js hands back an array for a set-returning function.
   const row = Array.isArray(data) ? data[0] : data;
 
+  // day_limit is the limit that was actually applied, which is not necessarily
+  // DAILY_LIMIT: a row in identify_limits overrides the app default for one
+  // user. Everything the caller is told has to quote the effective number, or
+  // someone on a raised cap gets told they have two.
+  const effectiveLimit = Number.isInteger(row?.day_limit) ? row.day_limit : DAILY_LIMIT;
+
   if (!row?.allowed) {
-    return { error: atLimitMessage(DAILY_LIMIT) };
+    return { error: atLimitMessage(effectiveLimit) };
   }
 
   noteCall(userId);
-  return { error: null, used: row.used, remaining: Math.max(0, DAILY_LIMIT - row.used) };
+  return { error: null, used: row.used, limit: effectiveLimit, remaining: Math.max(0, effectiveLimit - row.used) };
 }
 
 // Every comparable the model uses must say where it came from and whether it
@@ -347,7 +356,7 @@ export async function POST(request) {
 
     // Sent back so the review screen can tell the user what is left of today's
     // allowance, rather than letting them find out by being refused.
-    return NextResponse.json({ result, remaining: claim.remaining, dailyLimit: DAILY_LIMIT });
+    return NextResponse.json({ result, remaining: claim.remaining, dailyLimit: claim.limit });
   } catch (error) {
     console.error("Identify request error:", error.message);
     return NextResponse.json({ error: "Couldn't reach the identification service. Please try again." }, { status: 502 });
