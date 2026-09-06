@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in FirstFinder doesn't work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **If this is a security problem, stop here** and follow
+        [SECURITY.md](https://github.com/dchung8811/FirstFinder/blob/main/SECURITY.md)
+        instead — please don't describe it in a public issue.
+
+        Please don't paste screenshots that show your home address, a receipt,
+        or anything else you'd rather not have public. Crop them first.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to My Collection
+        2. Switch to record view
+        3. Click the price on any sold item
+        4. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did this happen?
+      options:
+        - The hosted app (first-finder.vercel.app)
+        - A local development copy
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      options:
+        - Adding items (Quick Add or guided flow)
+        - AI photo identification
+        - My Collection (browsing, search, filters, inline edit)
+        - Dashboard or valuation
+        - CSV import, bulk edit, or export
+        - Insurance report / printing
+        - Accounts, sign-in, or My Account
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and device
+      placeholder: Safari 18 on iPhone 15, Chrome 141 on macOS, ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: |
+        Console errors, screenshots (cropped), or how often it happens. If it
+        only affects certain items, what's unusual about them?
+    validations:
+      required: false

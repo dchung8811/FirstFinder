@@ -1,6 +1,50 @@
 # FirstFinder
 
-FirstFinder is a collectible inventory app for tracking books and other collectibles.
+**A free, open-source inventory app for people who collect things.** Photograph
+a book, and its title, edition, printing, condition, and a search-grounded value
+range come back filled in. Keep receipts, purchase prices, and current values in
+one ledger instead of the spreadsheet that got away from you.
+
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-123f38.svg)](LICENSE)
+[![CI](https://github.com/dchung8811/FirstFinder/actions/workflows/ci.yml/badge.svg)](https://github.com/dchung8811/FirstFinder/actions/workflows/ci.yml)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-123f38.svg)](CONTRIBUTING.md)
+
+**[Use it free at first-finder.vercel.app →](https://first-finder.vercel.app)**
+
+Built for rare books first, and equally at home with comics, manuscripts,
+trading cards, and sports memorabilia.
+
+## Open source, and free to stay that way
+
+FirstFinder is a passion project, self-funded and released under the
+[AGPL-3.0](LICENSE). You can read every line, run your own copy, and send
+changes back. The **Contribute** page in the app is the front door: it links the
+source, the setup guide, and the issues that are ready for someone to pick up.
+
+- **Want to help?** Start with [CONTRIBUTING.md](CONTRIBUTING.md), or browse
+  [good first issues](https://github.com/dchung8811/FirstFinder/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+- **Found a bug?** [Open an issue](https://github.com/dchung8811/FirstFinder/issues/new/choose).
+- **Found a security problem?** Report it privately — see [SECURITY.md](SECURITY.md).
+- **Want to help pay the hosting bill?** [Buy me a coffee](https://buymeacoffee.com/firstfinder).
+
+## Quick start
+
+Requires Node.js 20.9+ and a free Supabase project.
+
+```bash
+git clone https://github.com/dchung8811/FirstFinder.git
+cd FirstFinder
+npm install
+cp .env.example .env.local   # then fill in your Supabase URL and anon key
+npm run dev
+```
+
+Create the database by pasting [`supabase/schema.sql`](supabase/schema.sql) into
+the Supabase dashboard's **SQL Editor → New query → Run**. That one file creates
+both tables, their Row Level Security policies, and the private photo bucket.
+
+The full walkthrough — including what each environment variable is for and which
+ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 
 ## Current features
 
@@ -46,6 +90,7 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 
 - Explore the collector-focused home page and learn more about the project on the **About** page.
 - Review shipped, planned, and longer-term work on the **Now / Next / Later Roadmap**.
+- Open the **Contribute** page to read the source, run it locally, and pick up the `good first issue` and `help wanted` lists, read live from GitHub.
 - Send feedback from inside the app when logged in, with optional photo attachments.
 - Measure key product interactions with Google Analytics events.
 
@@ -58,25 +103,34 @@ FirstFinder is a collectible inventory app for tracking books and other collecti
 - Supabase database
 - Supabase Storage for item and receipt photos
 
-## One-time setup
+## Database setup
 
-Run these once per Supabase project, in the dashboard's SQL Editor:
+A fresh Supabase project needs one file: [`supabase/schema.sql`](supabase/schema.sql).
+Paste it into the dashboard's SQL Editor and run it. It is idempotent and safe to
+re-run, and it creates:
 
-- `supabase/photo-storage-setup.sql` -- adds the photo storage bucket and columns.
-- `supabase/ux-batch-fields.sql` -- adds sold price/date, prior-status-on-restore, and Book-specific detail columns; also makes estimated_value nullable.
-- `supabase/feedback-table.sql` -- creates the `feedback` table (with its own RLS policies) used by the logged-in "Send feedback" page. Feedback photos reuse the existing item-photos storage bucket, so no new bucket setup is needed.
-- `supabase/condition-field.sql` -- adds the `condition` column used by the Condition field.
-- `supabase/reference-number.sql` -- adds the `reference_number` column (shown as FF-0001), backfills existing rows, and adds the unique per-user index. Required by the CSV bulk edit/delete tool, which matches rows on this number.
+- `inventory_items` and `feedback`, with owner-only Row Level Security policies
+- the unique per-user index behind the `FF-0001` reference numbers
+- the private `item-photos` storage bucket and its per-user access policies
 
-The app's queries filter mutations by row id alone, so Row Level Security
-with owner-scoped policies on `inventory_items` is required, not optional --
-see `supabase/inventory-items-rls.sql` for the verification query and
-enforcement statements. The production project already has this configured
-correctly; a fresh project should be checked and, if needed, have that
-script run.
+The other files in `supabase/` are the incremental patches that built this schema
+up over time. They exist for the production database's history and don't need to
+be run on a new project. When you change the schema, update `schema.sql` **and**
+add a new patch file, so fresh setups and existing databases stay in step.
 
-Copy `.env.example` to `.env.local` and fill in your Supabase project's URL
-and anon key (Project Settings -> API in the Supabase dashboard).
+Row Level Security is not optional. The app's queries filter mutations by row id
+alone, so owner-scoped policies on `inventory_items` are the only thing keeping
+one collector's data away from another — `supabase/inventory-items-rls.sql` has
+the verification query for checking an existing project.
+
+Copy `.env.example` to `.env.local` and fill in your Supabase project's URL and
+anon key (Project Settings -> API in the Supabase dashboard).
+
+## Server routes
+
+Some features run server-side because they need keys that must never reach the
+browser. The app runs fine without those keys — those features are simply
+unavailable until you set them.
 
 ### Photo identification
 
@@ -144,3 +198,39 @@ with the service role key (never the anon key). Get the key from Project
 Settings -> API -> service_role ("secret"), and set it in `.env.local` for
 local dev and in Vercel's environment variables for production. It must
 never be prefixed with `NEXT_PUBLIC_` and is never sent to the browser.
+
+## Project structure
+
+```
+app/
+  InventoryApp.jsx          Nearly the entire UI: nav, pages, modals, data access
+  layout.js, page.js        Next.js App Router entry points
+  api/identify-book/        AI photo identification (OpenAI, server-only key)
+  api/delete-account/       Account and data deletion (service role key)
+  api/contribute/           Open GitHub issues, for the in-app Contribute page
+src/lib/                    Supabase browser and admin clients, shared constants
+supabase/                   schema.sql plus the incremental patches behind it
+.github/                    Issue and PR templates, CI, Dependabot
+```
+
+## Contributing
+
+Pull requests are welcome, and so are bug reports, feature ideas, and doc fixes
+from people who never touch the code. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+first — it covers local setup, the house style, and what to verify before
+opening a PR. Everyone taking part agrees to the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+Please report vulnerabilities privately rather than in a public issue. See
+[SECURITY.md](SECURITY.md).
+
+## License
+
+[GNU Affero General Public License v3.0](LICENSE).
+
+You are free to use, study, modify, and share FirstFinder. If you run a modified
+version as a service other people can reach over a network, the AGPL requires
+you to offer them the source of your version too. That's the point: it keeps
+FirstFinder, and anything built from it, open for collectors.

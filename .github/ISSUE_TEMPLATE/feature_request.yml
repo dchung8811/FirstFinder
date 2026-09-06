@@ -1,0 +1,58 @@
+name: Feature request
+description: Suggest something FirstFinder should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you write this up, it's worth checking the **Roadmap** page in
+        the app — the idea may already be planned, or deliberately ruled out.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: |
+        Describe the collecting problem, not the solution. "I can't tell which
+        of my three copies is the one I paid too much for" is more useful than
+        "add a copies field".
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like FirstFinder to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How do you handle it today?
+      description: A spreadsheet, a notes app, giving up — all useful to know.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: collection
+    attributes:
+      label: What do you collect?
+      description: Helps judge how widely this applies.
+      options:
+        - Rare or antiquarian books
+        - Comics or manuscripts
+        - Trading cards
+        - Sports memorabilia
+        - A mix
+        - Something else
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I'd be up for opening a pull request for this
+          required: false
