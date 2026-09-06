@@ -2266,7 +2266,7 @@ function HomePage({ onGetStarted }) {
       <section id="how-it-works" className="border-t border-[#e2d4bc] bg-[#fbf5e9]">
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
           <div className="mx-auto max-w-3xl">
-            <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in ninety seconds.</h2>
+            <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in 60 seconds.</h2>
             {demoVideoId ? (
               <div className="relative mt-8 aspect-video w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
                 <DemoVideoPlayer videoId={demoVideoId} />
