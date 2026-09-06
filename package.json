@@ -6,9 +6,9 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@next/third-parties": "^16.2.6",
-    "@supabase/supabase-js": "^2.105.4",
-    "@tailwindcss/postcss": "^4.3.0",
+    "@next/third-parties": "^16.3.4",
+    "@supabase/supabase-js": "^2.115.0",
+    "@tailwindcss/postcss": "^4.3.3",
     "framer-motion": "^12.38.0",
     "next": "latest",
     "react": "latest",
