@@ -123,9 +123,33 @@ create table if not exists public.feedback (
   -- Not surfaced in the app UI; lets whoever reviews feedback triage it in the
   -- Supabase table editor (e.g. new / reviewed / resolved).
   status text not null default 'new',
+
+  -- The feedback -> GitHub issue pipeline, driven by app/api/feedback-review.
+  --
+  -- triage holds the whole machine-generated assessment as one document: type,
+  -- severity, suggested labels, proposed approach, possible duplicates. Its
+  -- shape belongs to the triage prompt's JSON schema and changes as that prompt
+  -- is tuned, so promoting fields to columns would mean a migration each time.
+  -- Nothing queries inside it.
+  triage jsonb,
+  -- new | triaged | published | dismissed | error. Separate from `status` above,
+  -- which is the maintainer's own free-text note in the table editor.
+  triage_status text not null default 'new',
+  triage_error text,
+  triaged_at timestamptz,
+  -- Set together when an issue is filed. The url is stored rather than rebuilt
+  -- from the number so a repo rename doesn't break old rows.
+  github_issue_number integer,
+  github_issue_url text,
+  published_at timestamptz,
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- The review queue reads "oldest unhandled first".
+create index if not exists feedback_triage_status_created_at_idx
+  on public.feedback (triage_status, created_at);
 
 alter table public.feedback enable row level security;
 

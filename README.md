@@ -199,6 +199,55 @@ Settings -> API -> service_role ("secret"), and set it in `.env.local` for
 local dev and in Vercel's environment variables for production. It must
 never be prefixed with `NEXT_PUBLIC_` and is never sent to the browser.
 
+### Feedback to GitHub issues
+
+The in-app feedback form writes to the `feedback` table. From there,
+`app/api/feedback-intake` triages each submission and files it as a GitHub issue
+automatically, as it arrives. No maintainer is in the loop for the normal case.
+
+Issues it files quote the user's report first, then a clearly-marked
+machine-written triage — type, severity, area, a suggested approach naming real
+files in this repo, open questions, and possible duplicates among the currently
+open issues — under a footer saying which half is which.
+
+Two kinds of submission are held back rather than filed, because filing them
+would be worse than not automating at all:
+
+- **Anything not actionable.** Feedback forms collect a steady trickle of "hi",
+  test submissions, and kind words. Those are closed out, not filed.
+- **Anything that still looks personal after redaction.** The issue would be
+  public and permanently indexed, and the person who wrote it thought they were
+  filling in a support form.
+
+Those land in a maintainer-only **Feedback review** tab, backed by
+`app/api/feedback-review` — the same triage, shown with the redactions and any
+warning attached, one click from being filed once you've read it. So does
+anything that failed to file, and anything past the per-user rate limit.
+
+Before a submission is ever filed or even sent to the model, the pipeline:
+
+- **Masks personal details.** Emails, phone numbers, street addresses, and
+  card-like numbers are replaced. ISBNs survive, since they're the most useful
+  thing a user can give you about a book.
+- **Treats the feedback as untrusted.** It's text a stranger wrote. The triage
+  prompt says so, and instructions embedded in feedback get reported rather than
+  followed. The model's label choices are filtered against an allowlist and its
+  duplicate references against the issues actually open, so neither can invent
+  repository state.
+- **Keeps screenshots private.** Attached photos stay in the private storage
+  bucket. The issue notes that they exist; it doesn't publish them.
+- **Never publishes who sent it.** The user id isn't even selected by the route
+  that files the issue.
+
+Set `GITHUB_TOKEN` (write access to issues on this repo) and `OPENAI_API_KEY`
+and automatic filing is on. `FEEDBACK_AUTO_FILE=false` turns it off and sends
+everything to the review queue instead; `FEEDBACK_AUTO_FILE_DAILY_LIMIT`
+(default 5) caps how many issues one person can file unattended in 24 hours.
+`ADMIN_USER_IDS` says who can see the review queue, and fails closed — unset
+means nobody, which is the right default for a fork. `NEXT_PUBLIC_ADMIN_USER_IDS`
+only decides whether the nav tab is drawn and grants nothing.
+`GITHUB_PROJECT_NUMBER` optionally drops new issues onto a project board.
+
 ## Project structure
 
 ```
@@ -208,6 +257,8 @@ app/
   api/identify-book/        AI photo identification (OpenAI, server-only key)
   api/delete-account/       Account and data deletion (service role key)
   api/contribute/           Open GitHub issues, for the in-app Contribute page
+  api/feedback-intake/      Triages feedback on submit and files it as an issue
+  api/feedback-review/      Maintainer-only queue for what wasn't filed
 src/lib/                    Supabase browser and admin clients, shared constants
 supabase/                   schema.sql plus the incremental patches behind it
 .github/                    Issue and PR templates, CI, Dependabot

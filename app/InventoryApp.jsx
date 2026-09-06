@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
+import { ALLOWED_LABELS, TRIAGE_STATUS, composeIssueBody } from "../src/lib/feedbackTriage";
 import {
   REPO_URL,
   CONTRIBUTING_URL,
@@ -287,6 +288,19 @@ function Icon({ name, size = 20, className = "" }) {
   );
 }
 
+
+// Who sees the Feedback review tab. This is a convenience only -- it decides
+// what the nav renders, nothing more. The actual gate is ADMIN_USER_IDS on the
+// server, checked in app/api/feedback-review; a user who forces this view
+// client-side gets an empty page and a 404 from every request it makes.
+const ADMIN_USER_IDS = (process.env.NEXT_PUBLIC_ADMIN_USER_IDS || "")
+  .split(",")
+  .map((entry) => entry.trim())
+  .filter(Boolean);
+
+function isAdminUser(user) {
+  return Boolean(user?.id) && ADMIN_USER_IDS.includes(user.id);
+}
 
 function trackEvent(eventName, params = {}) {
   try {
@@ -1988,6 +2002,7 @@ export default function FirstFinderApp() {
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
               <TabButton active={activeView === "contribute"} onClick={() => setActiveView("contribute")}>Contribute</TabButton>
               <TabButton active={activeView === "feedback"} onClick={() => setActiveView("feedback")}>Feedback</TabButton>
+              {isAdminUser(currentUser) && <TabButton active={activeView === "feedbackReview"} onClick={() => setActiveView("feedbackReview")}>Feedback review</TabButton>}
               <TabButton active={activeView === "account"} onClick={() => setActiveView("account")}>My Account</TabButton>
             </>
           ) : (
@@ -2026,6 +2041,7 @@ export default function FirstFinderApp() {
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
                 <MobileNavLink active={activeView === "contribute"} onClick={() => go("contribute")}>Contribute</MobileNavLink>
                 <MobileNavLink active={activeView === "feedback"} onClick={() => go("feedback")}>Feedback</MobileNavLink>
+                {isAdminUser(currentUser) && <MobileNavLink active={activeView === "feedbackReview"} onClick={() => go("feedbackReview")}>Feedback review</MobileNavLink>}
                 <MobileNavLink active={activeView === "account"} onClick={() => go("account")}>My Account</MobileNavLink>
               </>
             ) : (
@@ -2054,6 +2070,7 @@ export default function FirstFinderApp() {
       {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
+      {activeView === "feedbackReview" && isLoggedIn && isAdminUser(currentUser) && <FeedbackReviewPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
 
       {identifying && <IdentifyLoadingOverlay photos={identifyingPhotos} />}
@@ -3567,6 +3584,31 @@ function ResetPasswordPage({ onDone }) {
   );
 }
 
+// Fires the automatic "feedback -> GitHub issue" path for a freshly saved row.
+// Swallows everything: the user has already been told their feedback was sent,
+// which is true, and whether it became an issue is not something they should
+// see an error about. Failures are logged server-side and the feedback stays in
+// the review queue.
+async function fileFeedbackAsIssue(feedbackId) {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) return;
+
+    await fetch("/api/feedback-intake", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ id: feedbackId }),
+      // Triage plus filing takes a few seconds, and people close the tab the
+      // moment they see "Thanks — your feedback was sent." keepalive lets the
+      // request outlive the page so their report still becomes an issue.
+      keepalive: true
+    });
+  } catch (error) {
+    console.error("Feedback intake error:", error.message);
+  }
+}
+
 function FeedbackPage({ currentUser, pushToast }) {
   const [description, setDescription] = useState("");
   const [photos, setPhotos] = useState([]);
@@ -3641,6 +3683,13 @@ function FeedbackPage({ currentUser, pushToast }) {
 
       trackEvent("feedback_submitted", { has_photos: photos.length > 0 });
 
+      // Hand the saved row to the server, which triages it and files it as a
+      // GitHub issue. Deliberately not awaited into the user's success path:
+      // filing is our problem, not theirs, and the feedback is already safely
+      // stored either way. If this call never lands, the row simply sits in the
+      // review queue instead.
+      fileFeedbackAsIssue(data.id);
+
       clearPhotoUrls(photos);
       setDescription("");
       setPhotos([]);
@@ -3682,6 +3731,432 @@ function FeedbackPage({ currentUser, pushToast }) {
         Prefer email? Reach us directly at <a href="mailto:thebookbarterer@gmail.com" className="font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">thebookbarterer@gmail.com</a>.
       </p>
     </section>
+  );
+}
+
+// The maintainer's side of the feedback form. Every piece of feedback a user
+// sends lands here; the model drafts a triage for it; a person decides whether
+// it becomes a public GitHub issue. Nothing reaches the repo without that last
+// step, because the issue it creates is permanent and indexed and the text in
+// it was written by someone who thought they were filling in a support form.
+function FeedbackReviewPage({ currentUser, pushToast }) {
+  const [rows, setRows] = useState([]);
+  const [meta, setMeta] = useState({ canPublish: false, canTriage: false, repoSlug: "" });
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("open");
+  const [busyId, setBusyId] = useState(null);
+  // Per-row reviewer edits, keyed by feedback id. Kept out of `rows` so a
+  // refresh can replace the server data without discarding what the reviewer
+  // has typed into a draft they haven't filed yet.
+  const [drafts, setDrafts] = useState({});
+
+  async function authFetch(options) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) throw new Error("Your session expired. Please log in again.");
+
+    const response = await fetch("/api/feedback-review", {
+      ...options,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(payload.error || "Something went wrong."), { payload });
+    return payload;
+  }
+
+  async function load() {
+    setLoading(true);
+    try {
+      const payload = await authFetch({ method: "GET" });
+      setRows(payload.rows || []);
+      setMeta({ canPublish: payload.canPublish, canTriage: payload.canTriage, repoSlug: payload.repoSlug });
+    } catch (error) {
+      pushToast(error.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (currentUser) load();
+    // Loading once on mount is the right behaviour: this is a queue someone
+    // works through, and re-fetching under them would move the cards around.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
+
+  function patchRow(id, changes) {
+    setRows((current) => current.map((row) => (row.id === id ? { ...row, ...changes } : row)));
+  }
+
+  function draftFor(row) {
+    const existing = drafts[row.id];
+    if (existing) return existing;
+    return {
+      title: row.triage?.title || "",
+      body: row.triage ? composeIssueBody({
+        feedbackId: row.id,
+        submittedAt: row.createdAt ? new Date(row.createdAt).toISOString().slice(0, 10) : null,
+        description: row.description,
+        triage: row.triage,
+        photoCount: row.photoCount,
+        reviewed: true
+      }) : "",
+      labels: row.triage?.labels || [],
+      acknowledgedPii: false,
+      showOriginal: false
+    };
+  }
+
+  function updateDraft(row, changes) {
+    setDrafts((current) => ({ ...current, [row.id]: { ...draftFor(row), ...changes } }));
+  }
+
+  async function triage(row) {
+    setBusyId(row.id);
+    try {
+      const payload = await authFetch({ method: "POST", body: JSON.stringify({ action: "triage", id: row.id }) });
+      const result = (payload.results || [])[0];
+      if (result?.ok) {
+        patchRow(row.id, { triage: result.triage, triageStatus: TRIAGE_STATUS.TRIAGED, triageError: null });
+        // Drop any stale draft so the editor picks up the new triage.
+        setDrafts((current) => { const next = { ...current }; delete next[row.id]; return next; });
+        pushToast(result.triage.actionable ? "Triaged." : "Triaged — this one doesn't look actionable.", result.triage.actionable ? "success" : "warning");
+      } else {
+        patchRow(row.id, { triageStatus: TRIAGE_STATUS.ERROR, triageError: result?.error || "Triage failed." });
+        pushToast(result?.error || "Triage failed.", "error");
+      }
+    } catch (error) {
+      pushToast(error.message, "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function publish(row) {
+    const draft = draftFor(row);
+    if (!draft.title.trim()) {
+      pushToast("Give the issue a title before filing it.", "error");
+      return;
+    }
+
+    setBusyId(row.id);
+    try {
+      const payload = await authFetch({
+        method: "POST",
+        body: JSON.stringify({
+          action: "publish",
+          id: row.id,
+          title: draft.title,
+          body: draft.body,
+          labels: draft.labels,
+          acknowledgedPii: draft.acknowledgedPii
+        })
+      });
+
+      patchRow(row.id, {
+        triageStatus: TRIAGE_STATUS.PUBLISHED,
+        issueNumber: payload.issue.number,
+        issueUrl: payload.issue.url
+      });
+      trackEvent("feedback_issue_filed", { issue_number: payload.issue.number });
+      pushToast(payload.warning || `Filed as #${payload.issue.number}.`, payload.warning ? "warning" : "success");
+    } catch (error) {
+      if (error.payload?.needsPiiAcknowledgement) {
+        updateDraft(row, { acknowledgedPii: false });
+      }
+      pushToast(error.message, "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function dismiss(row) {
+    setBusyId(row.id);
+    try {
+      await authFetch({ method: "POST", body: JSON.stringify({ action: "dismiss", id: row.id }) });
+      patchRow(row.id, { triageStatus: TRIAGE_STATUS.DISMISSED });
+      pushToast("Dismissed.", "success");
+    } catch (error) {
+      pushToast(error.message, "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const buckets = useMemo(() => ({
+    open: rows.filter((row) => [TRIAGE_STATUS.NEW, TRIAGE_STATUS.TRIAGED, TRIAGE_STATUS.ERROR].includes(row.triageStatus)),
+    published: rows.filter((row) => row.triageStatus === TRIAGE_STATUS.PUBLISHED),
+    dismissed: rows.filter((row) => row.triageStatus === TRIAGE_STATUS.DISMISSED)
+  }), [rows]);
+
+  const visible = buckets[filter] || [];
+  const untriaged = buckets.open.filter((row) => row.triageStatus === TRIAGE_STATUS.NEW);
+
+  return (
+    <section className="mx-auto max-w-4xl px-6 py-12">
+      <h1 className="text-5xl font-semibold tracking-tight">Feedback review.</h1>
+      <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
+        Feedback is triaged and filed to <span className="font-medium">{meta.repoSlug}</span> automatically as it arrives.
+        This is what didn't go through on its own — anything that looked personal, wasn't actionable, hit the rate limit,
+        or failed to file. Read it, edit it, and file it by hand, or dismiss it.
+      </p>
+
+      {!meta.canTriage && (
+        <div className="mt-6 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">
+          Triage is unavailable: <span className="font-medium">OPENAI_API_KEY</span> isn't set on the server.
+        </div>
+      )}
+      {!meta.canPublish && (
+        <div className="mt-4 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">
+          Filing is unavailable: <span className="font-medium">GITHUB_TOKEN</span> isn't set on the server. It needs write access to issues.
+        </div>
+      )}
+
+      <div className="mt-8 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
+          <TabButton active={filter === "open"} onClick={() => setFilter("open")}>Needs review ({buckets.open.length})</TabButton>
+          <TabButton active={filter === "published"} onClick={() => setFilter("published")}>Filed ({buckets.published.length})</TabButton>
+          <TabButton active={filter === "dismissed"} onClick={() => setFilter("dismissed")}>Dismissed ({buckets.dismissed.length})</TabButton>
+        </div>
+        <Button variant="outline" onClick={load} disabled={loading} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
+          {loading ? "Loading..." : "Refresh"}
+        </Button>
+      </div>
+
+      {untriaged.length > 0 && meta.canTriage && (
+        <div className="mt-4 text-sm text-[#665746]">
+          {untriaged.length} never got triaged — automatic filing was off, unreachable, or rate-limited when these arrived.
+        </div>
+      )}
+
+      <div className="mt-6 space-y-5">
+        {loading && <div className="rounded-2xl bg-[#f7efe3] p-6 text-center text-sm text-[#665746]">Loading feedback...</div>}
+
+        {!loading && visible.length === 0 && (
+          <div className="rounded-2xl bg-[#f7efe3] p-6 text-center text-sm text-[#665746]">
+            {filter === "open" ? "Nothing waiting. All caught up." : "Nothing here yet."}
+          </div>
+        )}
+
+        {visible.map((row) => (
+          <FeedbackReviewCard
+            key={row.id}
+            row={row}
+            draft={draftFor(row)}
+            onDraftChange={(changes) => updateDraft(row, changes)}
+            busy={busyId === row.id}
+            canTriage={meta.canTriage}
+            canPublish={meta.canPublish}
+            repoSlug={meta.repoSlug}
+            onTriage={() => triage(row)}
+            onPublish={() => publish(row)}
+            onDismiss={() => dismiss(row)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReviewChip({ children, tone = "neutral" }) {
+  const tones = {
+    neutral: "bg-[#edf4f2] text-[#123f38]",
+    warn: "bg-[#fff3d8] text-[#6d5526]",
+    alert: "bg-[#fbe3e0] text-[#8a2f24]"
+  };
+  return <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${tones[tone]}`}>{children}</span>;
+}
+
+function FeedbackReviewCard({ row, draft, onDraftChange, busy, canTriage, canPublish, repoSlug, onTriage, onPublish, onDismiss }) {
+  const triage = row.triage;
+  const decided = row.triageStatus === TRIAGE_STATUS.PUBLISHED || row.triageStatus === TRIAGE_STATUS.DISMISSED;
+
+  function toggleLabel(label) {
+    const next = draft.labels.includes(label)
+      ? draft.labels.filter((entry) => entry !== label)
+      : [...draft.labels, label];
+    onDraftChange({ labels: next });
+  }
+
+  return (
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+      <CardContent className="p-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-[#665746]">{formatAccountDate(row.createdAt)}</span>
+          {row.photoCount > 0 && <ReviewChip>{row.photoCount} screenshot{row.photoCount === 1 ? "" : "s"} (private)</ReviewChip>}
+          {row.redactionCount > 0 && <ReviewChip tone="warn">{row.redactionCount} detail{row.redactionCount === 1 ? "" : "s"} masked</ReviewChip>}
+          {row.triageStatus === TRIAGE_STATUS.PUBLISHED && row.issueUrl && (
+            <a href={row.issueUrl} target="_blank" rel="noopener noreferrer" className="rounded-full bg-[#123f38] px-2.5 py-1 text-[11px] font-medium text-[#fff7ea]">
+              Filed as #{row.issueNumber}
+            </a>
+          )}
+          {row.triageStatus === TRIAGE_STATUS.DISMISSED && <ReviewChip>Dismissed</ReviewChip>}
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7d6c5a]">What they wrote</div>
+            {row.redactionCount > 0 && (
+              <button
+                type="button"
+                onClick={() => onDraftChange({ showOriginal: !draft.showOriginal })}
+                className="text-xs font-medium text-[#123f38] underline underline-offset-4"
+              >
+                {draft.showOriginal ? "Show masked" : "Show unmasked"}
+              </button>
+            )}
+          </div>
+          <p className="whitespace-pre-wrap text-sm leading-6 text-[#201a14]">
+            {draft.showOriginal ? row.description : row.redactedDescription}
+          </p>
+        </div>
+
+        {row.triageStatus === TRIAGE_STATUS.NEW && (
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Button onClick={onTriage} disabled={busy || !canTriage} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+              {busy ? "Triaging..." : "Triage this"}
+            </Button>
+            <Button variant="outline" onClick={onDismiss} disabled={busy} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+              Dismiss
+            </Button>
+          </div>
+        )}
+
+        {row.triageStatus === TRIAGE_STATUS.ERROR && (
+          <div className="mt-5">
+            <div className="rounded-2xl bg-[#fbe3e0] p-4 text-sm leading-6 text-[#8a2f24]">Triage failed: {row.triageError}</div>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <Button onClick={onTriage} disabled={busy || !canTriage} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+                {busy ? "Triaging..." : "Try again"}
+              </Button>
+              <Button variant="outline" onClick={onDismiss} disabled={busy} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {triage && (
+          <div className="mt-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <ReviewChip>{triage.type}</ReviewChip>
+              <ReviewChip>{triage.severity}</ReviewChip>
+              <ReviewChip>{triage.area}</ReviewChip>
+              <ReviewChip tone={triage.confidence === "low" ? "warn" : "neutral"}>{triage.confidence} confidence</ReviewChip>
+              {!triage.actionable && <ReviewChip tone="warn">not actionable</ReviewChip>}
+            </div>
+
+            {!triage.actionable && (
+              <div className="mt-4 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">
+                This doesn't read as a request anyone could act on — a greeting, a test, or praise. Dismissing is usually right.
+              </div>
+            )}
+
+            {triage.containsPersonalInfo && (
+              <div className="mt-4 rounded-2xl bg-[#fbe3e0] p-4 text-sm leading-6 text-[#8a2f24]">
+                <span className="font-semibold">Possible personal information.</span> {triage.personalInfoNote || "Something identifying may have survived masking."} Edit it out of the body below before filing — the issue will be public and permanent.
+              </div>
+            )}
+
+            <p className="mt-4 text-sm leading-6 text-[#201a14]">{triage.summary}</p>
+
+            <div className="mt-4 rounded-2xl bg-[#f7efe3] p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7d6c5a]">Suggested approach</div>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#201a14]">{triage.approach}</p>
+            </div>
+
+            {(triage.openQuestions || []).length > 0 && (
+              <div className="mt-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7d6c5a]">Open questions</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-[#665746]">
+                  {triage.openQuestions.map((question) => <li key={question}>{question}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {(triage.possibleDuplicates || []).length > 0 && (
+              <div className="mt-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7d6c5a]">Possibly already reported</div>
+                <ul className="mt-2 space-y-1 text-sm leading-6 text-[#665746]">
+                  {triage.possibleDuplicates.map((entry) => (
+                    <li key={entry.number}>
+                      <a href={`https://github.com/${repoSlug}/issues/${entry.number}`} target="_blank" rel="noopener noreferrer" className="font-medium text-[#123f38] underline underline-offset-4">
+                        #{entry.number}
+                      </a>
+                      {entry.why ? ` — ${entry.why}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {!decided && (
+              <div className="mt-6 border-t border-[#e0d2bc] pt-6">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7d6c5a]">The issue you're about to file</div>
+
+                <div className="mt-3">
+                  <Field label="Title" value={draft.title} onChange={(value) => onDraftChange({ title: value })} />
+                </div>
+
+                <div className="mt-4">
+                  <div className="mb-2 text-sm font-medium text-[#665746]">Labels</div>
+                  <div className="flex flex-wrap gap-2">
+                    {ALLOWED_LABELS.map((label) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => toggleLabel(label)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${draft.labels.includes(label) ? "bg-[#123f38] text-[#fff7ea]" : "bg-[#f0e2cf] text-[#665746] hover:bg-[#e8d6bd]"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <TextAreaField
+                    label="Body (Markdown — edit freely, this is what gets posted)"
+                    value={draft.body}
+                    onChange={(value) => onDraftChange({ body: value })}
+                    rows={14}
+                  />
+                </div>
+
+                {triage.containsPersonalInfo && (
+                  <label className="mt-4 flex items-start gap-3 rounded-2xl bg-[#fbe3e0] p-4 text-sm leading-6 text-[#8a2f24]">
+                    <input
+                      type="checkbox"
+                      checked={draft.acknowledgedPii}
+                      onChange={(event) => onDraftChange({ acknowledgedPii: event.target.checked })}
+                      className="mt-1 h-4 w-4 shrink-0"
+                    />
+                    <span>I've read the body above and it contains nothing that identifies the person who sent it.</span>
+                  </label>
+                )}
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <Button
+                    onClick={onPublish}
+                    disabled={busy || !canPublish || (triage.containsPersonalInfo && !draft.acknowledgedPii)}
+                    className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"
+                  >
+                    <Icon name="github" size={17} className="mr-2" /> {busy ? "Filing..." : "File as public issue"}
+                  </Button>
+                  <Button variant="outline" onClick={onTriage} disabled={busy || !canTriage} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+                    Re-triage
+                  </Button>
+                  <Button variant="outline" onClick={onDismiss} disabled={busy} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
