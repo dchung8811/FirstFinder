@@ -231,6 +231,13 @@ function Icon({ name, size = 20, className = "" }) {
         <path d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2 10 10 0 0 0 2.9 7.6l3.3 2.7C7 7.9 9.3 6.1 12 6.1Z" />
       </>
     ),
+    apple: (
+      <path
+        fill="currentColor"
+        stroke="none"
+        d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.08ZM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25Z"
+      />
+    ),
     arrow: <path d="m9 18 6-6-6-6" />,
     play: <path d="m8 5 12 7-12 7V5Z" />,
     menu: <path d="M4 6h16M4 12h16M4 18h16" />,
@@ -3289,7 +3296,7 @@ function HomePage({ onGetStarted }) {
 const authModeCopy = {
   signin: {
     heading: "Log in to your collection.",
-    sub: "Use your email and password, or continue with Google, to get back to your collection.",
+    sub: "Use your email and password, or continue with Google or Apple, to get back to your collection.",
     formTitle: "Log in",
     formSub: "Enter the email and password you signed up with.",
     submit: "Log in",
@@ -3319,6 +3326,19 @@ function AuthMessage({ message }) {
     <div className={`mt-5 rounded-2xl p-4 text-sm leading-6 ${message.type === "error" ? "bg-[#fbe9e2] text-[#8a3b22]" : "bg-[#edf4f2] text-[#123f38]"}`}>
       {message.text}
     </div>
+  );
+}
+
+function SocialAuthButton({ icon, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#cdbb9c] bg-white px-6 text-base font-semibold text-[#123f38] shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]"
+    >
+      <Icon name={icon} size={20} />
+      <span>{children}</span>
+    </button>
   );
 }
 
@@ -3356,23 +3376,53 @@ function LoginPage({ onViewTerms }) {
 
   const copy = authModeCopy[mode];
 
+  // A failed OAuth round trip comes back as a redirect to the app with the
+  // reason in the URL, not as a rejected promise -- signInWithOAuth only builds
+  // a URL and hands the browser over, so nothing below throws. Without this the
+  // collector lands back on a blank login form with no idea why. Supabase uses
+  // the hash for the implicit flow and the query string for PKCE, so read both.
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const query = new URLSearchParams(window.location.search);
+    const code = hash.get("error") || query.get("error");
+    if (!code) return;
+
+    const detail = hash.get("error_description") || query.get("error_description") || "";
+    const text = /unsupported provider|provider is not enabled/i.test(detail)
+      ? "That sign-in option isn't available yet. Use your email and password for now."
+      : detail.replace(/\+/g, " ") || "Sign-in was cancelled or failed. Try again.";
+    setMessage({ type: "error", text });
+
+    // Strip the error off the URL so a refresh doesn't replay a stale failure.
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
   function switchMode(nextMode) {
     setMode(nextMode);
     setMessage(null);
   }
 
-  async function handleGoogleLogin() {
-    trackEvent("google_login_clicked", { source_page: "login" });
+  // One handler for both social buttons -- Google and Apple differ only in the
+  // provider string, and keeping them on one path means the error handling and
+  // the redirect target can't drift apart between the two.
+  async function handleOAuthLogin(provider, label) {
+    trackEvent(`${provider}_login_clicked`, { source_page: "login" });
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
+      provider,
       options: {
         redirectTo: window.location.origin
       }
     });
 
     if (error) {
-      console.error("Google login error:", error.message);
-      setMessage({ type: "error", text: error.message });
+      console.error(`${label} login error:`, error.message);
+      // Supabase answers a provider that isn't switched on in the dashboard with
+      // "Unsupported provider", which tells a collector nothing about what to do
+      // next. Anything else is already written for a human.
+      const text = /unsupported provider|provider is not enabled/i.test(error.message)
+        ? `${label} sign-in isn't available yet. Use your email and password for now.`
+        : error.message;
+      setMessage({ type: "error", text });
     }
   }
 
@@ -3502,10 +3552,10 @@ function LoginPage({ onViewTerms }) {
             </Button>
           </form>
 
-          {/* Google sits under the email module as a second, always-visible way
-              in rather than behind a tab -- one click, no choice to make first.
-              Hidden only while resetting a password, where OAuth does nothing
-              for someone who came here for a reset link. */}
+          {/* The social routes sit under the email module as always-visible
+              alternatives rather than behind a tab -- one click, no choice to
+              make first. Hidden only while resetting a password, where OAuth
+              does nothing for someone who came here for a reset link. */}
           {mode !== "forgot" && (
             <div className="mt-6">
               <div className="flex items-center gap-3 text-xs uppercase tracking-widest text-[#a4917a]">
@@ -3513,14 +3563,14 @@ function LoginPage({ onViewTerms }) {
                 <span>or</span>
                 <span className="h-px flex-1 bg-[#e6d8bf]" />
               </div>
-              <button
-                type="button"
-                onClick={handleGoogleLogin}
-                className="mt-6 flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#cdbb9c] bg-white px-6 text-base font-semibold text-[#123f38] shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]"
-              >
-                <Icon name="google" size={20} />
-                <span>Continue with Google</span>
-              </button>
+              <div className="mt-6 grid gap-3">
+                <SocialAuthButton icon="google" onClick={() => handleOAuthLogin("google", "Google")}>
+                  Continue with Google
+                </SocialAuthButton>
+                <SocialAuthButton icon="apple" onClick={() => handleOAuthLogin("apple", "Apple")}>
+                  Continue with Apple
+                </SocialAuthButton>
+              </div>
             </div>
           )}
 
@@ -3542,7 +3592,7 @@ function LoginPage({ onViewTerms }) {
           {mode !== "forgot" && (
             <AuthTermsNotice
               onViewTerms={onViewTerms}
-              action={mode === "signup" ? "Creating an account or continuing with Google" : "Continuing with Google"}
+              action={mode === "signup" ? "Creating an account, or continuing with Google or Apple" : "Continuing with Google or Apple"}
             />
           )}
         </CardContent>
