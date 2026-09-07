@@ -3293,10 +3293,21 @@ function HomePage({ onGetStarted }) {
   );
 }
 
+// Apple sign-in is built and tested but stays dark until the Apple provider is
+// switched on in Supabase, which needs a paid Apple Developer account. Shipping
+// the button before then would just hand collectors a control that bounces them
+// back with an error. Set NEXT_PUBLIC_APPLE_AUTH_ENABLED=true to light it up --
+// no code change. Read as a full static expression so Next can inline it.
+const appleAuthEnabled = process.env.NEXT_PUBLIC_APPLE_AUTH_ENABLED === "true";
+
+// Named in one place so the button list and the two sentences that promise it
+// can't disagree about whether Apple exists.
+const socialProviders = appleAuthEnabled ? "Google or Apple" : "Google";
+
 const authModeCopy = {
   signin: {
     heading: "Log in to your collection.",
-    sub: "Use your email and password, or continue with Google or Apple, to get back to your collection.",
+    sub: `Use your email and password, or continue with ${socialProviders}, to get back to your collection.`,
     formTitle: "Log in",
     formSub: "Enter the email and password you signed up with.",
     submit: "Log in",
@@ -3567,9 +3578,11 @@ function LoginPage({ onViewTerms }) {
                 <SocialAuthButton icon="google" onClick={() => handleOAuthLogin("google", "Google")}>
                   Continue with Google
                 </SocialAuthButton>
-                <SocialAuthButton icon="apple" onClick={() => handleOAuthLogin("apple", "Apple")}>
-                  Continue with Apple
-                </SocialAuthButton>
+                {appleAuthEnabled && (
+                  <SocialAuthButton icon="apple" onClick={() => handleOAuthLogin("apple", "Apple")}>
+                    Continue with Apple
+                  </SocialAuthButton>
+                )}
               </div>
             </div>
           )}
@@ -3592,7 +3605,7 @@ function LoginPage({ onViewTerms }) {
           {mode !== "forgot" && (
             <AuthTermsNotice
               onViewTerms={onViewTerms}
-              action={mode === "signup" ? "Creating an account, or continuing with Google or Apple" : "Continuing with Google or Apple"}
+              action={mode === "signup" ? `Creating an account, or continuing with ${socialProviders}` : `Continuing with ${socialProviders}`}
             />
           )}
         </CardContent>
