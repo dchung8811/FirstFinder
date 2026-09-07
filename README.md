@@ -242,6 +242,44 @@ submission filed, that cap is what protects the tracker.
 Anything not filed — rate-limited, or a GitHub failure — stays in the `feedback`
 table with a status saying why.
 
+### First-edition identification pages
+
+Public landing pages at `/books/<work>/first-edition` answering the question people
+actually type into Google — "is my copy a first edition?" — and ending in a CTA into
+the app. Server-rendered and statically generated.
+
+The content is **not** written by a model. Each work is a module under
+`src/content/books/`, holding structured facts assembled from named sources, and every
+identification claim carries `sourceIds` pointing at where it came from. Getting an
+issue point subtly wrong misleads someone deciding what to pay for a book, so two gates
+enforce that in code rather than by good intentions:
+
+- **`validateWork()` fails the build** on a claim with no `sourceIds`, a `sourceId` that
+  matches no declared source, a bad slug, or a `verified` work with no verifier recorded.
+- **`status` gates publication.** A work is `draft` until a person checks it. Draft pages
+  still render — that is how they get reviewed — but they carry `noindex`, emit no JSON-LD,
+  show a draft banner, and are left out of `sitemap.xml`. Only `verified` works are offered
+  to search engines.
+
+Individual claims can also carry `needsVerification` with a note, which renders as a
+"Needs checking" callout. That is for points where the sources genuinely disagree or are
+incomplete — saying so is more useful to someone holding a book than presenting a guess as
+settled.
+
+**To add a work:** copy an existing module, fill it in from sources, list those sources,
+leave `status: "draft"`, and add it to the `WORKS` array in `src/content/books/index.js`.
+**To publish one:** check the claims against a reference copy or a second source, resolve
+any `needsVerification` notes, then set `status: "verified"` and record `verifiedBy` and
+`verifiedAt`. The build refuses to publish without a verifier.
+
+Sourced facts are usable; a source's prose is not. Pages are written in FirstFinder's own
+words with sources linked — which is also what keeps them out of the near-duplicate
+content bucket that search engines penalise.
+
+`app/sitemap.js` and `app/robots.js` cover the site's SEO plumbing. `app/books/layout.js`
+is a standalone shell rather than a reuse of the app's nav, which lives inside the
+`"use client"` `app/InventoryApp.jsx` and cannot be imported by a server component.
+
 ## Project structure
 
 ```
@@ -252,7 +290,10 @@ app/
   api/delete-account/       Account and data deletion (service role key)
   api/contribute/           Open GitHub issues, for the in-app Contribute page
   api/feedback-intake/      Triages feedback on submit and files it as an issue
+  books/[work]/             Public first-edition identification pages (static)
+  sitemap.js, robots.js     SEO plumbing; only verified books are listed
 src/lib/                    Supabase browser and admin clients, shared constants
+src/content/books/          Sourced identification facts, one module per work
 supabase/                   schema.sql plus the incremental patches behind it
 .github/                    Issue and PR templates, CI, Dependabot
 ```
