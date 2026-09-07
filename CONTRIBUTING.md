@@ -76,7 +76,7 @@ Then fill in, from **Project Settings → API** in the Supabase dashboard:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **Yes** | Same |
 | `SUPABASE_SERVICE_ROLE_KEY` | Only for "Delete my account" | Bypasses RLS — server-only, never commit it |
 | `OPENAI_API_KEY` | Only for photo identification | Every call is billed to whoever owns the key |
-| `OPENAI_MODEL`, `IDENTIFY_DAILY_LIMIT`, `NEXT_PUBLIC_GA_ID` | No | Optional overrides, see `.env.example` |
+| `OPENAI_MODEL`, `IDENTIFY_DAILY_LIMIT`, `NEXT_PUBLIC_GA_ID`, `NEXT_PUBLIC_APPLE_AUTH_ENABLED` | No | Optional overrides, see `.env.example` |
 
 Everything except photo identification and account deletion works with just the
 two Supabase values. `.env.local` is gitignored — keep it that way.
