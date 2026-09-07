@@ -4812,9 +4812,83 @@ function RecentFinds({ inventory, onCollection }) {
   );
 }
 
+// Dashboard filters ---------------------------------------------------------
+
+const dashboardRanges = [
+  { key: "all", label: "All time", months: null },
+  { key: "12m", label: "Last 12 months", months: 12 },
+  { key: "3m", label: "Last 3 months", months: 3 },
+  { key: "ytd", label: "This year", months: null, yearToDate: true }
+];
+
+// Which date a range filter should judge an item by. A sold item belongs to the
+// period it sold in; anything still held belongs to the period it was acquired.
+// That is what makes "this year" read as "what I did this year" across every
+// panel on the page rather than meaning different things in different charts.
+function dashboardDateFor(item) {
+  return item.status === "Sold" ? item.soldDate : item.purchaseDate;
+}
+
+function dashboardRangeStart(rangeKey) {
+  const range = dashboardRanges.find((entry) => entry.key === rangeKey);
+  if (!range || (!range.months && !range.yearToDate)) return null;
+
+  const now = new Date();
+  if (range.yearToDate) return new Date(now.getFullYear(), 0, 1);
+
+  const start = new Date(now);
+  start.setMonth(start.getMonth() - range.months);
+  return start;
+}
+
+// Returns the filtered items plus how many were dropped for having no date at
+// all. Undated items genuinely cannot belong to "this year", but silently
+// removing them would make the totals look wrong for no visible reason, so the
+// count gets surfaced.
+function applyDashboardFilters(inventory, category, rangeKey) {
+  const byCategory = category === "" ? inventory : inventory.filter((item) => item.category === category);
+  const start = dashboardRangeStart(rangeKey);
+  if (!start) return { visible: byCategory, undatedExcluded: 0 };
+
+  let undatedExcluded = 0;
+  const visible = byCategory.filter((item) => {
+    const raw = dashboardDateFor(item);
+    if (!/^\d{4}-\d{2}/.test(String(raw || ""))) {
+      undatedExcluded += 1;
+      return false;
+    }
+    return new Date(raw) >= start;
+  });
+
+  return { visible, undatedExcluded };
+}
+
 function DashboardPage({ inventory, onAddItems, onCollection }) {
-  const sold = useMemo(() => inventory.filter((item) => item.status === "Sold"), [inventory]);
-  const held = useMemo(() => inventory.filter((item) => item.status !== "Sold"), [inventory]);
+  // Deliberately not persisted. The dashboard is a page you glance at, and it
+  // should open showing everything rather than a filter you set weeks ago.
+  const [category, setCategory] = useState("");
+  const [rangeKey, setRangeKey] = useState("all");
+
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(inventory.map((item) => item.category).filter(Boolean))).sort(),
+    [inventory]
+  );
+
+  const { visible, undatedExcluded } = useMemo(
+    () => applyDashboardFilters(inventory, category, rangeKey),
+    [inventory, category, rangeKey]
+  );
+
+  const filtered = category !== "" || rangeKey !== "all";
+  const rangeLabel = dashboardRanges.find((entry) => entry.key === rangeKey)?.label;
+
+  function clearFilters() {
+    setCategory("");
+    setRangeKey("all");
+  }
+
+  const sold = useMemo(() => visible.filter((item) => item.status === "Sold"), [visible]);
+  const held = useMemo(() => visible.filter((item) => item.status !== "Sold"), [visible]);
 
   const topHeld = useMemo(
     () => held.reduce((best, item) => (toNumber(item.estimatedValue) > toNumber(best?.estimatedValue ?? 0) ? item : best), null),
@@ -4836,7 +4910,7 @@ function DashboardPage({ inventory, onAddItems, onCollection }) {
     [held]
   );
 
-  const acquisitions = useMemo(() => monthlyBuckets(inventory, "purchaseDate", "purchasePrice"), [inventory]);
+  const acquisitions = useMemo(() => monthlyBuckets(visible, "purchaseDate", "purchasePrice"), [visible]);
   const sales = useMemo(() => monthlyBuckets(sold, "soldDate", "soldPrice"), [sold]);
 
   const wholeNumber = (value) => String(Math.round(value));
@@ -4876,27 +4950,87 @@ function DashboardPage({ inventory, onAddItems, onCollection }) {
         </div>
       </div>
 
-      <RecentFinds inventory={inventory} onCollection={onCollection} />
+      <div className="mt-8 flex flex-col gap-3 rounded-[1.5rem] border border-[#d8c7ad] bg-[#fff9f0] p-4 sm:flex-row sm:items-center">
+        <label className="flex items-center gap-2 text-sm font-medium text-[#665746]">
+          <span className="shrink-0">Category</span>
+          <select
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            className="rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 py-2 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+          >
+            <option value="">All categories</option>
+            {categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
 
-      <h2 className="mt-12 text-2xl font-semibold">What it's worth</h2>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Total value held" value={formatCurrency(totalHeldValue)} sublabel={`${held.length} item${held.length === 1 ? "" : "s"}`} />
-        <StatTile label="Most expensive held" value={topHeld ? formatCurrency(topHeld.estimatedValue) : "—"} sublabel={topHeld?.name || (held.length > 0 ? "No estimates yet" : "Nothing held")} />
-        <StatTile label="Total value sold" value={formatCurrency(totalSoldValue)} sublabel={`${sold.length} item${sold.length === 1 ? "" : "s"}`} />
-        <StatTile label="Most expensive sold" value={topSold ? formatCurrency(topSold.soldPrice) : "—"} sublabel={topSold?.name || "Nothing sold yet"} />
+        <label className="flex items-center gap-2 text-sm font-medium text-[#665746]">
+          <span className="shrink-0">Period</span>
+          <select
+            value={rangeKey}
+            onChange={(event) => setRangeKey(event.target.value)}
+            className="rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 py-2 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+          >
+            {dashboardRanges.map((range) => <option key={range.key} value={range.key}>{range.label}</option>)}
+          </select>
+        </label>
+
+        {filtered && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-sm font-medium text-[#123f38] underline underline-offset-4 sm:ml-auto"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
-      <h2 className="mt-12 text-2xl font-semibold">How it's grown</h2>
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <TimeSeriesChart title="Items acquired" buckets={acquisitions} metric="count" color="#2f7d6b" formatValue={wholeNumber} />
-        <TimeSeriesChart title="Amount spent" buckets={acquisitions} metric="amount" color="#2f7d6b" formatValue={formatCurrency} />
-      </div>
+      {/* Everything below is scoped, so say so plainly. A filtered figure read
+          as a whole-collection total is the way this feature misleads. */}
+      {filtered && (
+        <p className="mt-3 text-sm leading-6 text-[#665746]">
+          Showing {category === "" ? "all categories" : category}
+          {rangeKey === "all" ? "" : `, ${rangeLabel.toLowerCase()}`}. Every figure and chart below covers{" "}
+          {visible.length} item{visible.length === 1 ? "" : "s"}.
+          {undatedExcluded > 0 && ` ${undatedExcluded} item${undatedExcluded === 1 ? " has" : "s have"} no date and cannot be placed in a period.`}
+        </p>
+      )}
 
-      <h2 className="mt-12 text-2xl font-semibold">Sales over time</h2>
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <TimeSeriesChart title="Items sold" buckets={sales} metric="count" color="#b07d2a" formatValue={wholeNumber} />
-        <TimeSeriesChart title="Amount realized" buckets={sales} metric="amount" color="#b07d2a" formatValue={formatCurrency} />
-      </div>
+      {visible.length === 0 ? (
+        <Card className="mt-6 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+          <CardContent className="p-8 text-center">
+            <h2 className="text-2xl font-semibold">Nothing matches those filters</h2>
+            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">
+              There is nothing in your collection for this combination. Widen the period or pick a different category.
+            </p>
+            <Button onClick={clearFilters} className="mt-6 h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Clear filters</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <RecentFinds inventory={visible} onCollection={onCollection} />
+
+          <h2 className="mt-12 text-2xl font-semibold">What it's worth</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile label="Total value held" value={formatCurrency(totalHeldValue)} sublabel={`${held.length} item${held.length === 1 ? "" : "s"}`} />
+            <StatTile label="Most expensive held" value={topHeld ? formatCurrency(topHeld.estimatedValue) : "—"} sublabel={topHeld?.name || (held.length > 0 ? "No estimates yet" : "Nothing held")} />
+            <StatTile label="Total value sold" value={formatCurrency(totalSoldValue)} sublabel={`${sold.length} item${sold.length === 1 ? "" : "s"}`} />
+            <StatTile label="Most expensive sold" value={topSold ? formatCurrency(topSold.soldPrice) : "—"} sublabel={topSold?.name || "Nothing sold yet"} />
+          </div>
+
+          <h2 className="mt-12 text-2xl font-semibold">How it's grown</h2>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <TimeSeriesChart title="Items acquired" buckets={acquisitions} metric="count" color="#2f7d6b" formatValue={wholeNumber} />
+            <TimeSeriesChart title="Amount spent" buckets={acquisitions} metric="amount" color="#2f7d6b" formatValue={formatCurrency} />
+          </div>
+
+          <h2 className="mt-12 text-2xl font-semibold">Sales over time</h2>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <TimeSeriesChart title="Items sold" buckets={sales} metric="count" color="#b07d2a" formatValue={wholeNumber} />
+            <TimeSeriesChart title="Amount realized" buckets={sales} metric="amount" color="#b07d2a" formatValue={formatCurrency} />
+          </div>
+        </>
+      )}
     </section>
   );
 }
