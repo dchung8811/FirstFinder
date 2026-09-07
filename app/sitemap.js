@@ -15,6 +15,9 @@ export default function sitemap() {
 
   return [
     { url: SITE_URL, lastModified: new Date(), changeFrequency: "weekly", priority: 1 },
+    // The hub. Listed even with nothing published under it yet -- it is a real
+    // page, and it is what the footer links to.
+    { url: `${SITE_URL}/books`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.9 },
     ...books
   ];
 }

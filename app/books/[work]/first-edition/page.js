@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getAllWorks, getWork, workPath } from "../../../../src/content/books";
+import { getAllWorks, getVerifiedWorks, getWork, workPath } from "../../../../src/content/books";
 
 const SITE_URL = "https://firstfinder.app";
 
@@ -66,6 +66,10 @@ export default async function FirstEditionPage({ params }) {
     ["Edition statement", fe?.editionStatement]
   ].filter(([, value]) => value !== undefined && value !== null && value !== "");
 
+  // Verified siblings only: a published page should not hand readers, or
+  // crawlers, a link to something still marked draft.
+  const others = getVerifiedWorks().filter((entry) => entry.slug !== work.slug);
+
   // Structured data only for pages a person has verified -- the same gate as
   // indexing. Marking up unchecked claims as authoritative facts would be worse
   // than not marking them up at all.
@@ -95,6 +99,8 @@ export default async function FirstEditionPage({ params }) {
 
       <nav aria-label="Breadcrumb" className="text-sm text-[#746655]">
         <a href="/" className="underline underline-offset-4 hover:text-[#123f38]">FirstFinder</a>
+        <span aria-hidden="true"> / </span>
+        <a href="/books" className="underline underline-offset-4 hover:text-[#123f38]">Identification guides</a>
         <span aria-hidden="true"> / </span>
         <span>{work.title}</span>
       </nav>
@@ -193,6 +199,21 @@ export default async function FirstEditionPage({ params }) {
           Check your copy
         </a>
       </section>
+
+      {others.length > 0 && (
+        <Section title="Other identification guides">
+          <ul className="space-y-3">
+            {others.map((other) => (
+              <li key={other.slug}>
+                <a href={workPath(other)} className="font-medium text-[#123f38] underline underline-offset-4">
+                  How to identify a first edition of {other.title}
+                </a>
+                <span className="text-[#665746]"> — {other.author}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       {(work.sources || []).length > 0 && (
         <Section title="Sources">

@@ -16,12 +16,25 @@ const plexMono = IBM_Plex_Mono({
 const siteUrl = "https://firstfinder.app";
 const description = "A free, open-source catalog for collectors — not for shops. Photograph a find and get its edition, condition, and what copies like it actually sell for.";
 
+// The bare name is a weak title: it carries no keywords, and an unrelated iOS
+// app already owns "FirstFinder" in search results. Leading with what the app
+// does gives Google something to match a query against.
+const defaultTitle = "FirstFinder — Catalog your collection and identify first editions";
+
 export const metadata = {
   metadataBase: new URL(siteUrl),
-  title: "FirstFinder",
+  title: {
+    // Used by any route that sets no title of its own -- the home page.
+    default: defaultTitle,
+    // Applied to routes that do, so the identification guides read as
+    // "How to Identify a First Edition of Dune | FirstFinder". Splitting
+    // default from template is what stops the home page becoming
+    // "FirstFinder — ... | FirstFinder".
+    template: "%s | FirstFinder",
+  },
   description,
   openGraph: {
-    title: "FirstFinder",
+    title: defaultTitle,
     description,
     url: siteUrl,
     siteName: "FirstFinder",
@@ -29,7 +42,7 @@ export const metadata = {
   },
   twitter: {
     card: "summary",
-    title: "FirstFinder",
+    title: defaultTitle,
     description,
     images: ["/firstfinder-mark-exact.png"],
   },
