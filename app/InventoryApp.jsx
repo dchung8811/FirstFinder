@@ -5419,7 +5419,11 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
 function FooterLink({ children, onClick, href }) {
   const className = "text-sm text-[#fff7ea]/70 transition hover:text-[#fff7ea]";
   if (href) {
-    return <a href={href} className={className} target={href.startsWith("mailto:") ? undefined : "_blank"} rel="noopener noreferrer">{children}</a>;
+    // Links to our own pages navigate in place. Only outbound ones open a tab,
+    // and only those need the noopener guard.
+    const internal = href.startsWith("/");
+    const newTab = !internal && !href.startsWith("mailto:");
+    return <a href={href} className={className} target={newTab ? "_blank" : undefined} rel={newTab ? "noopener noreferrer" : undefined}>{children}</a>;
   }
   return <button type="button" onClick={onClick} className={`${className} text-left`}>{children}</button>;
 }
@@ -5460,6 +5464,7 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
             <FooterLink onClick={go("tutorial")}>How to / Tutorial</FooterLink>
             <FooterLink onClick={go("inventory")}>My Collection</FooterLink>
             <FooterLink onClick={go("account")}>My Account</FooterLink>
+            <FooterLink href="/books">Identification guides</FooterLink>
           </div>
         </div>
 
