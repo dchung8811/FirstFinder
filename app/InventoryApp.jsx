@@ -2688,9 +2688,9 @@ function HomePage({ onGetStarted }) {
 const authModeCopy = {
   signin: {
     heading: "Log in to your collection.",
-    sub: "Sign in with Google or use your email and password to get back to your collection.",
-    formTitle: "Email and password",
-    formSub: "Log in with the email and password you signed up with.",
+    sub: "Use your email and password, or continue with Google, to get back to your collection.",
+    formTitle: "Log in",
+    formSub: "Enter the email and password you signed up with.",
     submit: "Log in",
     submitting: "Logging in..."
   },
@@ -2729,10 +2729,12 @@ function AuthLink({ children, onClick }) {
   );
 }
 
-// Consent notice shown under every control that can create an account --
-// the email sign-up submit and the Google button, which signs up and signs in
-// through the same click. Deliberately not shown on the sign-in or forgot-
-// password forms, where no account is being created.
+// Consent notice covering the account-creating controls in view: the email
+// sign-up submit and the Google button, which signs up and signs in through the
+// same click. One notice sits at the foot of the card rather than one per
+// button, so sign-up doesn't stack the same sentence twice. Deliberately absent
+// from the forgot-password form, where no account is being created and no
+// Google button is shown.
 function AuthTermsNotice({ onViewTerms, action }) {
   return (
     <p className="mt-4 text-xs leading-5 text-[#7d6c5a]">
@@ -2746,7 +2748,6 @@ function AuthTermsNotice({ onViewTerms, action }) {
 }
 
 function LoginPage({ onViewTerms }) {
-  const [method, setMethod] = useState("password");
   const [mode, setMode] = useState("signin");
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "" });
   const [message, setMessage] = useState(null);
@@ -2882,63 +2883,66 @@ function LoginPage({ onViewTerms }) {
 
       <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
         <CardContent className="p-7">
-          <div className="mb-6 grid grid-cols-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
-            <TabButton active={method === "password"} onClick={() => setMethod("password")}>Email</TabButton>
-            <TabButton active={method === "google"} onClick={() => setMethod("google")}>Google</TabButton>
-          </div>
+          <form onSubmit={submitHandler}>
+            <h2 className="text-2xl font-semibold">{copy.formTitle}</h2>
+            <p className="mt-3 leading-7 text-[#665746]">{copy.formSub}</p>
+            <AuthMessage message={message} />
+            <div className="mt-6 grid gap-4">
+              <Field label="Email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
+              {mode !== "forgot" && (
+                <Field label="Password" type="password" value={form.password} onChange={(value) => setForm({ ...form, password: value })} />
+              )}
+              {mode === "signup" && (
+                <Field label="Confirm password" type="password" value={form.confirmPassword} onChange={(value) => setForm({ ...form, confirmPassword: value })} />
+              )}
+            </div>
+            <Button type="submit" disabled={loading} className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+              {loading ? copy.submitting : copy.submit}
+            </Button>
+          </form>
 
-          {method === "google" ? (
-            <div>
-              <h2 className="text-2xl font-semibold">Continue with Google</h2>
-              <p className="mt-3 leading-7 text-[#665746]">
-                Continue with your Google account to access your collection. New here? This also creates your account.
-              </p>
-              <AuthMessage message={message} />
+          {/* Google sits under the email module as a second, always-visible way
+              in rather than behind a tab -- one click, no choice to make first.
+              Hidden only while resetting a password, where OAuth does nothing
+              for someone who came here for a reset link. */}
+          {mode !== "forgot" && (
+            <div className="mt-6">
+              <div className="flex items-center gap-3 text-xs uppercase tracking-widest text-[#a4917a]">
+                <span className="h-px flex-1 bg-[#e6d8bf]" />
+                <span>or</span>
+                <span className="h-px flex-1 bg-[#e6d8bf]" />
+              </div>
               <button
                 type="button"
                 onClick={handleGoogleLogin}
-                className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-[#cdbb9c] bg-white px-6 text-base font-semibold text-[#123f38] shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]"
+                className="mt-6 flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#cdbb9c] bg-white px-6 text-base font-semibold text-[#123f38] shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]"
               >
                 <Icon name="google" size={20} />
                 <span>Continue with Google</span>
               </button>
-              <AuthTermsNotice onViewTerms={onViewTerms} action="Continuing with Google" />
             </div>
-          ) : (
-            <form onSubmit={submitHandler}>
-              <h2 className="text-2xl font-semibold">{copy.formTitle}</h2>
-              <p className="mt-3 leading-7 text-[#665746]">{copy.formSub}</p>
-              <AuthMessage message={message} />
-              <div className="mt-6 grid gap-4">
-                <Field label="Email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
-                {mode !== "forgot" && (
-                  <Field label="Password" type="password" value={form.password} onChange={(value) => setForm({ ...form, password: value })} />
-                )}
-                {mode === "signup" && (
-                  <Field label="Confirm password" type="password" value={form.confirmPassword} onChange={(value) => setForm({ ...form, confirmPassword: value })} />
-                )}
-              </div>
-              <Button type="submit" disabled={loading} className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
-                {loading ? copy.submitting : copy.submit}
-              </Button>
+          )}
 
-              {mode === "signup" && <AuthTermsNotice onViewTerms={onViewTerms} action="Creating an account" />}
+          <div className="mt-6 flex flex-col gap-2 text-sm text-[#665746]">
+            {mode === "signin" && (
+              <>
+                <div>New to FirstFinder? <AuthLink onClick={() => switchMode("signup")}>Create an account</AuthLink></div>
+                <div><AuthLink onClick={() => switchMode("forgot")}>Forgot your password?</AuthLink></div>
+              </>
+            )}
+            {mode === "signup" && (
+              <div>Already have an account? <AuthLink onClick={() => switchMode("signin")}>Log in</AuthLink></div>
+            )}
+            {mode === "forgot" && (
+              <div>Remembered it? <AuthLink onClick={() => switchMode("signin")}>Back to log in</AuthLink></div>
+            )}
+          </div>
 
-              <div className="mt-5 flex flex-col gap-2 text-sm text-[#665746]">
-                {mode === "signin" && (
-                  <>
-                    <div>New to FirstFinder? <AuthLink onClick={() => switchMode("signup")}>Create an account</AuthLink></div>
-                    <div><AuthLink onClick={() => switchMode("forgot")}>Forgot your password?</AuthLink></div>
-                  </>
-                )}
-                {mode === "signup" && (
-                  <div>Already have an account? <AuthLink onClick={() => switchMode("signin")}>Log in</AuthLink></div>
-                )}
-                {mode === "forgot" && (
-                  <div>Remembered it? <AuthLink onClick={() => switchMode("signin")}>Back to log in</AuthLink></div>
-                )}
-              </div>
-            </form>
+          {mode !== "forgot" && (
+            <AuthTermsNotice
+              onViewTerms={onViewTerms}
+              action={mode === "signup" ? "Creating an account or continuing with Google" : "Continuing with Google"}
+            />
           )}
         </CardContent>
       </Card>
