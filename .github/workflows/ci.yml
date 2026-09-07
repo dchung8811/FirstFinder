@@ -12,6 +12,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # src/utils is pure -- no DOM, no network, no Supabase -- so these run
+      # without any environment at all, and they cover the arithmetic that
+      # decides what someone's collection is worth.
+      - name: Unit tests
+        run: npm test
+
   build:
     name: Build
     runs-on: ubuntu-latest
