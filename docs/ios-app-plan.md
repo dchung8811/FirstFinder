@@ -13,8 +13,8 @@ the same edge-case handling the web app already has.
 
 Reuse the entire backend — Supabase and the existing Next.js routes need no
 rewrite. Build a native SwiftUI client in five phases: read path, then write
-path, then AI, then reporting and feedback, then submission. Roughly six to
-seven weeks of focused work.
+path, then AI, then reporting and feedback, then submission. Roughly seven to
+eight weeks of focused work.
 
 Three things should be settled **before the first line of Swift**, because all
 three get more expensive once an app exists: the AGPL/App Store license
@@ -33,7 +33,7 @@ conflict, Sign in with Apple, and the two-identifications-per-day cap.
 | Account deletion | `POST /api/delete-account` | HTTPS with a Bearer access token |
 | Identify daily cap | `claim_identify_call()` in Postgres | Server-side; the client just reads the result |
 
-The structural fact that makes this a six-week project instead of a six-month
+The structural fact that makes this a seven-week project instead of a six-month
 one: **Row Level Security already does the authorization.** Every policy on
 `inventory_items` is `auth.uid() = user_id`, and the storage policies key on the
 first path segment of the object name. A native client holding the anon key is
@@ -122,6 +122,8 @@ decided here.
 - Auth: Apple, Google, email and password; password reset; stay signed in
 - Dashboard: recent finds, value and count tiles, category and period filters, empty states
 - Collection: list, search, item detail
+- Offline **browsing**: a local read cache, so the dashboard and collection still
+  render with no signal instead of showing an empty shelf (see §5)
 - Add: Quick Add (manual) and AI photo identification
 - Item lifecycle: edit, delete, mark sold, restore
 - Report: collection report exported as a PDF through the share sheet
@@ -136,16 +138,21 @@ decided here.
   phone is not where you learn a schema. Quick Add plus AI covers both speeds.
 - Card/record view toggle and inline record editing — spreadsheet affordances
 - Home, About, Roadmap, Contribute and Terms as full in-app pages — link out to
-  the web instead. Terms and Privacy must be *reachable* for App Store review; a
-  link satisfies that.
+  the web instead. Note that the destinations do not exist yet: the only routable
+  pages today are `/`, `/books`, and the per-work identification pages. Terms is
+  reachable only as an `activeView` inside `InventoryApp.jsx`, with no URL, and
+  there is no privacy policy in the repo at all. Both need real web routes before
+  submission — see Phase 5.
 - CSV export — the PDF report covers the real need (insurance, estate). CSV stays
   on the web.
 - Sample data loading
 
 **Deferred, not cut**
 
-- Offline add and browse (already "Later" on the web roadmap — but see §5, where
-  the phone changes the calculus)
+- Offline **adding** — queueing writes made with no signal and reconciling them
+  later. That is the genuinely hard half, and it stays deferred. Offline browsing
+  is a read cache, is much cheaper, and is in v1 above; the web roadmap's "Later"
+  entry covers both, but the phone splits them.
 - Push notifications
 - An iPad-specific layout. Build size-class-clean; do not design for it yet.
 - Widgets, Shortcuts, App Intents
@@ -179,7 +186,7 @@ Not a feature, but everything else assumes it.
 *Done when:* you can sign in with all three providers, print the user id, sign
 out, and relaunch still signed in.
 
-### Phase 1 — Dashboard and collection, read only (~1.5 weeks)
+### Phase 1 — Dashboard and collection, read only (~2 weeks)
 
 Read-only on purpose: iOS is pointed at production data (§7), so the phase where
 you are learning the stack should not be able to corrupt anything. Seed the
@@ -197,6 +204,13 @@ account from the web app and compare.
   current filters
 - Collection list, search over the same fields the web searches, item detail
   with photos
+- The offline read cache: persist the mapped rows on fetch and render from them
+  when the network is gone, with a banner saying what is being shown and how
+  stale it is. It belongs in this phase because it is the same mapping work, and
+  building it later means retrofitting every read path instead of writing them
+  cached once. Signed photo URLs expire in an hour and deliberately are **not**
+  cached with the rows, so an offline shelf shows titles and figures without
+  covers rather than broken thumbnails.
 
 *Done when:* every figure matches the web dashboard exactly for the same account
 and the same filter combination. If they do not, the model mapping is wrong —
@@ -212,9 +226,15 @@ Every genuinely hard edge case lives in this phase.
   unique-violation (23505)**. The web app surfaces that error rather than
   retrying; a phone has worse connectivity and more chances to race, so a small
   bounded retry belongs here — and is worth porting back to the web.
-- Photo capture and picking → normalize HEIC to JPEG → compress → the same
-  two-step save the web uses (insert the row, upload photos, update the photo
-  columns)
+- Photo capture and picking → normalize HEIC to JPEG → compress → insert the row,
+  then upload photos and record each one **as it lands**, rather than writing the
+  photo columns once after the whole set finishes. This is a deliberate departure
+  from the web, which does the single trailing update: a browser tab is rarely
+  killed mid-upload, an app on a phone routinely is, and the trailing-update
+  shape leaves the row claiming no photos while the uploaded objects sit orphaned
+  in storage. Checkpointing per photo is what makes the exit test below
+  achievable — and what keeps the "detect on next open and offer to re-attach"
+  case in §5 a narrow repair rather than the normal path.
 - Partial photo failure: the item is saved, the warning names which photos
   failed, and the item survives
 - Duplicate warning before saving, using the same edition/printing signature
@@ -265,12 +285,19 @@ in the table even with issue filing switched off.
 
 - Privacy nutrition labels, filled in accurately: photos, email, usage data
 - Screenshots, description, and a TestFlight round with real collectors
-- Terms and Privacy reachable from inside the app
+- **Publish `/terms` and `/privacy` as real web routes on the Next.js app**, and
+  link both from inside the iOS app. Neither exists today: Terms lives only as
+  client state in `InventoryApp.jsx`, and no privacy policy has been written at
+  all. This is a hard gate rather than a nicety — App Store Connect will not
+  accept a submission without a reachable privacy policy URL, so writing the
+  policy is real work that belongs on the critical path, not paperwork to do on
+  the day.
 - The same valuation disclaimers the web Terms carry: these are estimates, not
   appraisals, and an insurer decides what it will accept
 
-**Realistic total: six to seven weeks of focused solo work.** At a nights-and-
-weekends pace, plan for nine or ten calendar weeks.
+**Realistic total: seven to eight weeks of focused solo work** — the read cache
+in phase 1 is real persistence work, not a free afternoon. At a nights-and-
+weekends pace, plan for ten or eleven calendar weeks.
 
 ### If you only build three things
 
@@ -388,7 +415,7 @@ Stated explicitly, with the reasoning that got there:
    outside pull request ends it.
 7. **Feature parity with the web app is never a goal.** Stated in the request,
    and worth writing down anyway: parity pressure is the thing that turns a
-   six-week app into a six-month one.
+   seven-week app into a six-month one.
 
 ## 8. The first five things to do
 
