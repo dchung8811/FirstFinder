@@ -11,9 +11,9 @@ export default {
   title: "Dune",
   author: "Frank Herbert",
 
-  status: "draft",
-  verifiedBy: null,
-  verifiedAt: null,
+  status: "verified",
+  verifiedBy: "dchung8811",
+  verifiedAt: "2026-09-07",
 
   quickAnswer:
     "A true first edition of Dune says \"First Edition\" on the copyright page, names no later printing, and carries no ISBN. It was published by Chilton in 1965 in blue boards with white spine lettering. The book most often mistaken for it is the Book Club edition, which looks almost identical until you compare the jacket art.",
@@ -36,7 +36,7 @@ export default {
     {
       label: "Publisher",
       detail:
-        "Chilton Books, a Philadelphia publisher then better known for automotive repair manuals. A Dune whose title page names any other publisher is not the first edition.",
+        "Chilton Books. A Dune whose title page names any other publisher is not the 1965 first edition.",
       sourceIds: ["fedpo"]
     },
     {
@@ -52,7 +52,7 @@ export default {
     },
     {
       label: "Price",
-      detail: "The jacket is priced $5.95. A clipped corner where the price should be is worth noting — it materially affects value.",
+      detail: "The jacket is priced $5.95.",
       sourceIds: ["fedpo"]
     }
   ],
