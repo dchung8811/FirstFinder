@@ -524,6 +524,11 @@ export default function FirstFinderApp() {
   }, []);
 
   const activeInventory = useMemo(() => getActiveInventory(inventory), [inventory]);
+  // The nav label says how many items are in the collection, which it cannot
+  // truthfully do before the fetch lands. Rather than assert "(0)" to someone
+  // who has forty, drop the count until it is actually known -- same guard the
+  // Dashboard and Collection empty states use.
+  const inventoryCountKnown = !(inventoryLoading && inventory.length === 0);
   const soldInventory = useMemo(() => inventory.filter((entry) => entry.status === "Sold"), [inventory]);
   const visibleInventory = inventoryStatusView === "sold" ? soldInventory : activeInventory;
 
@@ -1404,7 +1409,7 @@ export default function FirstFinderApp() {
           {isLoggedIn ? (
             <>
               <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Dashboard</TabButton>
-              <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>My Collection ({activeInventory.length})</TabButton>
+              <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>My Collection{inventoryCountKnown ? ` (${activeInventory.length})` : ""}</TabButton>
               <TabButton active={activeView === "addItems"} onClick={() => setActiveView("addItems")}>Add Items</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
@@ -1440,7 +1445,7 @@ export default function FirstFinderApp() {
             {isLoggedIn ? (
               <>
                 <MobileNavLink active={activeView === "dashboard"} onClick={() => go("dashboard")}>Dashboard</MobileNavLink>
-                <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>My Collection ({activeInventory.length})</MobileNavLink>
+                <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>My Collection{inventoryCountKnown ? ` (${activeInventory.length})` : ""}</MobileNavLink>
                 <MobileNavLink active={activeView === "addItems"} onClick={() => go("addItems")}>Add Items</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
