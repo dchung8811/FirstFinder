@@ -114,10 +114,54 @@ export function fromDbItem(row) {
     soldPrice: row.sold_price === null || row.sold_price === undefined ? "" : String(row.sold_price),
     soldDate: row.sold_date || "",
     notes: row.notes || "",
+    // Whether this item is kept off the owner's public collection page. Not
+    // written by toDbItem: it is toggled on its own, so a normal item save
+    // can't quietly re-share something the owner hid.
+    hiddenFromShare: Boolean(row.hidden_from_share),
     itemPhotoCount: itemPhotos.length || row.item_photo_count || 0,
     receiptPhotoCount: receiptPhotos.length || row.receipt_photo_count || 0,
     itemPhotos,
     receiptPhotos,
     savedAt: row.created_at || row.updated_at || new Date().toISOString()
+  };
+}
+
+// ---------------------------------------------------------------------------
+// shared_collections: the settings behind a public /c/<slug> page.
+// ---------------------------------------------------------------------------
+// Same camelCase/snake_case split as the item mappers above. The visibility
+// and field flags are read back by the app (to render the share dialog) and by
+// the server (to build the public page), so keeping one translation for both
+// is what stops the two drifting into disagreeing about what is shared.
+
+export function fromDbShareSettings(row) {
+  return {
+    slug: row.slug || "",
+    visibility: row.visibility || "off",
+    title: row.title || "",
+    blurb: row.blurb || "",
+    showEstimatedValue: Boolean(row.show_estimated_value),
+    showPrices: Boolean(row.show_prices),
+    showProvenance: Boolean(row.show_provenance),
+    showNotes: Boolean(row.show_notes),
+    showSold: Boolean(row.show_sold),
+    showWishlist: Boolean(row.show_wishlist)
+  };
+}
+
+export function toDbShareRow(settings, userId, slug) {
+  return {
+    user_id: userId,
+    slug,
+    visibility: settings.visibility || "off",
+    title: (settings.title || "").trim(),
+    blurb: (settings.blurb || "").trim(),
+    show_estimated_value: Boolean(settings.showEstimatedValue),
+    show_prices: Boolean(settings.showPrices),
+    show_provenance: Boolean(settings.showProvenance),
+    show_notes: Boolean(settings.showNotes),
+    show_sold: Boolean(settings.showSold),
+    show_wishlist: Boolean(settings.showWishlist),
+    updated_at: new Date().toISOString()
   };
 }

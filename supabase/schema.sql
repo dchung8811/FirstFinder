@@ -58,6 +58,10 @@ create table if not exists public.inventory_items (
 
   notes text not null default '',
 
+  -- Keeps one item off the owner's public collection page while leaving the
+  -- rest of it shared. All-or-nothing per item -- see shared-collections.sql.
+  hidden_from_share boolean not null default false,
+
   -- Photo records, shaped {"path": "...", "name": "..."}. The counts are
   -- denormalized so list views don't have to read the JSON.
   item_photos jsonb not null default '[]'::jsonb,
@@ -171,6 +175,74 @@ create policy "Users can update own feedback"
 on public.feedback for update to authenticated
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
+
+-- ---------------------------------------------------------------------------
+-- shared_collections: the settings behind a public /c/<slug> collection page.
+-- ---------------------------------------------------------------------------
+-- The public page is server-rendered and reads through the service-role client
+-- (src/lib/sharedCollection.js), never the browser's anon key, so there is
+-- deliberately no anon or public select policy on this table or on
+-- inventory_items. Adding one to "make sharing easier" would hand every
+-- anon-key holder the columns the page itself never prints -- purchase prices,
+-- sources, notes, receipt paths. See supabase/shared-collections.sql for the
+-- full reasoning behind every column here.
+create table if not exists public.shared_collections (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+
+  -- Random, ~128 bits, generated in application code. Never derived from the
+  -- user id or their name: an unlisted page's only protection is that its URL
+  -- cannot be guessed. Rotating this is what "Reset link" does.
+  slug text not null unique,
+
+  -- off (route 404s) | unlisted (link-only, noindex) | listed (indexed).
+  -- Defaults to off, so creating the row publishes nothing.
+  visibility text not null default 'off',
+
+  title text not null default '',
+  blurb text not null default '',
+
+  -- Field groups, mirroring shareFieldGroups in src/utils/publicCollection.js.
+  -- All default false, so switching sharing on lands on the shelf-only view.
+  show_estimated_value boolean not null default false,
+  show_prices boolean not null default false,
+  show_provenance boolean not null default false,
+  show_notes boolean not null default false,
+  show_sold boolean not null default false,
+  show_wishlist boolean not null default false,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint shared_collections_visibility_check
+    check (visibility in ('off', 'unlisted', 'listed'))
+);
+
+create index if not exists shared_collections_visibility_idx
+  on public.shared_collections (visibility)
+  where visibility <> 'off';
+
+alter table public.shared_collections enable row level security;
+
+drop policy if exists "Users can view own share settings" on public.shared_collections;
+create policy "Users can view own share settings"
+on public.shared_collections for select to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own share settings" on public.shared_collections;
+create policy "Users can insert own share settings"
+on public.shared_collections for insert to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own share settings" on public.shared_collections;
+create policy "Users can update own share settings"
+on public.shared_collections for update to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own share settings" on public.shared_collections;
+create policy "Users can delete own share settings"
+on public.shared_collections for delete to authenticated
+using (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
 -- Storage: item and receipt photos.

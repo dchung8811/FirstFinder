@@ -53,8 +53,8 @@ npm install
 1. Create a new project at [supabase.com](https://supabase.com).
 2. Open **SQL Editor → New query**, paste the entire contents of
    [`supabase/schema.sql`](supabase/schema.sql), and run it. That creates the
-   `inventory_items` and `feedback` tables, their Row Level Security policies,
-   and the private `item-photos` storage bucket.
+   `inventory_items`, `feedback`, and `shared_collections` tables, their Row
+   Level Security policies, and the private `item-photos` storage bucket.
 3. Under **Authentication → Providers**, leave Email enabled. Google sign-in is
    optional for local development.
 
