@@ -1,5 +1,6 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
@@ -465,6 +466,16 @@ export default function FirstFinderApp() {
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Which account the server confirmed as an admin, rather than a bare
+  // boolean. Admin-ness belongs to a user, not to the app, so holding the id
+  // and comparing lets signing out (or signing in as someone else) fall back
+  // to "not an admin" on its own -- with no flash of an Admin tab for the
+  // second person while a fresh check is in flight, and no reset to forget.
+  //
+  // Only the server can answer this: the allowlist is a server-only
+  // environment variable and stays there. It decides whether a menu item is
+  // drawn and nothing else; the admin routes check every request themselves.
+  const [adminUserId, setAdminUserId] = useState(null);
   // The public collection page's settings. Null until loaded; there is no row
   // at all until the collector first opens the share dialog, and the defaults
   // stand in until then (visibility "off", so nothing is public either way).
@@ -475,6 +486,11 @@ export default function FirstFinderApp() {
   const loadedUserIdRef = useRef(null);
   const navSlotRef = useRef(null);
   const navMeasureRef = useRef(null);
+  // Wraps the hamburger and its dropdown, so a click landing anywhere else can
+  // be told apart from a click inside the open menu.
+  const navMenuRef = useRef(null);
+
+  const router = useRouter();
 
   function pushToast(text, type = "error") {
     const id = `${Date.now()}-${Math.random()}`;
@@ -491,6 +507,14 @@ export default function FirstFinderApp() {
   function go(view) {
     setActiveView(view);
     setMobileMenuOpen(false);
+  }
+
+  // For menu entries that are real routes rather than views of this component.
+  // /admin lives outside this single-page shell (its own route and layout), so
+  // it cannot be reached by setting activeView.
+  function goToHref(href) {
+    setMobileMenuOpen(false);
+    router.push(href);
   }
 
   // Tracks every view the nav (desktop, mobile, or a same-page button like
@@ -577,6 +601,71 @@ export default function FirstFinderApp() {
     };
   }, []);
 
+  // Asks the server whether this account may open /admin, once per signed-in
+  // user. Silent on failure: an Admin tab that fails to appear is a maintainer
+  // typing a URL, which is what they did before this existed.
+  useEffect(() => {
+    if (!isLoggedIn || !currentUser) return;
+
+    let cancelled = false;
+    const userId = currentUser.id;
+
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (!accessToken) return;
+
+        const response = await fetch("/api/admin/access", {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!response.ok) return;
+
+        const body = await response.json();
+        // Records the id the answer is about, not just that it was yes, so a
+        // reply landing after a switch of account cannot mark the new person
+        // an admin.
+        if (!cancelled && body?.admin) setAdminUserId(userId);
+      } catch (error) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("Admin access check failed:", error.message);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, currentUser]);
+
+  const isAdmin = Boolean(currentUser && adminUserId === currentUser.id);
+
+  // A dropdown has to be dismissible by the two gestures everyone already
+  // expects of one -- click away, press Escape -- or it reads as a panel that
+  // got stuck open. Only listening while it is actually open keeps this off
+  // the event path for every other click in the app.
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    function onPointerDown(event) {
+      if (navMenuRef.current && !navMenuRef.current.contains(event.target)) {
+        setMobileMenuOpen(false);
+      }
+    }
+
+    function onKeyDown(event) {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [mobileMenuOpen]);
+
   const activeInventory = useMemo(() => getActiveInventory(inventory), [inventory]);
   // The nav label says how many items are in the collection, which it cannot
   // truthfully do before the fetch lands. Rather than assert "(0)" to someone
@@ -609,7 +698,21 @@ export default function FirstFinderApp() {
   // leave a panel open over a list that just changed under the reader.
   const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
   const visibleNavCount = useNavOverflow(navSlotRef, navMeasureRef, navItems, closeMobileMenu);
-  const overflowNavItems = navItems.slice(visibleNavCount);
+
+  // What the hamburger holds: whatever did not fit in the tab row, plus Admin
+  // for the accounts that have it.
+  //
+  // Admin is appended here rather than added to navItems, so it never competes
+  // for a slot in the visible row however wide the window is. It is a
+  // maintainer's tool, not part of the app every collector uses, and it should
+  // not sit in the tab strip next to My Collection. Keeping it out of navItems
+  // also leaves the overflow measurement reading exactly the tabs it did
+  // before, so nothing about the row's behaviour changes for anyone else.
+  const menuItems = useMemo(() => {
+    const items = navItems.slice(visibleNavCount);
+    if (isAdmin) items.push({ view: "admin", label: "Admin", href: "/admin" });
+    return items;
+  }, [navItems, visibleNavCount, isAdmin]);
   const visibleInventory = inventoryStatusView === "sold" ? soldInventory : activeInventory;
 
   const totalCostBasis = useMemo(() => activeInventory.reduce((sum, entry) => sum + toNumber(entry.purchasePrice), 0), [activeInventory]);
@@ -1607,29 +1710,55 @@ export default function FirstFinderApp() {
 
         <div className="flex shrink-0 items-center gap-2">
           {isLoggedIn ? <Button variant="outline" onClick={logout} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Log out</Button> : <Button onClick={() => setActiveView("login")} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]">Log in</Button>}
-          {overflowNavItems.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen((open) => !open)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d8c7ad] bg-[#fff8ee] text-[#201a14] hover:bg-white"
-              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-              aria-expanded={mobileMenuOpen}
-            >
-              <Icon name={mobileMenuOpen ? "x" : "menu"} size={18} />
-            </button>
+          {menuItems.length > 0 && (
+            /* The menu is positioned against this wrapper rather than laid out
+               in the page. It used to render as a full-width block below the
+               nav, which pushed the whole page down on every open and read as
+               a section of the page rather than a menu belonging to the
+               button. Anchoring it here keeps it the size of its contents and
+               leaves the layout underneath alone. */
+            <div className="relative" ref={navMenuRef}>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((open) => !open)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d8c7ad] bg-[#fff8ee] text-[#201a14] hover:bg-white"
+                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+                aria-expanded={mobileMenuOpen}
+                aria-haspopup="menu"
+              >
+                <Icon name={mobileMenuOpen ? "x" : "menu"} size={18} />
+              </button>
+
+              {mobileMenuOpen && (
+                /* right-0 rather than left-0: the button sits at the end of the
+                   nav, so a menu growing rightwards would run off the screen on
+                   a phone. z-40 keeps it above page content without going over
+                   the toasts and modals, which sit higher. */
+                <div
+                  role="menu"
+                  /* The height cap is not hypothetical: on the narrowest
+                     screens the whole nav collapses in here, and eight items
+                     stand ~400px tall -- taller than a phone's viewport in
+                     landscape. Without this the last entries (Admin among
+                     them, since it is appended last) sit below the fold with
+                     no way to reach them. */
+                  className="absolute right-0 top-full z-40 mt-2 flex max-h-[calc(100vh-5rem)] w-56 max-w-[calc(100vw-2rem)] flex-col gap-1 overflow-y-auto rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-2 shadow-[0_18px_40px_-18px_rgba(32,26,20,0.45)]"
+                >
+                  {menuItems.map((navItem) => (
+                    <MobileNavLink
+                      key={navItem.view}
+                      active={activeView === navItem.view}
+                      onClick={() => (navItem.href ? goToHref(navItem.href) : go(navItem.view))}
+                    >
+                      {navItem.label}
+                    </MobileNavLink>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </nav>
-
-      {mobileMenuOpen && overflowNavItems.length > 0 && (
-        <div className="mx-auto max-w-6xl px-6 pb-4 print:hidden">
-          <div className="flex flex-col gap-1 rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-2">
-            {overflowNavItems.map((navItem) => (
-              <MobileNavLink key={navItem.view} active={activeView === navItem.view} onClick={() => go(navItem.view)}>{navItem.label}</MobileNavLink>
-            ))}
-          </div>
-        </div>
-      )}
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
