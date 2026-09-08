@@ -11,9 +11,16 @@ const SITE_URL = "https://firstfinder.app";
 //
 // Unlisted pages are kept out by the per-page robots meta tag in
 // app/c/[slug]/page.js, plus their absence from the sitemap.
+// /admin is disallowed, and unlike /c/ that is the right call here. The
+// objection above is that blocking a crawl leaves a page indexable from
+// inbound links while hiding the noindex that would have excluded it -- but
+// /admin also carries its own noindex (app/admin/page.js), so both halves of
+// the gate are in place. Nothing links to it, and it shows an unauthorized
+// visitor nothing regardless; this just keeps it out of crawl budgets and out
+// of anyone's site: search results.
 export default function robots() {
   return {
-    rules: [{ userAgent: "*", allow: "/" }],
+    rules: [{ userAgent: "*", allow: "/", disallow: "/admin" }],
     sitemap: `${SITE_URL}/sitemap.xml`
   };
 }
