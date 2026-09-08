@@ -97,7 +97,18 @@ export function sanitizeCsvFields(row, presentHeaders) {
   });
 
   // Enum columns fall back to a safe value rather than writing junk.
-  if ("status" in fields) fields.status = statuses.includes(fields.status) ? fields.status : "Owned";
+  //
+  // "Wishlist" gets its own landing spot rather than the general fallback.
+  // It was a real status until wants moved to their own table, so it turns up
+  // in older exports and in files people hand-write -- and defaulting it to
+  // "Owned" would silently record that someone owns a book they were still
+  // hunting, inflating their collection and its value. "Researching" is the
+  // nearest surviving status that claims no ownership. Wants themselves are
+  // not importable by CSV yet; the collector re-adds them on the Wishlist tab.
+  if ("status" in fields) {
+    if (fields.status === "Wishlist") fields.status = "Researching";
+    else fields.status = statuses.includes(fields.status) ? fields.status : "Owned";
+  }
   if ("condition" in fields) fields.condition = conditionOptions.includes(fields.condition) ? fields.condition : "";
   if ("bookEdition" in fields) fields.bookEdition = bookEditionOptions.includes(fields.bookEdition) ? fields.bookEdition : "";
   if ("bookPrinting" in fields) fields.bookPrinting = bookPrintingOptions.includes(fields.bookPrinting) ? fields.bookPrinting : "";
