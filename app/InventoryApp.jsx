@@ -193,6 +193,29 @@ function trackEvent(eventName, params = {}) {
   }
 }
 
+// Records a sign-in for the admin dashboard's login history.
+//
+// Supabase does keep a login log -- auth.audit_log_entries -- but those rows
+// are pruned and on this project the table is empty, so the history has to be
+// ours. auth.users.last_sign_in_at survives, but it is one overwritten
+// timestamp: it can say who is active and never how often anyone comes back.
+//
+// Deliberately fire-and-forget. A collector signing in must not be made to
+// wait on a metric, and must never see it fail: if this insert is blocked,
+// offline, or rejected, the login itself is unaffected and the only casualty
+// is one row of maintainer telemetry.
+function recordLogin(userId) {
+  if (!userId) return;
+  supabase
+    .from("login_events")
+    .insert({ user_id: userId })
+    .then(({ error }) => {
+      if (error && process.env.NODE_ENV === "development") {
+        console.warn("Login event not recorded:", error.message);
+      }
+    });
+}
+
 const PHOTO_BUCKET = "item-photos";
 
 // Shrink an image before upload so photos stay ~200-400KB instead of
@@ -538,6 +561,11 @@ export default function FirstFinderApp() {
       // refreshes and tab refocus events don't yank the user off their page.
       if (loadedUserIdRef.current !== session.user.id) {
         loadedUserIdRef.current = session.user.id;
+        // Only a real sign-in counts. Reopening the app with a stored session
+        // arrives as INITIAL_SESSION, and a token refresh as TOKEN_REFRESHED,
+        // so neither inflates the login count -- which is the whole reason to
+        // keep this history rather than counting page loads.
+        if (event === "SIGNED_IN") recordLogin(session.user.id);
         loadInventory(session.user.id);
         setActiveView("dashboard");
       }
