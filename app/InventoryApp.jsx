@@ -399,6 +399,11 @@ export default function FirstFinderApp() {
   const [item, setItem] = useState({ ...emptyItem, ...sampleItems[0] });
   const [quickItem, setQuickItem] = useState({ ...emptyItem, purchaseDate: todayIso() });
   const [inventory, setInventory] = useState([]);
+  // Distinguishes "we have not fetched yet" from "there is genuinely
+  // nothing here". Both are inventory.length === 0, and telling a signed-in
+  // collector their collection is empty while it is still loading is the
+  // worst possible reading of that state.
+  const [inventoryLoading, setInventoryLoading] = useState(false);
   const [itemPhotos, setItemPhotos] = useState([]);
   const [receiptPhotos, setReceiptPhotos] = useState([]);
   const [quickItemPhotos, setQuickItemPhotos] = useState([]);
@@ -549,19 +554,31 @@ export default function FirstFinderApp() {
   }, [visibleInventory, searchTerm]);
 
   async function loadInventory(userId) {
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
+    // Set synchronously, in the same batch as the setActiveView("dashboard")
+    // that precedes every call, so the dashboard's first render already knows
+    // a fetch is in flight rather than painting the empty state first.
+    setInventoryLoading(true);
 
-    if (error) {
-      console.error("Load inventory error:", error.message);
-      pushToast(error.message, "error");
-      return;
+    try {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Load inventory error:", error.message);
+        pushToast(error.message, "error");
+        return;
+      }
+
+      setInventory((data || []).map(fromDbItem));
+    } finally {
+      // Cleared on the error path too. A failed load leaves the empty state
+      // showing alongside the error toast, which is wrong but recoverable --
+      // "Just a sec..." forever would not be.
+      setInventoryLoading(false);
     }
-
-    setInventory((data || []).map(fromDbItem));
   }
 
 
@@ -578,6 +595,7 @@ export default function FirstFinderApp() {
     loadedUserIdRef.current = null;
     setCurrentUser(null);
     setInventory([]);
+    setInventoryLoading(false);
     setIsLoggedIn(false);
     setActiveView("home");
   }
@@ -1447,11 +1465,11 @@ export default function FirstFinderApp() {
       {activeView === "terms" && <TermsPage />}
       {activeView === "login" && <LoginPage onViewTerms={() => setActiveView("terms")} />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
-      {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} />}
+      {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} loading={inventoryLoading} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} />}
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} onAddPhotos={addIdentifyPhotos} onRemovePhoto={removeIdentifyPhoto} onReIdentify={reIdentify} identifying={identifying} />}
       {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
-      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
+      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
@@ -3551,7 +3569,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   );
 }
 
-function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, bulkMessage }) {
+function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, bulkMessage }) {
   const [photoViewer, setPhotoViewer] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -3735,7 +3753,17 @@ function InventoryPage({ inventory, filteredInventory, searchTerm, setSearchTerm
         </div>
       </div>
 
-      {inventory.length === 0 ? (
+      {inventory.length === 0 && loading ? (
+        /* Same flash as the dashboard: an unfetched collection and an empty
+           one are both length 0, and only one of them should say so. */
+        <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+          <CardContent className="p-8 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#edf4f2] text-[#123f38]"><Icon name="receipt" size={26} /></div>
+            <h2 className="mt-5 text-2xl font-semibold">Just a sec…</h2>
+            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">Pulling your collection together.</p>
+          </CardContent>
+        </Card>
+      ) : inventory.length === 0 ? (
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
           <CardContent className="p-8 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name="receipt" size={26} /></div>
@@ -4264,7 +4292,7 @@ function RecentFinds({ inventory, onCollection }) {
   );
 }
 
-function DashboardPage({ inventory, onAddItems, onCollection }) {
+function DashboardPage({ inventory, loading, onAddItems, onCollection }) {
   // Deliberately not persisted. The dashboard is a page you glance at, and it
   // should open showing everything rather than a filter you set weeks ago.
   const [category, setCategory] = useState("");
@@ -4320,13 +4348,27 @@ function DashboardPage({ inventory, onAddItems, onCollection }) {
     return (
       <section className="mx-auto max-w-6xl px-6 py-12">
         <h1 className="text-5xl font-semibold tracking-tight">Your collection.</h1>
+        {/* Both states reuse the same card shell -- same border, radius, ground
+            and padding -- so the swap reads as one surface settling rather than
+            two different screens. What changes is what it says: telling someone
+            with forty books that they have nothing catalogued, under a button
+            inviting them to add their "first" find, reads as data loss rather
+            than as a spinner. */}
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
-          <CardContent className="p-8 text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name="camera" size={26} /></div>
-            <h2 className="mt-5 text-2xl font-semibold">Nothing catalogued yet</h2>
-            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">This page fills in as you add finds — what you have, what it's worth, and how the collection has grown.</p>
-            <Button onClick={onAddItems} className="mt-6 h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add your first find</Button>
-          </CardContent>
+          {loading ? (
+            <CardContent className="p-8 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#edf4f2] text-[#123f38]"><Icon name="receipt" size={26} /></div>
+              <h2 className="mt-5 text-2xl font-semibold">Just a sec…</h2>
+              <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">Pulling your collection together.</p>
+            </CardContent>
+          ) : (
+            <CardContent className="p-8 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name="camera" size={26} /></div>
+              <h2 className="mt-5 text-2xl font-semibold">Nothing catalogued yet</h2>
+              <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">This page fills in as you add finds — what you have, what it's worth, and how the collection has grown.</p>
+              <Button onClick={onAddItems} className="mt-6 h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add your first find</Button>
+            </CardContent>
+          )}
         </Card>
       </section>
     );
