@@ -1390,7 +1390,6 @@ export default function FirstFinderApp() {
               <TabButton active={activeView === "addItems"} onClick={() => setActiveView("addItems")}>Add Items</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
-              <TabButton active={activeView === "contribute"} onClick={() => setActiveView("contribute")}>Contribute</TabButton>
               <TabButton active={activeView === "feedback"} onClick={() => setActiveView("feedback")}>Feedback</TabButton>
               <TabButton active={activeView === "account"} onClick={() => setActiveView("account")}>My Account</TabButton>
             </>
@@ -1399,7 +1398,6 @@ export default function FirstFinderApp() {
               <TabButton active={activeView === "home"} onClick={() => setActiveView("home")}>Get Started</TabButton>
               <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
               <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
-              <TabButton active={activeView === "contribute"} onClick={() => setActiveView("contribute")}>Contribute</TabButton>
             </>
           )}
         </div>
@@ -1428,7 +1426,6 @@ export default function FirstFinderApp() {
                 <MobileNavLink active={activeView === "addItems"} onClick={() => go("addItems")}>Add Items</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
-                <MobileNavLink active={activeView === "contribute"} onClick={() => go("contribute")}>Contribute</MobileNavLink>
                 <MobileNavLink active={activeView === "feedback"} onClick={() => go("feedback")}>Feedback</MobileNavLink>
                 <MobileNavLink active={activeView === "account"} onClick={() => go("account")}>My Account</MobileNavLink>
               </>
@@ -1437,7 +1434,6 @@ export default function FirstFinderApp() {
                 <MobileNavLink active={activeView === "home"} onClick={() => go("home")}>Get Started</MobileNavLink>
                 <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
                 <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
-                <MobileNavLink active={activeView === "contribute"} onClick={() => go("contribute")}>Contribute</MobileNavLink>
               </>
             )}
           </div>
@@ -1446,7 +1442,7 @@ export default function FirstFinderApp() {
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
-      {activeView === "about" && <AboutPage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
+      {activeView === "about" && <AboutPage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} onGoToContribute={() => setActiveView("contribute")} />}
       {activeView === "contribute" && <ContributePage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
       {activeView === "terms" && <TermsPage />}
       {activeView === "login" && <LoginPage onViewTerms={() => setActiveView("terms")} />}
@@ -2062,7 +2058,7 @@ const aboutNonAudience = [
   "Marketplace sellers looking for listing automation"
 ];
 
-function AboutPage({ onGoToFeedback }) {
+function AboutPage({ onGoToFeedback, onGoToContribute }) {
   return (
     <section className="mx-auto max-w-3xl px-6 py-16 md:py-20">
       <h1 className="font-display text-4xl font-semibold tracking-tight md:text-6xl">The story behind First Finder.</h1>
@@ -2115,6 +2111,35 @@ function AboutPage({ onGoToFeedback }) {
       <div className="mt-12 flex justify-center">
         <Button onClick={onGoToFeedback} className="h-12 rounded-full bg-[#123f38] px-7 text-base text-[#fff7ea] hover:bg-[#0f332d]">
           Share your ideas <Icon name="arrow" size={18} className="ml-1" />
+        </Button>
+      </div>
+
+      {/* The Contribute page used to have its own nav tab. It doesn't anymore --
+          it was competing with the pages people actually open, and contributing
+          is something you go looking for after you care about the project, not
+          before. This is that entry point: the story ends by saying the source
+          is public, and the reader is already here for the story. */}
+      <div className="mt-16 rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-7 text-center md:p-9">
+        <div className="font-ledger inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#655644]">
+          <Icon name="github" size={13} /> Open source
+        </div>
+        <p className="mx-auto mt-5 max-w-xl leading-7 text-[#665746]">
+          Every line of FirstFinder is public — free to read, run, fork, and improve. If something here is missing or
+          broken, you don't have to wait for me to get to it. The Contribute page lists what's open right now, including
+          the issues tagged for a first-time contributor.
+        </p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            // The nav tab is gone, so this button and the footer link are the
+            // only ways in. Tracked so it's answerable whether About actually
+            // carries that traffic, rather than assumed.
+            trackEvent("contribute_page_opened", { source_page: "about" });
+            onGoToContribute();
+          }}
+          className="mt-6 h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 text-sm hover:bg-white"
+        >
+          See how to contribute <Icon name="arrow" size={16} className="ml-1" />
         </Button>
       </div>
 
