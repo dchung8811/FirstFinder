@@ -1558,8 +1558,14 @@ export default function FirstFinderApp() {
       </div>
 
       <nav className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-5 md:gap-8 print:hidden">
-        <button onClick={() => go(isLoggedIn ? "dashboard" : "home")} className="flex shrink-0 items-center gap-3 text-left">
-          <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 rounded-xl object-cover" /><div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Your collection, catalogued</div></div>
+        {/* min-w-0 rather than shrink-0, and the tagline is hidden on the
+            narrowest screens. With shrink-0 here the wordmark held its full
+            322px on a 375px phone, so nothing in the row could give way and
+            the log out button was pushed ~130px past the right edge -- which
+            mobile Safari answers by shrinking the whole page to fit, leaving
+            a white gutter down the side of every view. */}
+        <button onClick={() => go(isLoggedIn ? "dashboard" : "home")} className="flex min-w-0 items-center gap-3 text-left">
+          <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 shrink-0 rounded-xl object-cover" /><div className="min-w-0"><div className="truncate text-xl font-semibold tracking-tight">FirstFinder</div><div className="hidden truncate text-xs uppercase tracking-[0.22em] text-[#746655] sm:block">Your collection, catalogued</div></div>
         </button>
 
         <NavTabs
@@ -3804,11 +3810,19 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
-          {/* The label carries the state. A collector should be able to tell
-              at a glance whether there is a public page out there without
-              having to open the dialog to find out. */}
+          {/* Always the verb, never the status. This button used to read
+              "Sharing on" once a page was live, which describes a state
+              rather than offering a way in -- so the one thing people came
+              for, the link, looked like a label they could not press. The dot
+              carries the status instead. */}
           <Button variant="outline" onClick={onShare} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
-            <Icon name="link" size={16} className="mr-2" /> {shareVisibility && shareVisibility !== "off" ? "Sharing on" : "Share"}
+            <Icon name="link" size={16} className="mr-2" /> Share
+            {shareVisibility && shareVisibility !== "off" && (
+              <>
+                <span aria-hidden="true" className="ml-2 h-2 w-2 rounded-full bg-[#123f38]" />
+                <span className="sr-only">(your page is live)</span>
+              </>
+            )}
           </Button>
           <Button variant="outline" onClick={() => { trackEvent("insurance_export_viewed"); onExport(); }} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export for insurance</Button>
           <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add to collection</Button>
@@ -5460,6 +5474,10 @@ const visibilityChoices = [
 function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLink, onClose, pushToast }) {
   const [draft, setDraft] = useState(settings);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState("");
+  // Read during render rather than in an effect. Safe here specifically
+  // because this dialog only ever mounts after a click, so it is never part
+  // of the server-rendered markup and there is no hydration pass to mismatch.
+  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   // "Saved" is what the public page serves, "draft" is what the switches say.
   // Keeping them apart is the whole reason this dialog has a Save button:
@@ -5472,7 +5490,12 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
   const previewItem = useMemo(() => (previewSource ? buildPublicItem(previewSource, draft) : null), [previewSource, draft]);
   const hiddenCount = inventory.filter((entry) => entry.hiddenFromShare).length;
   const presetId = matchingPresetId(draft);
-  const shareUrl = settings.slug ? `${window.location.origin}${sharePath(settings.slug)}` : "";
+  // Guarded rather than reading window.location directly: this dialog only
+  // mounts on a click today, so a server pass never reaches it, but a bare
+  // window reference during render is one refactor away from a 500.
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const shareUrl = settings.slug ? `${origin}${sharePath(settings.slug)}` : "";
+  const isLive = settings.visibility !== "off";
 
   useEffect(() => {
     let cancelled = false;
@@ -5504,6 +5527,21 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
     }
   }
 
+  // On a phone, "share this link" means the OS share sheet -- Messages, Mail,
+  // AirDrop -- not the clipboard. Cancelling the sheet throws AbortError, and
+  // that is a completed interaction, not a failure to fall back from.
+  async function shareLink() {
+    try {
+      await navigator.share({ title: draft.title.trim() || "My collection on FirstFinder", url: shareUrl });
+      trackEvent("share_link_shared", { visibility: settings.visibility });
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        console.error("Native share error:", error.message);
+        copyLink();
+      }
+    }
+  }
+
   return (
     <ModalShell onClose={saving ? () => {} : onClose} contentClassName="max-h-[88vh] max-w-4xl">
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -5522,6 +5560,51 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
 
       <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_16rem]">
         <div>
+          {shareUrl && (
+            <div className="mb-5 rounded-2xl border border-[#123f38]/25 bg-[#edf4f2] p-4">
+              <div className="text-xs uppercase tracking-[0.16em] text-[#123f38]">
+                {isLive ? "Your link — live now" : "Your link — currently off"}
+              </div>
+              <div className="mt-2 break-all font-mono text-sm text-[#3f352a]">{shareUrl}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {/* Copy is the primary action and sits first: it is the one
+                    thing every visit to this dialog is ultimately for. */}
+                <Button type="button" onClick={copyLink} className="h-10 rounded-full bg-[#123f38] px-5 text-sm text-[#fff7ea] hover:bg-[#0f332d]">
+                  <Icon name="file" size={15} className="mr-2" /> Copy link
+                </Button>
+                {canNativeShare && (
+                  <Button type="button" variant="outline" onClick={shareLink} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 text-sm hover:bg-white">
+                    <Icon name="link" size={15} className="mr-2" /> Share…
+                  </Button>
+                )}
+                {/* Deliberately not enabled while there are unsaved switches:
+                    the preview opens the real page, so it would show the last
+                    saved settings and quietly contradict the checkboxes. */}
+                <a
+                  href={dirty ? undefined : shareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-disabled={dirty || draft.visibility === "off"}
+                  className={`inline-flex h-10 items-center rounded-full border border-[#cdbb9d] px-5 text-sm font-medium ${
+                    dirty || draft.visibility === "off" ? "cursor-not-allowed bg-[#f3ece1] text-[#a2957f]" : "bg-[#fff8ee] text-[#665746] hover:bg-white"
+                  }`}
+                  onClick={(event) => {
+                    if (dirty || draft.visibility === "off") event.preventDefault();
+                  }}
+                >
+                  Open preview
+                </a>
+                <Button type="button" variant="outline" onClick={onResetLink} disabled={saving} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 text-sm hover:bg-white">
+                  Reset link
+                </Button>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-[#7d6c5a]">
+                Resetting gives you a new address and breaks every link you&apos;ve already sent — the way to take back a
+                page you shared with the wrong person.
+              </p>
+            </div>
+          )}
+
           <fieldset>
             <legend className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Who can see it</legend>
             <div className="mt-3 flex flex-col gap-2">
@@ -5548,42 +5631,6 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
               ))}
             </div>
           </fieldset>
-
-          {shareUrl && (
-            <div className="mt-5 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-4">
-              <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Your link</div>
-              <div className="mt-2 break-all font-mono text-sm text-[#3f352a]">{shareUrl}</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={copyLink} className="h-9 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-4 text-sm hover:bg-white">
-                  <Icon name="file" size={15} className="mr-2" /> Copy link
-                </Button>
-                {/* Deliberately not enabled while there are unsaved switches:
-                    the preview opens the real page, so it would show the last
-                    saved settings and quietly contradict the checkboxes. */}
-                <a
-                  href={dirty ? undefined : shareUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-disabled={dirty || draft.visibility === "off"}
-                  className={`inline-flex h-9 items-center rounded-full border border-[#cdbb9d] px-4 text-sm font-medium ${
-                    dirty || draft.visibility === "off" ? "cursor-not-allowed bg-[#f3ece1] text-[#a2957f]" : "bg-[#fff8ee] text-[#665746] hover:bg-white"
-                  }`}
-                  onClick={(event) => {
-                    if (dirty || draft.visibility === "off") event.preventDefault();
-                  }}
-                >
-                  Open preview
-                </a>
-                <Button type="button" variant="outline" onClick={onResetLink} disabled={saving} className="h-9 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-4 text-sm hover:bg-white">
-                  Reset link
-                </Button>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-[#7d6c5a]">
-                Resetting gives you a new address and breaks every link you&apos;ve already sent — the way to take back a
-                page you shared with the wrong person.
-              </p>
-            </div>
-          )}
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <Field label="Page title" value={draft.title} onChange={(value) => set("title", value)} />
