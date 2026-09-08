@@ -9,6 +9,10 @@ import {
   applyPreset,
   isItemShared,
   buildPublicItem,
+  publicWantFields,
+  buildPublicWant,
+  isWantShared,
+  buildPublicWishlist,
   buildPublicCollection,
   summarizeCollection,
   summaryLine,
@@ -292,5 +296,131 @@ describe("share slugs", () => {
   it("does not repeat itself", () => {
     const slugs = new Set(Array.from({ length: 200 }, () => generateShareSlug()));
     expect(slugs.size).toBe(200);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The public wishlist
+// ---------------------------------------------------------------------------
+
+// A want with something recognisable in every withheld field, so a leak shows
+// up as a findable string rather than an empty default.
+const privateWant = (over = {}) => ({
+  id: "want-1",
+  name: "Blood Meridian",
+  maker: "Cormac McCarthy",
+  category: "Book",
+  wantedEdition: "First",
+  wantedPrinting: "First",
+  publisher: "Random House, 1985",
+  minCondition: "Near Fine/Fine",
+  jacketRequirement: "required",
+  signatureRequirement: "any",
+  maxPrice: "3500",
+  preferredSource: "LEAK-preferred-seller",
+  priority: "grail",
+  upgradeForItemId: "LEAK-item-id",
+  notes: "LEAK-notes",
+  hiddenFromShare: false,
+  foundAt: "",
+  createdAt: "2026-03-01T00:00:00Z",
+  ...over
+});
+
+const allOn = {
+  ...defaultShareSettings,
+  visibility: "unlisted",
+  showEstimatedValue: true,
+  showPrices: true,
+  showProvenance: true,
+  showNotes: true,
+  showSold: true,
+  showWishlist: true
+};
+
+describe("buildPublicWant", () => {
+  it("emits nothing outside the declared field list, even with every toggle on", () => {
+    const want = buildPublicWant(privateWant(), allOn);
+    Object.keys(want).forEach((key) => {
+      expect(publicWantFields).toContain(key);
+    });
+  });
+
+  // The whole reason a ceiling is a column and not a toggle: it is a
+  // negotiating position, and no setting may publish it.
+  it("never publishes the maximum price under any setting", () => {
+    const want = buildPublicWant(privateWant(), allOn);
+    expect(want.maxPrice).toBeUndefined();
+    expect(JSON.stringify(want)).not.toContain("3500");
+  });
+
+  // The same leak in words instead of dollars: "grail" tells a seller you
+  // will stretch.
+  it("never publishes the priority", () => {
+    const want = buildPublicWant(privateWant(), allOn);
+    expect(want.priority).toBeUndefined();
+    expect(JSON.stringify(want)).not.toContain("grail");
+  });
+
+  it("never publishes the collector's own operational fields", () => {
+    const serialized = JSON.stringify(buildPublicWant(privateWant(), allOn));
+    expect(serialized).not.toContain("LEAK-preferred-seller");
+    expect(serialized).not.toContain("LEAK-item-id");
+  });
+
+  it("publishes the specification, which is the point of the page", () => {
+    const want = buildPublicWant(privateWant(), allOn);
+    expect(want.wantedEdition).toBe("First");
+    expect(want.wantedPrinting).toBe("First");
+    expect(want.publisher).toBe("Random House, 1985");
+    expect(want.minCondition).toBe("Near Fine/Fine");
+    expect(want.jacketRequirement).toBe("required");
+    expect(want.wantedSince).toBe("2026-03-01T00:00:00Z");
+  });
+
+  it("gates notes behind the same toggle item notes use", () => {
+    expect(buildPublicWant(privateWant(), allOn).notes).toBe("LEAK-notes");
+    expect(buildPublicWant(privateWant(), { ...allOn, showNotes: false }).notes).toBeUndefined();
+  });
+});
+
+describe("isWantShared", () => {
+  it("publishes nothing until the collector switches the wishlist on", () => {
+    expect(isWantShared(privateWant(), { ...allOn, showWishlist: false })).toBe(false);
+    expect(isWantShared(privateWant(), allOn)).toBe(true);
+  });
+
+  it("honours the per-want opt-out", () => {
+    expect(isWantShared(privateWant({ hiddenFromShare: true }), allOn)).toBe(false);
+  });
+
+  // The copy is in the collection now. Publishing it here too would list the
+  // same book twice, once as owned and once as wanted.
+  it("drops a want once it has been found", () => {
+    expect(isWantShared(privateWant({ foundAt: "2026-06-01T00:00:00Z" }), allOn)).toBe(false);
+  });
+
+  it("is false for nothing at all", () => {
+    expect(isWantShared(null, allOn)).toBe(false);
+  });
+});
+
+describe("buildPublicWishlist", () => {
+  it("filters and builds in one pass", () => {
+    const wants = [
+      privateWant({ id: "open" }),
+      privateWant({ id: "hidden", hiddenFromShare: true }),
+      privateWant({ id: "found", foundAt: "2026-06-01T00:00:00Z" })
+    ];
+    expect(buildPublicWishlist(wants, allOn).map((want) => want.id)).toEqual(["open"]);
+  });
+
+  it("publishes nothing when the wishlist is switched off", () => {
+    expect(buildPublicWishlist([privateWant()], defaultShareSettings)).toEqual([]);
+  });
+
+  it("copes with no wishlist at all", () => {
+    expect(buildPublicWishlist(undefined, allOn)).toEqual([]);
   });
 });

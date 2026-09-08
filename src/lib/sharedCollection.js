@@ -155,6 +155,70 @@ export async function signPhotoPaths(admin, paths) {
   return urlByPath;
 }
 
+// The wishlist columns a public page may read.
+//
+// max_price and priority are absent, and that absence is the point: they are
+// never selected, so they never leave Postgres, whatever a later change to the
+// rendering layer does. buildPublicWant refuses them a second time one layer
+// up -- the same doubled guard the item columns get, and for the same reason.
+// A ceiling is a negotiating position; "grail" is that same statement in
+// words.
+const WANT_COLUMNS = [
+  "id",
+  "name",
+  "maker",
+  "category",
+  "wanted_edition",
+  "wanted_printing",
+  "publisher",
+  "min_condition",
+  "jacket_requirement",
+  "signature_requirement",
+  "notes",
+  "hidden_from_share",
+  "found_at",
+  "created_at"
+];
+
+// Wants for a shared page. Returns [] rather than throwing on failure: a
+// collection page missing its wishlist is still a working collection page.
+async function loadSharedWants(admin, userId, settings) {
+  if (!settings.showWishlist) return [];
+
+  const { data, error } = await admin
+    .from("wishlist_items")
+    .select(WANT_COLUMNS.join(", "))
+    .eq("user_id", userId)
+    .eq("hidden_from_share", false)
+    // Found wants never appear: the copy is in the collection now, and listing
+    // it here too would show the same book twice. Excluded in SQL so the rows
+    // do not travel, and again in isWantShared.
+    .is("found_at", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Shared wishlist error:", error.message);
+    return [];
+  }
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    name: row.name || "",
+    maker: row.maker || "",
+    category: row.category || "Book",
+    wantedEdition: row.wanted_edition || "",
+    wantedPrinting: row.wanted_printing || "",
+    publisher: row.publisher || "",
+    minCondition: row.min_condition || "",
+    jacketRequirement: row.jacket_requirement || "any",
+    signatureRequirement: row.signature_requirement || "any",
+    notes: row.notes || "",
+    hiddenFromShare: Boolean(row.hidden_from_share),
+    foundAt: row.found_at || "",
+    createdAt: row.created_at || ""
+  }));
+}
+
 // Loads everything /c/<slug> needs, or null when there is nothing to serve --
 // unknown slug, or the owner has switched sharing off. The caller turns null
 // into a 404, so those two cases are indistinguishable from outside: a
@@ -232,9 +296,15 @@ export async function loadSharedCollection(slug) {
   // reason this signs by path map rather than by index.
   const coverPaths = items.map((item) => item.itemPhotos[0]?.path).filter(Boolean);
 
-  const [photoUrls, ownerName] = await Promise.all([signPhotoPaths(admin, coverPaths), ownerNamePromise]);
+  // Joins the same parallel batch as the other two: the wishlist depends only
+  // on the share row, so it has no reason to wait behind the photo signing.
+  const [photoUrls, ownerName, wants] = await Promise.all([
+    signPhotoPaths(admin, coverPaths),
+    ownerNamePromise,
+    loadSharedWants(admin, shareRow.user_id, settings).catch(() => [])
+  ]);
 
-  return { settings, items, ownerName, photoUrls, updatedAt: shareRow.updated_at };
+  return { settings, items, wants, ownerName, photoUrls, updatedAt: shareRow.updated_at };
 }
 
 // Slugs of collections their owners have chosen to have indexed. Unlisted

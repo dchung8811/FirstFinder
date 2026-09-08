@@ -220,6 +220,7 @@ export function toDbWant(want, userId) {
     // key and an empty string is not one.
     upgrade_for_item_id: want.upgradeForItemId || null,
     notes: want.notes || "",
+    hidden_from_share: Boolean(want.hiddenFromShare),
     updated_at: new Date().toISOString()
   };
 }
