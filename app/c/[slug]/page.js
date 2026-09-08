@@ -2,9 +2,10 @@ import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadSharedCollection } from "../../../src/lib/sharedCollection";
-import { buildPublicCollection, summaryLine } from "../../../src/utils/publicCollection";
+import { buildPublicCollection, buildPublicWishlist, summaryLine } from "../../../src/utils/publicCollection";
 import CollectionBrowser from "./CollectionBrowser";
 import { Chip } from "./ItemCard";
+import PublicWishlist from "./PublicWishlist";
 
 const SITE_URL = "https://firstfinder.app";
 
@@ -28,7 +29,11 @@ const getCollection = cache(async function getCollection(slugPromise) {
   if (!shared) return null;
 
   const collection = buildPublicCollection(shared.items, shared.settings, { ownerName: shared.ownerName });
-  return { ...shared, collection, slug };
+  // Filtered and stripped here rather than in the page body, so the wishlist
+  // goes through the same allowlist on the metadata pass as on the render --
+  // there is only one place that decides what a visitor may see.
+  const wishlist = buildPublicWishlist(shared.wants, shared.settings);
+  return { ...shared, collection, wishlist, slug };
 });
 
 export async function generateMetadata({ params }) {
@@ -67,7 +72,7 @@ export default async function SharedCollectionPage({ params }) {
   // same 404, so a visitor can't tell "never existed" from "taken down".
   if (!shared) notFound();
 
-  const { collection, photoUrls } = shared;
+  const { collection, photoUrls, wishlist } = shared;
 
   // The cover URL is attached here rather than passed alongside as a Map: the
   // grid is rendered by a client component now, and an item that already
@@ -114,6 +119,10 @@ export default async function SharedCollectionPage({ params }) {
            searching -- a shelf of four is faster to read than to filter. */
         <CollectionBrowser items={items} />
       )}
+
+      {/* Below the collection, not above it: the page is a shelf first, and
+          what someone is hunting is the postscript. */}
+      <PublicWishlist wants={wishlist} />
 
       <section className="mt-12 rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-8 text-center shadow-sm">
         <h2 className="text-2xl font-semibold">Catalog your own collection</h2>

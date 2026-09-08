@@ -68,7 +68,8 @@ export const emptyWant = {
   preferredSource: "",
   priority: "hunting",
   upgradeForItemId: "",
-  notes: ""
+  notes: "",
+  hiddenFromShare: false
 };
 
 const PRIORITY_RANK = { grail: 0, hunting: 1, someday: 2 };

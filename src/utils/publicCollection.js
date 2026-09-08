@@ -112,7 +112,11 @@ export const shareFieldGroups = [
   {
     key: "showWishlist",
     label: "Wishlist",
-    detail: "Include items you're still hunting for."
+    // Reworded when wants became their own thing: this used to include items
+    // carrying the old "Wishlist" status, and now publishes the wishlist
+    // itself. What it never publishes is the ceiling or the priority -- see
+    // buildPublicWant.
+    detail: "Publish what you're hunting for. Never your maximum price."
   }
 ];
 
@@ -244,6 +248,86 @@ export function buildPublicItem(item, settings = defaultShareSettings) {
   }
 
   return publicItem;
+}
+
+// ---------------------------------------------------------------------------
+// The public wishlist
+// ---------------------------------------------------------------------------
+
+// The complete set of keys buildPublicWant can ever emit. Same contract as
+// publicItemFields: the test asserts real output against this, so anything not
+// named here cannot reach a public page.
+export const publicWantFields = [
+  "id",
+  "name",
+  "maker",
+  "category",
+  "wantedEdition",
+  "wantedPrinting",
+  "publisher",
+  "minCondition",
+  "jacketRequirement",
+  "signatureRequirement",
+  "wantedSince",
+  "notes"
+];
+
+// Two fields on a want are withheld from every public page under every
+// setting, and there is deliberately no toggle for either.
+//
+//   maxPrice -- a ceiling is a negotiating position. Publishing it invites a
+//     dealer to price exactly at it, and a collector switching on "share my
+//     wishlist" is not consenting to that.
+//
+//   priority -- the same leak wearing different clothes. "Grail" tells a
+//     seller you will stretch; it is a statement about how much you would pay,
+//     just spelled in words instead of dollars. It looks harmless next to a
+//     price, which is exactly why it is worth naming here.
+//
+// preferredSource and upgradeForItemId are also absent, for a duller reason:
+// they are the collector's own operational notes, and no visitor is served by
+// them. Nothing here is a judgement call the UI can override.
+export function buildPublicWant(want, settings = defaultShareSettings) {
+  const publicWant = {
+    id: want.id,
+    name: want.name || "",
+    maker: want.maker || "",
+    category: want.category || "Book",
+    wantedEdition: want.wantedEdition || "",
+    wantedPrinting: want.wantedPrinting || "",
+    publisher: want.publisher || "",
+    minCondition: want.minCondition || "",
+    jacketRequirement: want.jacketRequirement || "any",
+    signatureRequirement: want.signatureRequirement || "any",
+    // How long someone has been looking is part of what makes a wishlist worth
+    // reading, and it gives away nothing about what they would pay.
+    wantedSince: want.createdAt || ""
+  };
+
+  // Gated by the same toggle item notes use, so "my notes" means one thing
+  // across the whole page rather than two.
+  if (settings?.showNotes && want.notes) {
+    publicWant.notes = want.notes;
+  }
+
+  return publicWant;
+}
+
+// Whether a want appears on the public page at all.
+//
+// A found want never does: the copy is in the collection now, and publishing
+// it here would list the same book twice -- once as owned, once as wanted.
+export function isWantShared(want, settings) {
+  if (!want) return false;
+  if (want.hiddenFromShare) return false;
+  if (want.foundAt) return false;
+  return Boolean(settings?.showWishlist);
+}
+
+export function buildPublicWishlist(wants, settings = defaultShareSettings) {
+  return (wants || [])
+    .filter((want) => isWantShared(want, settings))
+    .map((want) => buildPublicWant(want, settings));
 }
 
 // Headline counts for the top of the page.

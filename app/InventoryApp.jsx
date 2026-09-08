@@ -6836,6 +6836,24 @@ function WantDialog({ want, inventory, saving, onSave, onDelete, onClose }) {
         <TextAreaField label="Notes" value={draft.notes} onChange={(value) => set("notes", value)} rows={3} placeholder="What would make you pass?" />
       </div>
 
+      {/* The same per-row escape hatch owned items get. Shown whether or not
+          the wishlist is currently published, so a want can be marked private
+          when it is written rather than only after someone shares the page. */}
+      <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-4">
+        <input
+          type="checkbox"
+          checked={Boolean(draft.hiddenFromShare)}
+          onChange={(event) => set("hiddenFromShare", event.target.checked)}
+          className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+        />
+        <span>
+          <span className="block text-sm font-medium">Keep this one to myself</span>
+          <span className="block text-xs leading-5 text-[#7d6c5a]">
+            Stays off your public wishlist even when the rest of it is published.
+          </span>
+        </span>
+      </label>
+
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-[#eadfcd] pt-5">
         <p className="max-w-sm text-xs leading-5 text-[#7d6c5a]">
           Your ceiling stays private — it is never published, whatever your sharing settings say.
