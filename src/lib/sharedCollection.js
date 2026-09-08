@@ -124,21 +124,33 @@ export async function signPhotoPaths(admin, paths) {
   const urlByPath = new Map();
   if (paths.length === 0) return urlByPath;
 
+  const batches = [];
   for (let start = 0; start < paths.length; start += SIGN_BATCH_SIZE) {
-    const batch = paths.slice(start, start + SIGN_BATCH_SIZE);
-    const { data, error } = await admin.storage.from(PHOTO_BUCKET).createSignedUrls(batch, PHOTO_URL_TTL_SECONDS);
-
-    if (error) {
-      // A page with missing images still tells a visitor what is in the
-      // collection, which beats a 500.
-      console.error("Shared collection signed URL error:", error.message);
-      continue;
-    }
-
-    (data || []).forEach((row) => {
-      if (row.signedUrl) urlByPath.set(row.path, row.signedUrl);
-    });
+    batches.push(paths.slice(start, start + SIGN_BATCH_SIZE));
   }
+
+  // In parallel, not one after another. The batches are independent, and a
+  // large shelf is where this page is slowest -- signing 400 photos serially
+  // is four round trips stacked end to end for no reason. Nothing here shares
+  // state, so the only ordering that ever mattered was the loop's.
+  const results = await Promise.all(
+    batches.map(async (batch) => {
+      const { data, error } = await admin.storage.from(PHOTO_BUCKET).createSignedUrls(batch, PHOTO_URL_TTL_SECONDS);
+
+      if (error) {
+        // A page with missing images still tells a visitor what is in the
+        // collection, which beats a 500.
+        console.error("Shared collection signed URL error:", error.message);
+        return [];
+      }
+
+      return data || [];
+    })
+  );
+
+  results.flat().forEach((row) => {
+    if (row.signedUrl) urlByPath.set(row.path, row.signedUrl);
+  });
 
   return urlByPath;
 }
@@ -192,6 +204,20 @@ export async function loadSharedCollection(slug) {
     query = query.not("status", "in", `(${excludedStatuses.join(",")})`);
   }
 
+  // The owner's name depends only on the share row, so it has no reason to
+  // wait behind the items query. Started here and awaited later, it overlaps
+  // with the two slowest steps instead of adding a round trip after them.
+  //
+  // The catch is not decoration. If the items query below fails we return
+  // early, leaving this promise with nobody waiting on it -- and an unhandled
+  // rejection in a server render is a process-level event, not a local one.
+  // Settling it here means the worst case is a page that falls back to no
+  // owner name, which is what fetchOwnerName already does on an error it can
+  // see.
+  const ownerNamePromise = settings.title.trim()
+    ? Promise.resolve("")
+    : fetchOwnerName(admin, shareRow.user_id).catch(() => "");
+
   const { data: itemRows, error: itemsError } = await query.order("created_at", { ascending: false });
 
   if (itemsError) {
@@ -205,9 +231,8 @@ export async function loadSharedCollection(slug) {
   // work nobody sees -- a per-item photo view is a follow-up, and it is the
   // reason this signs by path map rather than by index.
   const coverPaths = items.map((item) => item.itemPhotos[0]?.path).filter(Boolean);
-  const photoUrls = await signPhotoPaths(admin, coverPaths);
 
-  const ownerName = settings.title.trim() ? "" : await fetchOwnerName(admin, shareRow.user_id);
+  const [photoUrls, ownerName] = await Promise.all([signPhotoPaths(admin, coverPaths), ownerNamePromise]);
 
   return { settings, items, ownerName, photoUrls, updatedAt: shareRow.updated_at };
 }
