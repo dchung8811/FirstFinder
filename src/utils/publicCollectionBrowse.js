@@ -116,13 +116,15 @@ export function collectFilterOptions(items) {
   };
 }
 
-// What the public page calls each status. "Wishlist" is the app's internal
-// word for it; on someone else's page the item is something they are looking
-// for, which is what the card already says.
+// What the public page calls each status.
+//
+// Only Wishlist is renamed, to the "Wanted" the card chip already uses -- on
+// someone else's page the item is something they are hunting for, and
+// "Wishlist" is the app's internal word. The rest keep the owner's own
+// vocabulary so the Records table reads as the same table they see on their
+// Collection tab. An earlier draft rendered Owned as "In the collection",
+// which was wordier than the column it has to sit in and wrapped every row.
 export const statusLabels = {
-  Owned: "In the collection",
-  "For sale": "For sale",
-  Sold: "Sold",
   Wishlist: "Wanted"
 };
 

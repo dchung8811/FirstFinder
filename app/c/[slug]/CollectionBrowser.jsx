@@ -73,35 +73,79 @@ const viewStore = {
 // Cards is what the server renders, so it is what hydration must agree on.
 const serverView = () => "cards";
 
-// A shared page is often opened on a phone from a link, so the compact view
-// has to be genuinely compact: no photo column, no value rows, just enough to
-// scan a shelf.
-function RecordRow({ item }) {
-  const editionLine =
-    item.category === "Book"
-      ? [item.bookEdition && `${item.bookEdition} edition`, item.bookPrinting && `${item.bookPrinting} printing`]
-          .filter(Boolean)
-          .join(" · ")
-      : item.edition;
+// The Records view, matching the table on the owner's own Collection tab.
+//
+// Deliberately the same shape as the app's inventory table -- the same wrapper,
+// the same header treatment, the same Item / Category / Status / Cost / Value /
+// Photos columns, and the same horizontal scroll on a narrow screen. Someone
+// who catalogues in FirstFinder and then opens a shared page should recognise
+// what they are looking at.
+//
+// What is dropped is what a visitor cannot do: the Actions column, the inline
+// editing, and the hint line about clicking a cell to edit it. The value
+// columns render only when the owner actually published those fields -- a
+// permanently empty "Cost" column would look broken and would advertise that
+// there is a price being withheld.
+function valueForItem(item) {
+  return item.status === "Sold" ? item.soldPrice : item.estimatedValue;
+}
 
-  const meta = [editionLine, item.condition, item.bookGenre].filter(Boolean);
+function RecordTable({ items }) {
+  // Derived from the items rather than passed down: a withheld field is absent
+  // from the object, so "does anything here have a price" is the same question
+  // as "did the owner publish prices".
+  const showCost = items.some((item) => item.purchasePrice);
+  const showValue = items.some((item) => valueForItem(item));
+  const showPhotos = items.some((item) => item.photoUrl);
 
   return (
-    <li className="flex items-baseline justify-between gap-4 border-b border-[#eadfcd] px-4 py-3 last:border-b-0">
-      <div className="min-w-0">
-        <p className="truncate font-medium text-[#201a14]">{item.name || "Untitled item"}</p>
-        {item.maker && <p className="truncate text-sm text-[#665746]">{item.maker}</p>}
-        {meta.length > 0 && <p className="mt-0.5 truncate text-xs text-[#8a7a64]">{meta.join(" · ")}</p>}
+    <div className="mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-left text-sm">
+          <thead className="bg-[#f0e2cf] text-xs uppercase tracking-[0.14em] text-[#665746]">
+            <tr>
+              <th className="px-5 py-4">Item</th>
+              <th className="px-5 py-4">Category</th>
+              <th className="px-5 py-4">Status</th>
+              {showCost && <th className="px-5 py-4">Cost</th>}
+              {showValue && <th className="px-5 py-4">Value</th>}
+              {showPhotos && <th className="px-5 py-4">Photo</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id} className="border-t border-[#e0d2bc]">
+                <td className="px-5 py-4">
+                  <div className="font-semibold">{item.name || "Untitled item"}</div>
+                  <div className="text-[#665746]">{item.maker || "Unknown maker"}</div>
+                </td>
+                <td className="px-5 py-4">{item.category}</td>
+                <td className="px-5 py-4">{statusLabel(item.status)}</td>
+                {showCost && <td className="px-5 py-4 tabular-nums">{item.purchasePrice ? formatCurrency(item.purchasePrice) : "--"}</td>}
+                {showValue && <td className="px-5 py-4 tabular-nums">{valueForItem(item) ? formatCurrency(valueForItem(item)) : "--"}</td>}
+                {showPhotos && (
+                  <td className="px-5 py-4">
+                    {item.photoUrl ? (
+                      /* Lazy for the same reason the cards are: one request to
+                         Supabase storage per row. */
+                      <img
+                        src={item.photoUrl}
+                        alt={item.name || "Collection item"}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-12 w-12 rounded-lg bg-[#f0e2cf] object-cover"
+                      />
+                    ) : (
+                      <span className="text-[#8a7a64]">--</span>
+                    )}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <div className="shrink-0 text-right">
-        {/* Only ever the per-item value the owner already chose to publish --
-            this view adds no field the cards do not also show. */}
-        {item.estimatedValue && (
-          <div className="text-sm font-medium tabular-nums text-[#3f352a]">{formatCurrency(item.estimatedValue)}</div>
-        )}
-        {item.status !== "Owned" && <div className="text-xs text-[#8a7a64]">{statusLabel(item.status)}</div>}
-      </div>
-    </li>
+    </div>
   );
 }
 
@@ -245,11 +289,7 @@ export default function CollectionBrowser({ items }) {
           ))}
         </div>
       ) : (
-        <ul className="mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
-          {visible.map((item) => (
-            <RecordRow key={item.id} item={item} />
-          ))}
-        </ul>
+        <RecordTable items={visible} />
       )}
     </>
   );

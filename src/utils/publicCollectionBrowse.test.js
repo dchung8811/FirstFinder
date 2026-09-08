@@ -155,9 +155,16 @@ describe("collectFilterOptions", () => {
 });
 
 describe("statusLabel", () => {
-  it("uses the reader's words rather than the app's", () => {
+  it("renames only the status whose internal word would confuse a visitor", () => {
     expect(statusLabel("Wishlist")).toBe("Wanted");
-    expect(statusLabel("Owned")).toBe("In the collection");
+  });
+
+  // The Records table is meant to read as the owner's own Collection tab, so
+  // the statuses they see there are the statuses a visitor sees here.
+  it("keeps the owner's vocabulary everywhere else", () => {
+    expect(statusLabel("Owned")).toBe("Owned");
+    expect(statusLabel("For sale")).toBe("For sale");
+    expect(statusLabel("Sold")).toBe("Sold");
   });
 
   it("passes through anything it does not have a name for", () => {
