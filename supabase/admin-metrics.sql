@@ -89,6 +89,11 @@ update public.shared_collections
 create or replace function public.stamp_first_published()
 returns trigger
 language plpgsql
+-- Pinned for the same reason admin_platform_metrics pins it: a function whose
+-- search_path follows the caller's can be pointed at objects the author did not
+-- intend. Nothing here resolves an unqualified name today, so this is
+-- hardening rather than a fix, and it keeps the two functions consistent.
+set search_path = public
 as $$
 begin
   -- Set once, on the first write that leaves it live, and never cleared:

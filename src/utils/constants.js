@@ -64,7 +64,14 @@ export const sampleItems = [
 
 export const itemPhotoPrompts = ["Front", "Back", "Details", "Condition", "Signature/markings"];
 export const receiptPhotoPrompts = ["Receipt", "Invoice", "Order confirmation", "Auction record"];
-export const statuses = ["Owned", "Researching", "For sale", "Sold", "Wishlist"];
+// "Wishlist" was removed here when wants became their own table -- see
+// supabase/wishlist.sql. A want is a specification for a copy nobody has yet,
+// and it was never expressible as a status on a row that otherwise records
+// facts about a copy in hand. Nothing migrated: no row in the database used it.
+//
+// Rows in a fork that still carry the old status keep working as ordinary
+// items; the value simply stops being offered as a choice.
+export const statuses = ["Owned", "Researching", "For sale", "Sold"];
 export const quickCategories = ["Book", "Sports memorabilia", "Trading card", "Comic", "Record", "Art", "Toy", "Other"];
 export const conditionOptions = ["Near Fine/Fine", "Very Good/Good", "Fair", "Poor"];
 export const bookEditionOptions = ["First", "Second", "Third", "Fourth", "Fifth", "Other"];

@@ -78,7 +78,10 @@ describe("sanitizeCsvFields", () => {
 
   it("falls back to a safe value for an unrecognised status", () => {
     expect(sanitizeCsvFields({ status: "Lent to Bob" }, ["status"]).status).toBe("Owned");
-    expect(sanitizeCsvFields({ status: "Wishlist" }, ["status"]).status).toBe("Wishlist");
+    // "Wishlist" is no longer a status, but it appears in older exports. It
+    // must never land on "Owned": that would record ownership of a book the
+    // collector was still looking for.
+    expect(sanitizeCsvFields({ status: "Wishlist" }, ["status"]).status).toBe("Researching");
   });
 
   it("blanks an unrecognised condition rather than writing junk", () => {

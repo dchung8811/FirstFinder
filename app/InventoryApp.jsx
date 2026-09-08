@@ -41,7 +41,22 @@ import {
   pickMockAutofill,
   toValueRange
 } from "../src/utils/items";
-import { csvUpdateRow, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow } from "../src/utils/mapping";
+import { csvUpdateRow, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
+import {
+  emptyWant,
+  priorityOptions,
+  priorityLabel,
+  jacketOptions,
+  signatureOptions,
+  isWantSaveable,
+  describeCriteria,
+  sortWants,
+  openWants,
+  summarizeWants,
+  buildWantSearchLinks,
+  wantToItem,
+  compareToCeiling
+} from "../src/utils/wishlist";
 import {
   defaultShareSettings,
   shareFieldGroups,
@@ -483,6 +498,18 @@ export default function FirstFinderApp() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [savingShare, setSavingShare] = useState(false);
 
+  // The wishlist. Kept in its own state rather than merged into `inventory`,
+  // for the same reason it is its own table: a want is a specification, not a
+  // holding, and nothing that totals the collection should be able to reach it
+  // by accident.
+  const [wishlist, setWishlist] = useState([]);
+  const [wishlistLoading, setWishlistLoading] = useState(false);
+  // The want being added or edited; null when the dialog is closed.
+  const [editingWant, setEditingWant] = useState(null);
+  // The want being turned into an owned item.
+  const [foundWant, setFoundWant] = useState(null);
+  const [savingWant, setSavingWant] = useState(false);
+
   const loadedUserIdRef = useRef(null);
   const navSlotRef = useRef(null);
   const navMeasureRef = useRef(null);
@@ -672,6 +699,9 @@ export default function FirstFinderApp() {
   // who has forty, drop the count until it is actually known -- same guard the
   // Dashboard and Collection empty states use.
   const inventoryCountKnown = !(inventoryLoading && inventory.length === 0);
+  const openWishlist = useMemo(() => sortWants(openWants(wishlist)), [wishlist]);
+  const wishlistSummary = useMemo(() => summarizeWants(wishlist), [wishlist]);
+  const wishlistCountKnown = !(wishlistLoading && wishlist.length === 0);
   const soldInventory = useMemo(() => inventory.filter((entry) => entry.status === "Sold"), [inventory]);
 
   const navItems = useMemo(() => (
@@ -679,6 +709,11 @@ export default function FirstFinderApp() {
       ? [
           { view: "dashboard", label: "Dashboard" },
           { view: "inventory", label: `My Collection${inventoryCountKnown ? ` (${activeInventory.length})` : ""}` },
+          // Its own tab, beside the collection rather than inside it: the
+          // whole point of the rework is that what you are hunting is not a
+          // subset of what you own. Same count guard as the collection --
+          // no number until the fetch has actually landed.
+          { view: "wishlist", label: `Wishlist${wishlistCountKnown ? ` (${openWishlist.length})` : ""}` },
           { view: "addItems", label: "Add Items" },
           { view: "roadmap", label: "Roadmap" },
           { view: "about", label: "About" },
@@ -690,7 +725,7 @@ export default function FirstFinderApp() {
           { view: "roadmap", label: "Roadmap" },
           { view: "about", label: "About" }
         ]
-  ), [isLoggedIn, inventoryCountKnown, activeInventory.length]);
+  ), [isLoggedIn, inventoryCountKnown, activeInventory.length, wishlistCountKnown, openWishlist.length]);
 
   // The nav never scrolls sideways: whatever does not fit on one line drops out
   // of the pill and into the menu behind the hamburger.
@@ -762,6 +797,7 @@ export default function FirstFinderApp() {
 
       setInventory((data || []).map(fromDbItem));
       loadShareSettings(userId);
+      loadWishlist(userId);
     } finally {
       // Cleared on the error path too. A failed load leaves the empty state
       // showing alongside the error toast, which is wrong but recoverable --
@@ -1184,6 +1220,155 @@ export default function FirstFinderApp() {
       }
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Wishlist
+  // ---------------------------------------------------------------------
+
+  async function loadWishlist(userId) {
+    setWishlistLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("wishlist_items")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        // Non-fatal, unlike the inventory load: a collector whose wishlist
+        // fails to load still has a working collection, so this reports
+        // quietly rather than taking the whole session down.
+        console.error("Load wishlist error:", error.message);
+        return;
+      }
+
+      setWishlist((data || []).map(fromDbWant));
+    } finally {
+      setWishlistLoading(false);
+    }
+  }
+
+  async function saveWant(want) {
+    if (!currentUser || !isWantSaveable(want)) return;
+    setSavingWant(true);
+
+    try {
+      const row = toDbWant(want, currentUser.id);
+
+      // Insert or update on the same path, decided by whether the draft
+      // carries an id -- the dialog is the same dialog either way.
+      const query = want.id
+        ? supabase.from("wishlist_items").update(row).eq("id", want.id).select().single()
+        : supabase.from("wishlist_items").insert(row).select().single();
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error("Save want error:", error.message);
+        pushToast(error.message, "error");
+        return;
+      }
+
+      const saved = fromDbWant(data);
+      setWishlist((current) => {
+        const without = current.filter((entry) => entry.id !== saved.id);
+        return [saved, ...without];
+      });
+
+      trackEvent(want.id ? "want_updated" : "want_added", {
+        priority: saved.priority,
+        has_ceiling: Boolean(saved.maxPrice),
+        is_upgrade: Boolean(saved.upgradeForItemId)
+      });
+
+      setEditingWant(null);
+      pushToast(want.id ? "Want updated." : "Added to your wishlist.", "success");
+    } finally {
+      setSavingWant(false);
+    }
+  }
+
+  async function deleteWant(id) {
+    const { error } = await supabase.from("wishlist_items").delete().eq("id", id);
+
+    if (error) {
+      console.error("Delete want error:", error.message);
+      pushToast(error.message, "error");
+      return;
+    }
+
+    setWishlist((current) => current.filter((entry) => entry.id !== id));
+    setEditingWant(null);
+    pushToast("Removed from your wishlist.", "success");
+  }
+
+  // The acquisition: a want becomes an owned item.
+  //
+  // Two writes that are deliberately not a transaction. The item is created
+  // first, and only a successful insert marks the want found -- so the failure
+  // mode is a collector who owns the book and still has the want on their
+  // list, which they can see and clear. The reverse order could mark a hunt
+  // over while the book never reached the collection, which they could not.
+  async function markWantFound(want, found) {
+    if (!currentUser) return;
+    setSavingWant(true);
+
+    try {
+      const item = wantToItem(want, found);
+
+      // Same allocation the normal save path uses, so a found want gets a
+      // reference number in the same sequence as everything else.
+      const { numbers, error: referenceError } = await nextReferenceNumbers(currentUser.id, 1);
+      if (referenceError) {
+        pushToast(referenceError, "error");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .insert(toDbItem({ ...item, referenceNumber: numbers[0] }, currentUser.id))
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Found-want insert error:", error.message);
+        pushToast(error.message, "error");
+        return;
+      }
+
+      const savedItem = fromDbItem(data);
+      setInventory((current) => [savedItem, ...current]);
+
+      const { data: wantData, error: wantError } = await supabase
+        .from("wishlist_items")
+        .update({ found_at: new Date().toISOString(), found_item_id: savedItem.id, updated_at: new Date().toISOString() })
+        .eq("id", want.id)
+        .select()
+        .single();
+
+      if (wantError) {
+        // The item is already saved, which is the half that matters. Say so
+        // rather than implying nothing happened.
+        console.error("Found-want update error:", wantError.message);
+        pushToast("Added to your collection, but the want stayed on your list.", "warning");
+        setFoundWant(null);
+        return;
+      }
+
+      setWishlist((current) => current.map((entry) => (entry.id === want.id ? fromDbWant(wantData) : entry)));
+
+      const ceiling = compareToCeiling(want, found.purchasePrice);
+      trackEvent("want_found", {
+        priority: want.priority,
+        under_ceiling: ceiling ? ceiling.under : null
+      });
+
+      setFoundWant(null);
+      pushToast(`${savedItem.name || "It"} is in your collection.`, "success");
+    } finally {
+      setSavingWant(false);
     }
   }
 
@@ -1762,6 +1947,39 @@ export default function FirstFinderApp() {
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
+      {activeView === "wishlist" && isLoggedIn && (
+        <WishlistPage
+          wishlist={wishlist}
+          openList={openWishlist}
+          summary={wishlistSummary}
+          loading={wishlistLoading}
+          inventory={inventory}
+          onAdd={() => setEditingWant({ ...emptyWant })}
+          onEdit={(want) => setEditingWant(want)}
+          onFound={(want) => setFoundWant(want)}
+        />
+      )}
+
+      {editingWant && (
+        <WantDialog
+          want={editingWant}
+          inventory={inventory}
+          saving={savingWant}
+          onSave={saveWant}
+          onDelete={deleteWant}
+          onClose={() => setEditingWant(null)}
+        />
+      )}
+
+      {foundWant && (
+        <FoundItDialog
+          want={foundWant}
+          saving={savingWant}
+          onConfirm={markWantFound}
+          onClose={() => setFoundWant(null)}
+        />
+      )}
+
       {activeView === "about" && <AboutPage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} onGoToContribute={() => setActiveView("contribute")} />}
       {activeView === "contribute" && <ContributePage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
       {activeView === "terms" && <TermsPage />}
@@ -6296,6 +6514,439 @@ function NavTabs({ items, activeView, onSelect, containerRef, measureRef, visibl
 }
 
 function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
+// ---------------------------------------------------------------------------
+// Wishlist
+// ---------------------------------------------------------------------------
+
+function PriorityChip({ priority }) {
+  const tones = {
+    grail: "bg-[#f7e0dc] text-[#8f3524]",
+    hunting: "bg-[#edf4f2] text-[#123f38]",
+    someday: "bg-[#f0e2cf] text-[#665746]"
+  };
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${tones[priority] || tones.hunting}`}>
+      {priorityLabel(priority)}
+    </span>
+  );
+}
+
+function CriteriaChips({ want }) {
+  const chips = describeCriteria(want);
+  if (chips.length === 0) {
+    // A want with no criteria is legitimate -- "a first of Suttree, eventually"
+    // -- so this says so plainly rather than rendering an empty row that looks
+    // like something failed to load.
+    return <p className="mt-3 text-sm text-[#8a7a64]">Any copy. No conditions set.</p>;
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {chips.map((chip) => (
+        <span
+          key={chip.text}
+          className={`rounded-full px-3 py-1.5 text-[13px] font-medium ${
+            chip.tone === "green" ? "bg-[#edf4f2] text-[#123f38]" : "bg-[#f0e2cf] text-[#665746]"
+          }`}
+        >
+          {chip.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function WantCard({ want, upgradeFor, onEdit, onFound }) {
+  const links = buildWantSearchLinks(want);
+
+  return (
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+      <CardContent className="p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <PriorityChip priority={want.priority} />
+              {want.createdAt && (
+                <span className="text-xs text-[#8a7a64]">Watching since {formatAccountDate(want.createdAt)}</span>
+              )}
+            </div>
+            <h2 className="mt-2 text-xl font-semibold leading-tight">{want.name || "Untitled want"}</h2>
+            {want.maker && <p className="mt-0.5 text-[15px] text-[#665746]">{want.maker}</p>}
+          </div>
+
+          {/* The ceiling, labelled as a limit rather than a value. It is what
+              the collector will not exceed, never what the copy is worth. */}
+          {hasValue(want.maxPrice) && (
+            <div className="shrink-0 text-right">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[#8a7a64]">Won&apos;t pay over</div>
+              <div className="font-ledger mt-1 text-2xl font-medium">{formatCurrency(want.maxPrice)}</div>
+            </div>
+          )}
+        </div>
+
+        {upgradeFor && (
+          <div className="mt-4 flex items-center gap-2 rounded-2xl border border-[#eadfcd] bg-[#f6efe3] px-4 py-2.5">
+            <Icon name="search" size={15} className="shrink-0 text-[#7d6c5a]" />
+            <span className="text-[13px] text-[#665746]">
+              Would replace <strong className="font-semibold text-[#201a14]">{formatReference(upgradeFor.referenceNumber)}</strong>
+              {upgradeFor.condition ? ` — your ${upgradeFor.condition} copy` : ""}
+            </span>
+          </div>
+        )}
+
+        <CriteriaChips want={want} />
+
+        {want.notes && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-[#665746]">{want.notes}</p>}
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#eadfcd] pt-4">
+          <div className="flex flex-wrap gap-2">
+            {links && (
+              <>
+                <a
+                  href={links.abebooks}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackEvent("want_search_opened", { marketplace: "abebooks" })}
+                  className="inline-flex items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-4 py-2 text-[13px] font-medium hover:bg-white"
+                >
+                  Search AbeBooks
+                </a>
+                <a
+                  href={links.ebay}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackEvent("want_search_opened", { marketplace: "ebay" })}
+                  className="inline-flex items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-4 py-2 text-[13px] font-medium hover:bg-white"
+                >
+                  eBay
+                </a>
+              </>
+            )}
+            <Button variant="outline" onClick={() => onEdit(want)} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-4 py-2 text-[13px] hover:bg-white">
+              Edit
+            </Button>
+          </div>
+          <Button onClick={() => onFound(want)} className="rounded-full bg-[#123f38] px-5 py-2 text-[13px] text-[#fff7ea] hover:bg-[#0f332d]">
+            I found it
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function WishlistPage({ wishlist, openList, summary, loading, inventory, onAdd, onEdit, onFound }) {
+  const itemsById = useMemo(() => new Map(inventory.map((entry) => [entry.id, entry])), [inventory]);
+  const found = wishlist.filter((want) => want.foundAt);
+
+  return (
+    <section className="mx-auto max-w-6xl px-6 py-12">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-5xl font-semibold tracking-tight">The hunt.</h1>
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
+            What you&apos;re looking for, and the copy that would actually be a yes. None of it counts toward what your
+            collection is worth.
+          </p>
+        </div>
+        <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+          Add a want
+        </Button>
+      </div>
+
+      {openList.length > 0 && (
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          <DashboardCard icon="search" label="Still looking for" value={`${summary.openCount} ${summary.openCount === 1 ? "copy" : "copies"}`} />
+          {/* Named for what it is. Summing ceilings is a budget, not a holding,
+              and the caption says how much of the list it actually covers. */}
+          <DashboardCard
+            icon="dollar"
+            label={summary.withCeiling === summary.openCount ? "If you paid every ceiling" : `Ceilings on ${summary.withCeiling} of ${summary.openCount}`}
+            value={formatCurrency(summary.ceilingTotal)}
+          />
+          <DashboardCard icon="check" label="Found so far" value={`${summary.foundCount} ${summary.foundCount === 1 ? "copy" : "copies"}`} />
+        </div>
+      )}
+
+      {loading && wishlist.length === 0 ? (
+        <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+          <CardContent className="p-8 text-center text-[#665746]">Loading your wishlist…</CardContent>
+        </Card>
+      ) : openList.length === 0 ? (
+        <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+          <CardContent className="p-8 text-center">
+            <h2 className="text-2xl font-semibold">{found.length > 0 ? "Nothing on the list right now" : "Nothing on the hunt yet"}</h2>
+            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">
+              {found.length > 0
+                ? "You've found everything you were looking for. Add the next one whenever it occurs to you."
+                : "Describe the copy you're after — the edition, the condition, what you won't go over — and the search links write themselves."}
+            </p>
+            <Button onClick={onAdd} className="mt-6 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+              Add a want
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="mt-8 flex flex-col gap-4">
+          {openList.map((want) => (
+            <WantCard
+              key={want.id}
+              want={want}
+              upgradeFor={want.upgradeForItemId ? itemsById.get(want.upgradeForItemId) : null}
+              onEdit={onEdit}
+              onFound={onFound}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* The history. Kept because how long something was hunted, and what was
+          set out for, is the interesting half of collecting. */}
+      {found.length > 0 && (
+        <div className="mt-12">
+          <h2 className="text-2xl font-semibold">Found</h2>
+          <div className="mt-4 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+            {found.map((want) => (
+              <div key={want.id} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[#eadfcd] px-5 py-4 last:border-b-0">
+                <div className="min-w-0">
+                  <div className="font-medium">{want.name}</div>
+                  {want.maker && <div className="text-sm text-[#665746]">{want.maker}</div>}
+                </div>
+                <div className="text-sm text-[#8a7a64]">
+                  Hunted {formatAccountDate(want.createdAt)} — found {formatAccountDate(want.foundAt)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// A small labelled group of pill choices. Used for the three criteria that are
+// genuinely a small closed set, where a select would hide the options behind a
+// click and make the form feel longer than it is.
+function ChoiceRow({ label, options, value, onChange, hint }) {
+  return (
+    <div>
+      <div className="mb-2 text-sm font-medium text-[#665746]">
+        {label}
+        {hint && <span className="ml-2 font-normal text-[#a2957f]">{hint}</span>}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={value === option.value}
+            className={`rounded-full px-4 py-2 text-[13px] font-medium transition ${
+              value === option.value
+                ? "bg-[#123f38] text-[#fff7ea]"
+                : "border border-[#cdbb9d] bg-[#fff8ee] text-[#665746] hover:bg-white"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WantDialog({ want, inventory, saving, onSave, onDelete, onClose }) {
+  const [draft, setDraft] = useState(want);
+  const isNew = !want.id;
+
+  function set(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  // Only real, owned copies can be upgraded from -- offering a sold one would
+  // mean wanting a better version of something already gone.
+  const upgradeCandidates = useMemo(
+    () => inventory.filter((entry) => entry.status !== "Sold").slice(0, 200),
+    [inventory]
+  );
+
+  return (
+    <ModalShell onClose={saving ? () => {} : onClose} contentClassName="max-h-[88vh] max-w-3xl">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Wishlist</div>
+          <h2 className="mt-1 text-3xl font-semibold">{isNew ? "What would you actually buy?" : "Edit this want"}</h2>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-[#665746]">
+            Not the book — the copy. The more precisely you describe it, the better the search links work.
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          disabled={saving}
+          className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf] disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Close"
+        >
+          <Icon name="x" size={18} />
+        </button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Title" value={draft.name} onChange={(value) => set("name", value)} />
+        <Field label="Maker / Author / Brand" value={draft.maker} onChange={(value) => set("maker", value)} />
+      </div>
+
+      {/* The criteria, boxed off from the plain fields above. These are
+          conditions on a copy nobody has found yet, not facts about one. */}
+      <div className="mt-5 rounded-[1.5rem] border border-[#123f38]/25 bg-[#edf4f2] p-5">
+        <div className="text-xs uppercase tracking-[0.16em] text-[#123f38]">The copy that counts</div>
+        <p className="mt-2 text-[13px] leading-6 text-[#3f352a]">
+          Conditions, not facts — they describe a copy you have not found yet.
+        </p>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <SelectField label="Edition wanted" value={draft.wantedEdition} options={bookEditionOptions} onChange={(value) => set("wantedEdition", value)} placeholder="Any edition" />
+          <SelectField label="Printing wanted" value={draft.wantedPrinting} options={bookPrintingOptions} onChange={(value) => set("wantedPrinting", value)} placeholder="Any printing" />
+          <Field label="Publisher & year" value={draft.publisher} onChange={(value) => set("publisher", value)} />
+          <SelectField label="Condition, at worst" value={draft.minCondition} options={conditionOptions} onChange={(value) => set("minCondition", value)} placeholder="Any condition" />
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <ChoiceRow label="Dust jacket" options={jacketOptions} value={draft.jacketRequirement} onChange={(value) => set("jacketRequirement", value)} />
+          <ChoiceRow label="Signature" options={signatureOptions} value={draft.signatureRequirement} onChange={(value) => set("signatureRequirement", value)} />
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <Field label="Won't pay over" type="number" value={draft.maxPrice} onChange={(value) => set("maxPrice", value)} />
+        <Field label="Preferred seller or country" value={draft.preferredSource} onChange={(value) => set("preferredSource", value)} />
+      </div>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <ChoiceRow label="How badly" options={priorityOptions} value={draft.priority} onChange={(value) => set("priority", value)} />
+        <SelectField
+          label="Upgrade for"
+          value={draft.upgradeForItemId}
+          options={upgradeCandidates.map((entry) => entry.id)}
+          onChange={(value) => set("upgradeForItemId", value)}
+          placeholder="Not an upgrade"
+        />
+      </div>
+
+      <div className="mt-5">
+        <TextAreaField label="Notes" value={draft.notes} onChange={(value) => set("notes", value)} rows={3} placeholder="What would make you pass?" />
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-[#eadfcd] pt-5">
+        <p className="max-w-sm text-xs leading-5 text-[#7d6c5a]">
+          Your ceiling stays private — it is never published, whatever your sharing settings say.
+        </p>
+        <div className="flex gap-2">
+          {!isNew && (
+            <Button variant="outline" onClick={() => onDelete(draft.id)} disabled={saving} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
+              Remove
+            </Button>
+          )}
+          <Button variant="outline" onClick={onClose} disabled={saving} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
+            Cancel
+          </Button>
+          <Button onClick={() => onSave(draft)} disabled={saving || !isWantSaveable(draft)} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+            {saving ? "Saving..." : isNew ? "Add to wishlist" : "Save"}
+          </Button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// One row of the wanted-vs-got table.
+function FoundRow({ wanted, children }) {
+  return (
+    <div className="grid grid-cols-1 gap-1 border-t border-[#e0d2bc] bg-[#fffdf8] px-5 py-3 sm:grid-cols-2 sm:gap-4">
+      <div className="text-sm text-[#665746]">{wanted}</div>
+      <div className="text-sm">{children}</div>
+    </div>
+  );
+}
+
+function FoundItDialog({ want, saving, onConfirm, onClose }) {
+  const [found, setFound] = useState({ condition: "", purchasePrice: "", source: want.preferredSource || "", purchaseDate: todayIso() });
+  const criteria = describeCriteria(want);
+  const ceiling = compareToCeiling(want, found.purchasePrice);
+
+  function set(field, value) {
+    setFound((current) => ({ ...current, [field]: value }));
+  }
+
+  return (
+    <ModalShell onClose={saving ? () => {} : onClose} contentClassName="max-h-[88vh] max-w-2xl">
+      <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Found it</div>
+      <h2 className="mt-1 text-3xl font-semibold">{want.name}</h2>
+      <p className="mt-2 text-[15px] text-[#665746]">
+        {[want.maker, want.createdAt && `wanted since ${formatAccountDate(want.createdAt)}`].filter(Boolean).join(" · ")}
+      </p>
+
+      {/* What you asked for, beside what you got. This is the payoff of a want
+          being a specification rather than a status: there is something to
+          check the copy against. */}
+      {criteria.length > 0 && (
+        <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-[#d8c7ad]">
+          <div className="bg-[#f0e2cf] px-5 py-2.5 text-[11px] uppercase tracking-[0.14em] text-[#665746]">You wanted</div>
+          <div className="bg-[#fffdf8] px-5 py-3">
+            <div className="flex flex-wrap gap-2">
+              {criteria.map((chip) => (
+                <span key={chip.text} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-[13px] text-[#665746]">{chip.text}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-[#d8c7ad]">
+        <div className="bg-[#f0e2cf] px-5 py-2.5 text-[11px] uppercase tracking-[0.14em] text-[#665746]">What you got</div>
+
+        <FoundRow wanted="Condition of this copy">
+          <SelectField label="" value={found.condition} options={conditionOptions} onChange={(value) => set("condition", value)} placeholder="Not graded" />
+        </FoundRow>
+
+        <FoundRow wanted={hasValue(want.maxPrice) ? `You said you wouldn't pay over ${formatCurrency(want.maxPrice)}` : "What you paid"}>
+          <Field label="" type="number" value={found.purchasePrice} onChange={(value) => set("purchasePrice", value)} />
+          {ceiling && (
+            <div className={`mt-1 text-xs ${ceiling.under ? "text-[#1c5c4a]" : "text-[#8f3524]"}`}>
+              {ceiling.difference === 0
+                ? "Exactly your ceiling."
+                : ceiling.under
+                  ? `${formatCurrency(ceiling.difference)} under your ceiling.`
+                  : `${formatCurrency(ceiling.difference)} over your ceiling.`}
+            </div>
+          )}
+        </FoundRow>
+
+        <FoundRow wanted="Where it came from">
+          <Field label="" value={found.source} onChange={(value) => set("source", value)} />
+        </FoundRow>
+
+        <FoundRow wanted="Date acquired">
+          <Field label="" type="date" value={found.purchaseDate} onChange={(value) => set("purchaseDate", value)} />
+        </FoundRow>
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-[#eadfcd] pt-5">
+        <p className="max-w-xs text-xs leading-5 text-[#7d6c5a]">
+          It joins your collection. The hunt stays on record rather than being deleted.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
+            Not yet
+          </Button>
+          <Button onClick={() => onConfirm(want, found)} disabled={saving} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+            {saving ? "Adding..." : "Add to collection"}
+          </Button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function SelectField({ label, value, options, onChange, placeholder }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{placeholder && <option value="">{placeholder}</option>}{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }

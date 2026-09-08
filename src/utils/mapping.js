@@ -165,3 +165,61 @@ export function toDbShareRow(settings, userId, slug) {
     updated_at: new Date().toISOString()
   };
 }
+
+// ---------------------------------------------------------------------------
+// wishlist_items
+// ---------------------------------------------------------------------------
+// Deliberately its own pair rather than a variant of toDbItem/fromDbItem: the
+// columns describe criteria, not facts, and sharing a mapper with inventory
+// would be the first step back toward the merged shape supabase/wishlist.sql
+// exists to get away from.
+
+export function fromDbWant(row) {
+  return {
+    id: row.id,
+    name: row.name || "",
+    maker: row.maker || "",
+    category: row.category || "Book",
+    wantedEdition: row.wanted_edition || "",
+    wantedPrinting: row.wanted_printing || "",
+    publisher: row.publisher || "",
+    minCondition: row.min_condition || "",
+    jacketRequirement: row.jacket_requirement || "any",
+    signatureRequirement: row.signature_requirement || "any",
+    // Same null-vs-zero rule as estimated_value: null is "no ceiling set",
+    // which is not the same claim as "would pay nothing".
+    maxPrice: row.max_price === null || row.max_price === undefined ? "" : String(row.max_price),
+    preferredSource: row.preferred_source || "",
+    priority: row.priority || "hunting",
+    upgradeForItemId: row.upgrade_for_item_id || "",
+    notes: row.notes || "",
+    hiddenFromShare: Boolean(row.hidden_from_share),
+    foundAt: row.found_at || "",
+    foundItemId: row.found_item_id || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || ""
+  };
+}
+
+export function toDbWant(want, userId) {
+  return {
+    user_id: userId,
+    name: (want.name || "").trim(),
+    maker: (want.maker || "").trim(),
+    category: want.category || "Book",
+    wanted_edition: want.wantedEdition || "",
+    wanted_printing: want.wantedPrinting || "",
+    publisher: want.publisher || "",
+    min_condition: want.minCondition || "",
+    jacket_requirement: want.jacketRequirement || "any",
+    signature_requirement: want.signatureRequirement || "any",
+    max_price: hasValue(want.maxPrice) ? toNumber(want.maxPrice) : null,
+    preferred_source: want.preferredSource || "",
+    priority: want.priority || "hunting",
+    // A blank select must become null, not "": the column is a uuid foreign
+    // key and an empty string is not one.
+    upgrade_for_item_id: want.upgradeForItemId || null,
+    notes: want.notes || "",
+    updated_at: new Date().toISOString()
+  };
+}
