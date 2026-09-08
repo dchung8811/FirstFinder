@@ -5717,16 +5717,60 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
 
       <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_16rem]">
         <div>
+          {/* Green means live, and only live.
+
+              This panel used to be green in both states, changing nothing but
+              the words -- so "currently off" was rendered in the exact styling
+              that everywhere else in the app means "on", and the colour
+              quietly contradicted the sentence. Colour is what gets read
+              first, so it has to carry the same answer the text does.
+
+              isLive is the saved setting, not the draft: this panel is about
+              whether the URL above it works right now, and a radio button
+              switched to Off but not yet saved has not taken the page down.
+              The Save button is what changes reality -- the preview link below
+              follows the draft precisely because it is about what you would be
+              looking at, which is a different question. */}
           {shareUrl && (
-            <div className="mb-5 rounded-2xl border border-[#123f38]/25 bg-[#edf4f2] p-4">
-              <div className="text-xs uppercase tracking-[0.16em] text-[#123f38]">
+            <div
+              className={`mb-5 rounded-2xl border p-4 ${
+                isLive ? "border-[#123f38]/25 bg-[#edf4f2]" : "border-[#d8c7ad] bg-[#f3ece1]"
+              }`}
+            >
+              <div
+                className={`flex items-center gap-2 text-xs uppercase tracking-[0.16em] ${
+                  isLive ? "text-[#123f38]" : "text-[#7d6c5a]"
+                }`}
+              >
+                {/* The same dot the Share button uses, so the two places that
+                    report this state report it the same way. */}
+                <span
+                  aria-hidden="true"
+                  className={`h-2 w-2 shrink-0 rounded-full ${isLive ? "bg-[#123f38]" : "bg-[#a2957f]"}`}
+                />
                 {isLive ? "Your link — live now" : "Your link — currently off"}
               </div>
               <div className="mt-2 break-all font-mono text-sm text-[#3f352a]">{shareUrl}</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {/* Copy is the primary action and sits first: it is the one
-                    thing every visit to this dialog is ultimately for. */}
-                <Button type="button" onClick={copyLink} className="h-10 rounded-full bg-[#123f38] px-5 text-sm text-[#fff7ea] hover:bg-[#0f332d]">
+                    thing every visit to this dialog is ultimately for.
+
+                    Not while the page is off, though. The link is a 404 until
+                    it is switched on, so shouting it in the app's primary
+                    green inside an otherwise grey panel would undo the signal
+                    the panel is there to give. Still offered, and still works
+                    -- copying the address before publishing is a fair thing to
+                    want -- just not dressed as the live action. */}
+                <Button
+                  type="button"
+                  variant={isLive ? "primary" : "outline"}
+                  onClick={copyLink}
+                  className={`h-10 rounded-full px-5 text-sm ${
+                    isLive
+                      ? "bg-[#123f38] text-[#fff7ea] hover:bg-[#0f332d]"
+                      : "border-[#cdbb9d] bg-[#fff8ee] hover:bg-white"
+                  }`}
+                >
                   <Icon name="file" size={15} className="mr-2" /> Copy link
                 </Button>
                 {canNativeShare && (
