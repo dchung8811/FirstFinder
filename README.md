@@ -92,6 +92,15 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 - Import sale information and book-specific genre, edition, and printing fields.
 - Create a printer-friendly active-collection report with photo counts and financial totals, or save it as a PDF for insurance and estate records.
 
+### Sharing a collection
+
+- Publish a read-only collection page at `/c/<slug>` and send the link to anyone — no FirstFinder account needed to open it.
+- Three visibility states: **off** (the page 404s), **anyone with the link** (unguessable URL, `noindex`), and **listed** (indexed and in the sitemap).
+- Choose what it shows. It starts with titles, makers, editions, condition, and photos; estimated values, purchase and sale prices, provenance, notes, sold items, and the wishlist are each opt-in, with **Showcase / Collector's notes / Full ledger** presets and a live preview of a real card from your own collection.
+- Hide individual items from the page without hiding them from your collection.
+- Reset the link to revoke every copy you've already shared.
+- Receipt photos are never published under any setting; items that have one show a "Receipt on file" badge instead.
+
 ### Product pages and feedback
 
 - Explore the collector-focused home page and learn more about the project on the **About** page.
@@ -116,6 +125,7 @@ Paste it into the dashboard's SQL Editor and run it. It is idempotent and safe t
 re-run, and it creates:
 
 - `inventory_items` and `feedback`, with owner-only Row Level Security policies
+- `shared_collections`, the per-user settings behind a public collection page
 - the unique per-user index behind the `FF-0001` reference numbers
 - the private `item-photos` storage bucket and its per-user access policies
 
@@ -128,6 +138,13 @@ Row Level Security is not optional. The app's queries filter mutations by row id
 alone, so owner-scoped policies on `inventory_items` are the only thing keeping
 one collector's data away from another — `supabase/inventory-items-rls.sql` has
 the verification query for checking an existing project.
+
+Note that public collection pages do **not** relax those policies. `/c/<slug>` is
+server-rendered and reads through the service-role client in
+`src/lib/sharedCollection.js`, so there is no public or anon select policy on any
+table. Adding one to "make sharing simpler" would hand every holder of the anon
+key the columns the page itself refuses to print — purchase prices, sources,
+notes, receipt paths.
 
 Copy `.env.example` to `.env.local` and fill in your Supabase project's URL and
 anon key (Project Settings -> API in the Supabase dashboard).
@@ -291,8 +308,10 @@ app/
   api/contribute/           Open GitHub issues, for the in-app Contribute page
   api/feedback-intake/      Triages feedback on submit and files it as an issue
   books/[work]/             Public first-edition identification pages (static)
+  c/[slug]/                 Public shared collection pages (server-rendered)
   sitemap.js, robots.js     SEO plumbing; only verified books are listed
 src/lib/                    Supabase browser and admin clients, shared constants
+src/utils/publicCollection.js  The field allowlist deciding what a shared page may show
 src/content/books/          Sourced identification facts, one module per work
 supabase/                   schema.sql plus the incremental patches behind it
 .github/                    Issue and PR templates, CI, Dependabot

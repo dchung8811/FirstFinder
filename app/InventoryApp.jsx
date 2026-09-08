@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
@@ -40,7 +40,19 @@ import {
   pickMockAutofill,
   toValueRange
 } from "../src/utils/items";
-import { csvUpdateRow, toDbItem, fromDbItem } from "../src/utils/mapping";
+import { csvUpdateRow, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow } from "../src/utils/mapping";
+import {
+  defaultShareSettings,
+  shareFieldGroups,
+  sharePresets,
+  applyPreset,
+  matchingPresetId,
+  isItemShared,
+  buildPublicItem,
+  shareSettingsChanged,
+  generateShareSlug,
+  sharePath
+} from "../src/utils/publicCollection";
 import { buildCsvTemplate, buildCsvExport, parseCsvBatch } from "../src/utils/csv";
 import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters } from "../src/utils/dashboard";
 
@@ -51,6 +63,12 @@ function Icon({ name, size = 20, className = "" }) {
         <path d="M21 8 12 3 3 8l9 5 9-5Z" />
         <path d="M3 8v8l9 5 9-5V8" />
         <path d="M12 13v8" />
+      </>
+    ),
+    link: (
+      <>
+        <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.42 1.42" />
+        <path d="M14 11a5 5 0 0 0-7.07 0l-2.83 2.83a5 5 0 0 0 7.07 7.07l1.42-1.42" />
       </>
     ),
     camera: (
@@ -424,8 +442,16 @@ export default function FirstFinderApp() {
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // The public collection page's settings. Null until loaded; there is no row
+  // at all until the collector first opens the share dialog, and the defaults
+  // stand in until then (visibility "off", so nothing is public either way).
+  const [shareSettings, setShareSettings] = useState(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [savingShare, setSavingShare] = useState(false);
 
   const loadedUserIdRef = useRef(null);
+  const navSlotRef = useRef(null);
+  const navMeasureRef = useRef(null);
 
   function pushToast(text, type = "error") {
     const id = `${Date.now()}-${Math.random()}`;
@@ -530,6 +556,32 @@ export default function FirstFinderApp() {
   // Dashboard and Collection empty states use.
   const inventoryCountKnown = !(inventoryLoading && inventory.length === 0);
   const soldInventory = useMemo(() => inventory.filter((entry) => entry.status === "Sold"), [inventory]);
+
+  const navItems = useMemo(() => (
+    isLoggedIn
+      ? [
+          { view: "dashboard", label: "Dashboard" },
+          { view: "inventory", label: `My Collection${inventoryCountKnown ? ` (${activeInventory.length})` : ""}` },
+          { view: "addItems", label: "Add Items" },
+          { view: "roadmap", label: "Roadmap" },
+          { view: "about", label: "About" },
+          { view: "feedback", label: "Feedback" },
+          { view: "account", label: "My Account" }
+        ]
+      : [
+          { view: "home", label: "Get Started" },
+          { view: "roadmap", label: "Roadmap" },
+          { view: "about", label: "About" }
+        ]
+  ), [isLoggedIn, inventoryCountKnown, activeInventory.length]);
+
+  // The nav never scrolls sideways: whatever does not fit on one line drops out
+  // of the pill and into the menu behind the hamburger.
+  // Resizing reshuffles which tabs are behind the menu, so close it rather than
+  // leave a panel open over a list that just changed under the reader.
+  const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
+  const visibleNavCount = useNavOverflow(navSlotRef, navMeasureRef, navItems, closeMobileMenu);
+  const overflowNavItems = navItems.slice(visibleNavCount);
   const visibleInventory = inventoryStatusView === "sold" ? soldInventory : activeInventory;
 
   const totalCostBasis = useMemo(() => activeInventory.reduce((sum, entry) => sum + toNumber(entry.purchasePrice), 0), [activeInventory]);
@@ -578,6 +630,7 @@ export default function FirstFinderApp() {
       }
 
       setInventory((data || []).map(fromDbItem));
+      loadShareSettings(userId);
     } finally {
       // Cleared on the error path too. A failed load leaves the empty state
       // showing alongside the error toast, which is wrong but recoverable --
@@ -972,6 +1025,7 @@ export default function FirstFinderApp() {
           purchase_price: toNumber(draft.purchasePrice),
           estimated_value: hasValue(draft.estimatedValue) ? toNumber(draft.estimatedValue) : null,
           notes: draft.notes || "",
+          hidden_from_share: Boolean(draft.hiddenFromShare),
           item_photos: finalItemPhotos,
           receipt_photos: finalReceiptPhotos,
           item_photo_count: finalItemPhotos.length,
@@ -1000,6 +1054,109 @@ export default function FirstFinderApp() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Public collection page (/c/<slug>)
+  // ---------------------------------------------------------------------
+
+  async function loadShareSettings(userId) {
+    const { data, error } = await supabase
+      .from("shared_collections")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      // Non-fatal: a collection that can't read its share settings is still a
+      // working collection. The dialog falls back to the defaults, which
+      // publish nothing.
+      console.error("Load share settings error:", error.message);
+      setShareSettings({ ...defaultShareSettings, slug: "" });
+      return;
+    }
+
+    setShareSettings(data ? fromDbShareSettings(data) : { ...defaultShareSettings, slug: "" });
+  }
+
+  async function saveShareSettings(next) {
+    if (!currentUser || !shareSettings) return;
+    setSavingShare(true);
+
+    try {
+      // The slug is minted on first save rather than when the row is created,
+      // so a collector who opens the dialog and closes it never has a URL
+      // sitting in the database at all.
+      const slug = shareSettings.slug || generateShareSlug();
+      const { data, error } = await supabase
+        .from("shared_collections")
+        .upsert(toDbShareRow(next, currentUser.id, slug), { onConflict: "user_id" })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Save share settings error:", error.message);
+        pushToast(error.message, "error");
+        return;
+      }
+
+      const saved = fromDbShareSettings(data);
+      setShareSettings(saved);
+      trackEvent("share_settings_saved", {
+        visibility: saved.visibility,
+        preset: matchingPresetId(saved) || "custom",
+        shows_prices: saved.showPrices,
+        shows_notes: saved.showNotes
+      });
+
+      pushToast(
+        saved.visibility === "off" ? "Your page is off. The link no longer opens." : "Your collection page is live.",
+        "success"
+      );
+    } finally {
+      setSavingShare(false);
+    }
+  }
+
+  // Rotates the slug, which is what actually revokes a link already sent. The
+  // confirm is deliberate: there is no undo, and anyone holding the old link
+  // silently loses access -- which is the point, but not something to do by
+  // mis-clicking.
+  async function resetShareLink() {
+    if (!currentUser || !shareSettings?.slug) return;
+    if (!window.confirm("Reset your link? Every link you've already shared will stop working, and there's no way back to the old one.")) return;
+
+    setSavingShare(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("shared_collections")
+        .update({ slug: generateShareSlug(), updated_at: new Date().toISOString() })
+        .eq("user_id", currentUser.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Reset share link error:", error.message);
+        pushToast(error.message, "error");
+        return;
+      }
+
+      setShareSettings(fromDbShareSettings(data));
+      trackEvent("share_link_reset");
+      pushToast("New link created. The old one no longer works.", "success");
+    } finally {
+      setSavingShare(false);
+    }
+  }
+
+  function openShareDialog() {
+    if (!shareSettings) {
+      pushToast("Still loading your sharing settings — try again in a moment.", "warning");
+      return;
+    }
+    trackEvent("share_dialog_opened", { visibility: shareSettings.visibility });
+    setShareDialogOpen(true);
   }
 
   // Saves a single field edited inline from the Records table.
@@ -1400,65 +1557,42 @@ export default function FirstFinderApp() {
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
       </div>
 
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5 print:hidden">
-        <button onClick={() => go(isLoggedIn ? "dashboard" : "home")} className="flex items-center gap-3 text-left">
+      <nav className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-5 md:gap-8 print:hidden">
+        <button onClick={() => go(isLoggedIn ? "dashboard" : "home")} className="flex shrink-0 items-center gap-3 text-left">
           <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 rounded-xl object-cover" /><div><div className="text-xl font-semibold tracking-tight">FirstFinder</div><div className="text-xs uppercase tracking-[0.22em] text-[#746655]">Your collection, catalogued</div></div>
         </button>
 
-        <div className="hidden max-w-full items-center gap-1 overflow-x-auto rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1 md:flex">
-          {isLoggedIn ? (
-            <>
-              <TabButton active={activeView === "dashboard"} onClick={() => setActiveView("dashboard")}>Dashboard</TabButton>
-              <TabButton active={activeView === "inventory"} onClick={() => setActiveView("inventory")}>My Collection{inventoryCountKnown ? ` (${activeInventory.length})` : ""}</TabButton>
-              <TabButton active={activeView === "addItems"} onClick={() => setActiveView("addItems")}>Add Items</TabButton>
-              <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
-              <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
-              <TabButton active={activeView === "feedback"} onClick={() => setActiveView("feedback")}>Feedback</TabButton>
-              <TabButton active={activeView === "account"} onClick={() => setActiveView("account")}>My Account</TabButton>
-            </>
-          ) : (
-            <>
-              <TabButton active={activeView === "home"} onClick={() => setActiveView("home")}>Get Started</TabButton>
-              <TabButton active={activeView === "roadmap"} onClick={() => setActiveView("roadmap")}>Roadmap</TabButton>
-              <TabButton active={activeView === "about"} onClick={() => setActiveView("about")}>About</TabButton>
-            </>
-          )}
-        </div>
+        <NavTabs
+          items={navItems}
+          activeView={activeView}
+          onSelect={go}
+          containerRef={navSlotRef}
+          measureRef={navMeasureRef}
+          visibleCount={visibleNavCount}
+        />
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {isLoggedIn ? <Button variant="outline" onClick={logout} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Log out</Button> : <Button onClick={() => setActiveView("login")} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]">Log in</Button>}
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen((open) => !open)}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-[#d8c7ad] bg-[#fff8ee] text-[#201a14] md:hidden"
-            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-            aria-expanded={mobileMenuOpen}
-          >
-            <Icon name={mobileMenuOpen ? "x" : "menu"} size={18} />
-          </button>
+          {overflowNavItems.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d8c7ad] bg-[#fff8ee] text-[#201a14] hover:bg-white"
+              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={mobileMenuOpen}
+            >
+              <Icon name={mobileMenuOpen ? "x" : "menu"} size={18} />
+            </button>
+          )}
         </div>
       </nav>
 
-      {mobileMenuOpen && (
-        <div className="mx-auto max-w-6xl px-6 pb-4 md:hidden print:hidden">
+      {mobileMenuOpen && overflowNavItems.length > 0 && (
+        <div className="mx-auto max-w-6xl px-6 pb-4 print:hidden">
           <div className="flex flex-col gap-1 rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-2">
-            {isLoggedIn ? (
-              <>
-                <MobileNavLink active={activeView === "dashboard"} onClick={() => go("dashboard")}>Dashboard</MobileNavLink>
-                <MobileNavLink active={activeView === "inventory"} onClick={() => go("inventory")}>My Collection{inventoryCountKnown ? ` (${activeInventory.length})` : ""}</MobileNavLink>
-                <MobileNavLink active={activeView === "addItems"} onClick={() => go("addItems")}>Add Items</MobileNavLink>
-                <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
-                <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
-                <MobileNavLink active={activeView === "feedback"} onClick={() => go("feedback")}>Feedback</MobileNavLink>
-                <MobileNavLink active={activeView === "account"} onClick={() => go("account")}>My Account</MobileNavLink>
-              </>
-            ) : (
-              <>
-                <MobileNavLink active={activeView === "home"} onClick={() => go("home")}>Get Started</MobileNavLink>
-                <MobileNavLink active={activeView === "roadmap"} onClick={() => go("roadmap")}>Roadmap</MobileNavLink>
-                <MobileNavLink active={activeView === "about"} onClick={() => go("about")}>About</MobileNavLink>
-              </>
-            )}
+            {overflowNavItems.map((navItem) => (
+              <MobileNavLink key={navItem.view} active={activeView === navItem.view} onClick={() => go(navItem.view)}>{navItem.label}</MobileNavLink>
+            ))}
           </div>
         </div>
       )}
@@ -1474,7 +1608,7 @@ export default function FirstFinderApp() {
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} onAddPhotos={addIdentifyPhotos} onRemovePhoto={removeIdentifyPhoto} onReIdentify={reIdentify} identifying={identifying} />}
       {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
-      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
+      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onShare={openShareDialog} shareVisibility={shareSettings?.visibility} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
@@ -1499,6 +1633,18 @@ export default function FirstFinderApp() {
           onClose={() => setEditingItem(null)}
           onSave={updateInventoryItem}
           saving={saving}
+        />
+      )}
+
+      {shareDialogOpen && shareSettings && (
+        <ShareCollectionDialog
+          settings={shareSettings}
+          inventory={inventory}
+          saving={savingShare}
+          onSave={saveShareSettings}
+          onResetLink={resetShareLink}
+          onClose={() => setShareDialogOpen(false)}
+          pushToast={pushToast}
         />
       )}
 
@@ -1541,6 +1687,11 @@ const roadmapHorizons = [
         text: "Grade the book and its dust jacket separately (e.g. VG/VG, NF/VG+), matching how booksellers actually describe first editions — the jacket wears differently and often carries most of the value."
       },
       {
+        category: "Community",
+        title: "Shareable collection page",
+        text: "A public, read-only link to show off a shelf or set — the same instinct that makes PSA's and PCGS's set registries so sticky. You pick what it shows: titles, editions and condition to start with, and money, provenance, or notes only if you switch them on."
+      },
+      {
         category: "Discovery",
         title: "A real want list",
         text: "Give \"Wishlist\" its own view with a target price, instead of it being just another status buried in the collection tabs. Collecting is as much about the chase as the shelf, and right now FirstFinder only tracks the half you already own."
@@ -1574,11 +1725,6 @@ const roadmapHorizons = [
     label: "Later",
     framing: "Directionally right; sequencing depends on what Now/Next prove out.",
     items: [
-      {
-        category: "Community",
-        title: "Shareable collection page",
-        text: "A public, read-only link to show off a shelf or set — the same instinct that makes PSA's and PCGS's set registries so sticky."
-      },
       {
         category: "Trust & Provenance",
         title: "Evidence completeness scoring",
@@ -2191,7 +2337,7 @@ function AboutPage({ onGoToFeedback, onGoToContribute }) {
 //
 // Update termsLastUpdated whenever the substance below changes -- section 12
 // tells people that date is how they know the terms moved.
-const termsLastUpdated = "September 6, 2026";
+const termsLastUpdated = "September 8, 2026";
 
 // A plain-English gloss shown above the binding text. It is explicitly not a
 // substitute for the sections themselves, and it stays short enough that
@@ -2251,14 +2397,15 @@ const termsSections = [
       "Your collection is yours. Photos, records, notes, receipts — you keep every right you already had in them, and we don't claim ownership of any of it.",
       "To run the service, you give us a limited, non-exclusive, worldwide, royalty-free license to store, back up, transmit, resize, and display your content, solely to operate and support FirstFinder for you. That license ends when you delete the content or your account, apart from copies in routine backups that age out on their own and anything we are required to keep under section 6.",
       "When you use photo identification, the photo you submit is sent to a third-party AI provider (currently OpenAI) to be analyzed and returned as suggested details. Don't submit photos you aren't comfortable having processed that way.",
-      "You are responsible for having the right to upload whatever you upload."
+      "Your collection is private unless you publish it. If you turn on a shareable collection page, the items and fields you choose become readable by anyone holding the link, whether or not they have a FirstFinder account, and by search engines if you also choose to have the page listed. Purchase prices, sources, notes, and sold records are only included if you switch them on; receipt photos are never published. You can switch the page off or reset its link at any time, which stops it being served immediately — but we can't recall anything already copied, screenshotted, cached, or indexed while it was public.",
+      "You are responsible for having the right to upload whatever you upload, and for what you choose to publish on a shareable collection page."
     ]
   },
   {
     id: "termination",
     heading: "5. Review, suspension, and termination",
     paragraphs: [
-      "We do not routinely browse private collections. Items and photos are stored privately and access is restricted.",
+      "We do not routinely browse private collections. Items and photos are stored privately and access is restricted, apart from whatever you have deliberately published on a shareable collection page.",
       "We reserve the right to access, review, or remove content, and to suspend or permanently terminate any account and delete everything in it, at our sole discretion and with or without prior notice, when we believe in good faith that:"
     ],
     list: [
@@ -3574,7 +3721,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   );
 }
 
-function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, bulkMessage }) {
+function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onShare, shareVisibility, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, bulkMessage }) {
   const [photoViewer, setPhotoViewer] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -3657,6 +3804,12 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
+          {/* The label carries the state. A collector should be able to tell
+              at a glance whether there is a public page out there without
+              having to open the dialog to find out. */}
+          <Button variant="outline" onClick={onShare} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+            <Icon name="link" size={16} className="mr-2" /> {shareVisibility && shareVisibility !== "off" ? "Sharing on" : "Share"}
+          </Button>
           <Button variant="outline" onClick={() => { trackEvent("insurance_export_viewed"); onExport(); }} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export for insurance</Button>
           <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add to collection</Button>
         </div>
@@ -5206,6 +5359,314 @@ function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkUploading, bulkM
   );
 }
 
+function ShareToggle({ group, checked, onChange }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-3 transition hover:bg-white">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{group.label}</span>
+        <span className="block text-xs leading-5 text-[#7d6c5a]">{group.detail}</span>
+        {/* Notes are the one group that can publish something the owner
+            forgot they wrote. Warn at the moment of the decision, where it
+            can still change it -- not in a help page nobody opens. */}
+        {group.warning && checked && (
+          <span className="mt-1 block rounded-xl bg-[#fff3d8] px-3 py-2 text-xs leading-5 text-[#6d5526]">{group.warning}</span>
+        )}
+      </span>
+    </label>
+  );
+}
+
+// A single card rendered exactly as a visitor would see it.
+//
+// The markup here is a compact copy of the card in app/c/[slug]/page.js -- that
+// one is a server component and can't be imported into this "use client" file.
+// What matters is that the *data* is not a copy: both call buildPublicItem
+// with the same settings, so this preview cannot show something the public
+// page would withhold, or withhold something it would show.
+function SharePreviewCard({ item, photoUrl }) {
+  const editionLine =
+    item.category === "Book"
+      ? [item.bookEdition && `${item.bookEdition} edition`, item.bookPrinting && `${item.bookPrinting} printing`].filter(Boolean).join(" · ")
+      : item.edition;
+
+  const details = [
+    item.estimatedValue && ["Est. value", formatCurrency(item.estimatedValue)],
+    item.purchasePrice && ["Paid", formatCurrency(item.purchasePrice)],
+    item.soldPrice && ["Sold for", formatCurrency(item.soldPrice)],
+    item.purchaseDate && ["Acquired", item.purchaseDate],
+    item.source && ["Source", item.source]
+  ].filter(Boolean);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#fff9f0]">
+      {photoUrl ? (
+        <img src={photoUrl} alt="" className="h-32 w-full bg-[#f0e2cf] object-cover" />
+      ) : (
+        <div className="flex h-32 w-full items-center justify-center bg-[#f0e2cf] text-xs text-[#8a7a64]">No photo</div>
+      )}
+      <div className="p-4">
+        <div className="font-semibold leading-tight">{item.name || "Untitled item"}</div>
+        {item.maker && <div className="mt-0.5 text-sm text-[#665746]">{item.maker}</div>}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {editionLine && <span className="rounded-full bg-[#edf4f2] px-2.5 py-1 text-[11px] font-medium text-[#123f38]">{editionLine}</span>}
+          {item.condition && <span className="rounded-full bg-[#f0e2cf] px-2.5 py-1 text-[11px] font-medium text-[#665746]">{item.condition}</span>}
+          {item.hasReceipt && <span className="rounded-full bg-[#f0e2cf] px-2.5 py-1 text-[11px] font-medium text-[#665746]">Receipt on file</span>}
+        </div>
+        {details.length > 0 && (
+          <div className="mt-3 flex flex-col gap-1.5">
+            {details.map(([label, value]) => (
+              <div key={label} className="flex items-baseline justify-between gap-3 border-t border-[#eadfcd] pt-1.5">
+                <span className="text-[10px] uppercase tracking-[0.14em] text-[#8a7a64]">{label}</span>
+                <span className="text-right text-xs font-medium text-[#3f352a]">{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {item.notes && (
+          <div className="mt-2 border-t border-[#eadfcd] pt-1.5">
+            <div className="text-[10px] uppercase tracking-[0.14em] text-[#8a7a64]">Notes</div>
+            <p className="mt-1 line-clamp-3 text-xs leading-5 text-[#3f352a]">{item.notes}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const visibilityChoices = [
+  {
+    value: "off",
+    label: "Off",
+    detail: "There is no page. The link returns Not Found for everyone, including anyone you sent it to earlier."
+  },
+  {
+    value: "unlisted",
+    label: "Anyone with the link",
+    detail: "Signed in or not, anyone holding the link can open it. The link can't be guessed — but it isn't secret, and whoever it's forwarded to can read it."
+  },
+  {
+    value: "listed",
+    label: "Listed on search engines",
+    detail: "Everything above, plus Google is invited to index it. Worth knowing: turning this back off takes days to clear from search results."
+  }
+];
+
+function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLink, onClose, pushToast }) {
+  const [draft, setDraft] = useState(settings);
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState("");
+
+  // "Saved" is what the public page serves, "draft" is what the switches say.
+  // Keeping them apart is the whole reason this dialog has a Save button:
+  // publishing a purchase price should be something you press, not something
+  // that happens as your cursor passes over a checkbox.
+  const dirty = shareSettingsChanged(settings, draft);
+
+  const sharedItems = useMemo(() => inventory.filter((entry) => isItemShared(entry, draft)), [inventory, draft]);
+  const previewSource = sharedItems[0] || null;
+  const previewItem = useMemo(() => (previewSource ? buildPublicItem(previewSource, draft) : null), [previewSource, draft]);
+  const hiddenCount = inventory.filter((entry) => entry.hiddenFromShare).length;
+  const presetId = matchingPresetId(draft);
+  const shareUrl = settings.slug ? `${window.location.origin}${sharePath(settings.slug)}` : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    const path = previewSource?.itemPhotos?.[0]?.path;
+
+    // Resolved rather than set straight away in the no-photo case, so this
+    // effect never sets state synchronously, which would risk a cascading render.
+    const pending = path ? fetchSignedPhotoUrls([{ path }]).then(([photo]) => photo?.url || "") : Promise.resolve("");
+    pending.then((url) => {
+      if (!cancelled) setPreviewPhotoUrl(url);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewSource]);
+
+  function set(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      trackEvent("share_link_copied", { visibility: settings.visibility });
+      pushToast("Link copied.", "success");
+    } catch {
+      pushToast("Couldn't copy automatically — select the link and copy it.", "warning");
+    }
+  }
+
+  return (
+    <ModalShell onClose={saving ? () => {} : onClose} contentClassName="max-h-[88vh] max-w-4xl">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Share</div>
+          <h2 className="mt-1 text-3xl font-semibold">Your public collection page</h2>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-[#665746]">
+            A read-only page you can send to anyone. You choose what it shows — it starts with titles, editions,
+            condition and photos, and nothing about money.
+          </p>
+        </div>
+        <button onClick={onClose} disabled={saving} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Close share settings">
+          <Icon name="x" size={18} />
+        </button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_16rem]">
+        <div>
+          <fieldset>
+            <legend className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Who can see it</legend>
+            <div className="mt-3 flex flex-col gap-2">
+              {visibilityChoices.map((choice) => (
+                <label
+                  key={choice.value}
+                  className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition ${
+                    draft.visibility === choice.value ? "border-[#123f38] bg-[#edf4f2]" : "border-[#e0d2bc] bg-[#fffdf8] hover:bg-white"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="share-visibility"
+                    value={choice.value}
+                    checked={draft.visibility === choice.value}
+                    onChange={() => set("visibility", choice.value)}
+                    className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">{choice.label}</span>
+                    <span className="block text-xs leading-5 text-[#7d6c5a]">{choice.detail}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {shareUrl && (
+            <div className="mt-5 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-4">
+              <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Your link</div>
+              <div className="mt-2 break-all font-mono text-sm text-[#3f352a]">{shareUrl}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={copyLink} className="h-9 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-4 text-sm hover:bg-white">
+                  <Icon name="file" size={15} className="mr-2" /> Copy link
+                </Button>
+                {/* Deliberately not enabled while there are unsaved switches:
+                    the preview opens the real page, so it would show the last
+                    saved settings and quietly contradict the checkboxes. */}
+                <a
+                  href={dirty ? undefined : shareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-disabled={dirty || draft.visibility === "off"}
+                  className={`inline-flex h-9 items-center rounded-full border border-[#cdbb9d] px-4 text-sm font-medium ${
+                    dirty || draft.visibility === "off" ? "cursor-not-allowed bg-[#f3ece1] text-[#a2957f]" : "bg-[#fff8ee] text-[#665746] hover:bg-white"
+                  }`}
+                  onClick={(event) => {
+                    if (dirty || draft.visibility === "off") event.preventDefault();
+                  }}
+                >
+                  Open preview
+                </a>
+                <Button type="button" variant="outline" onClick={onResetLink} disabled={saving} className="h-9 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-4 text-sm hover:bg-white">
+                  Reset link
+                </Button>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-[#7d6c5a]">
+                Resetting gives you a new address and breaks every link you&apos;ve already sent — the way to take back a
+                page you shared with the wrong person.
+              </p>
+            </div>
+          )}
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <Field label="Page title" value={draft.title} onChange={(value) => set("title", value)} />
+            <Field label="One line about it" value={draft.blurb} onChange={(value) => set("blurb", value)} />
+          </div>
+
+          <div className="mt-5">
+            <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Start from</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {sharePresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  title={preset.detail}
+                  onClick={() => setDraft((current) => applyPreset(current, preset.id))}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                    presetId === preset.id ? "bg-[#123f38] text-[#fff7ea]" : "border border-[#cdbb9d] bg-[#fff8ee] text-[#665746] hover:bg-white"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+              {/* Not a button: "Custom" is a description of where the switches
+                  currently sit, not a fourth thing to choose. */}
+              {presetId === null && (
+                <span className="rounded-full border border-dashed border-[#cdbb9d] px-4 py-2 text-sm font-medium text-[#7d6c5a]">Custom</span>
+              )}
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[#7d6c5a]">
+              {sharePresets.find((preset) => preset.id === presetId)?.detail || "Your own combination of the switches below."}
+            </p>
+          </div>
+
+          <div className="mt-5">
+            <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Also show</div>
+            <div className="mt-2 grid gap-2">
+              {shareFieldGroups.map((group) => (
+                <ShareToggle key={group.key} group={group} checked={Boolean(draft[group.key])} onChange={(value) => set(group.key, value)} />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <aside className="md:sticky md:top-0 md:self-start">
+          <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">What visitors see</div>
+          <p className="mt-2 text-xs leading-5 text-[#7d6c5a]">
+            {sharedItems.length} of {inventory.length} {inventory.length === 1 ? "item" : "items"}
+            {hiddenCount > 0 && `, ${hiddenCount} hidden individually`}.
+          </p>
+
+          <div className="mt-3">
+            {previewItem ? (
+              <SharePreviewCard item={previewItem} photoUrl={previewPhotoUrl} />
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[#cdbb9d] bg-[#fffdf8] p-4 text-xs leading-5 text-[#7d6c5a]">
+                Nothing would appear on your page with these settings.
+              </div>
+            )}
+          </div>
+
+          <p className="mt-3 rounded-2xl bg-[#f7efe3] p-3 text-xs leading-5 text-[#665746]">
+            Receipt photos are never published, whatever you switch on — they carry addresses and card details. Items
+            with one get a “Receipt on file” badge instead.
+          </p>
+          <p className="mt-2 text-xs leading-5 text-[#7d6c5a]">
+            To keep one item off the page, open it from your collection and tick “Hide from my public page”.
+          </p>
+        </aside>
+      </div>
+
+      <div className="mt-6 flex flex-col gap-3 border-t border-[#e0d2bc] pt-5 sm:flex-row sm:items-center sm:justify-end">
+        {dirty && <span className="text-sm text-[#7d6c5a] sm:mr-auto">Unsaved changes</span>}
+        <Button type="button" variant="outline" onClick={onClose} disabled={saving} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+          Cancel
+        </Button>
+        <Button type="button" onClick={() => onSave(draft)} disabled={saving || !dirty} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+          {saving ? "Saving..." : draft.visibility === "off" ? "Save" : "Save and publish"}
+        </Button>
+      </div>
+    </ModalShell>
+  );
+}
+
 function EditItemModal({ item, onClose, onSave, saving }) {
   const [draft, setDraft] = useState({ ...item });
   const [existingItemPhotos, setExistingItemPhotos] = useState((item.itemPhotos || []).map((photo) => ({ ...photo })));
@@ -5360,6 +5821,26 @@ function EditItemModal({ item, onClose, onSave, saving }) {
           />
         </div>
 
+        {/* The per-item escape hatch from the public collection page. All or
+            nothing for the item: field-level rules are set once for the whole
+            collection in the share dialog, and only membership is decided per
+            item. Shown whether or not sharing is currently on, so it can be
+            set ahead of publishing rather than only after. */}
+        <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-4">
+          <input
+            type="checkbox"
+            checked={Boolean(draft.hiddenFromShare)}
+            onChange={(event) => setDraft({ ...draft, hiddenFromShare: event.target.checked })}
+            className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+          />
+          <span>
+            <span className="block text-sm font-medium">Hide from my public page</span>
+            <span className="block text-xs leading-5 text-[#7d6c5a]">
+              Keeps this item off your shared collection page, whatever that page is set to show.
+            </span>
+          </span>
+        </label>
+
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={handleClose} disabled={saving} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
             Cancel
@@ -5497,7 +5978,76 @@ function PhotoViewerModal({ entry, onClose }) {
 }
 
 function clearPhotoUrls(photos) { photos.forEach((photo) => URL.revokeObjectURL(photo.url)); }
-function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`shrink-0 rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
+// Measures the tabs at their natural width against the space the nav actually
+// has and reports how many fit. Everything past that goes into the menu, so the
+// pill never scrolls and never spills over the buttons beside it.
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : React.useLayoutEffect;
+
+function useNavOverflow(containerRef, measureRef, items, onCountChange) {
+  const [visibleCount, setVisibleCount] = useState(items.length);
+  const lastCountRef = useRef(items.length);
+  const signature = items.map((navItem) => navItem.label).join("|");
+
+  useIsomorphicLayoutEffect(() => {
+    const container = containerRef.current;
+    const measure = measureRef.current;
+    if (!container || !measure) return undefined;
+
+    function recompute() {
+      const widths = Array.from(measure.children).map((child) => child.getBoundingClientRect().width);
+      // The pill's own border and p-1 padding, which the tabs have to share the
+      // slot with.
+      const available = container.clientWidth - 10;
+      const gap = 4;
+      let used = 0;
+      let count = 0;
+      for (let index = 0; index < widths.length; index += 1) {
+        const next = used + widths[index] + (index === 0 ? 0 : gap);
+        if (next > available) break;
+        used = next;
+        count += 1;
+      }
+      setVisibleCount(count);
+      if (count !== lastCountRef.current) {
+        lastCountRef.current = count;
+        onCountChange();
+      }
+    }
+
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    observer.observe(container);
+    observer.observe(measure);
+    return () => observer.disconnect();
+  }, [signature, onCountChange]);
+
+  return Math.min(visibleCount, items.length);
+}
+
+function NavTabs({ items, activeView, onSelect, containerRef, measureRef, visibleCount }) {
+  return (
+    <div ref={containerRef} className="relative flex min-w-0 flex-1 justify-center">
+      {/* A copy of every tab at its natural width, sealed inside a zero-sized
+          box so it can be measured without adding a pixel of scrollable area. */}
+      <div aria-hidden="true" className="pointer-events-none invisible absolute left-0 top-0 h-0 w-0 overflow-hidden">
+        <div ref={measureRef} className="flex flex-nowrap items-center gap-1">
+          {items.map((navItem) => (
+            <TabButton key={navItem.view} active={false} onClick={() => {}}>{navItem.label}</TabButton>
+          ))}
+        </div>
+      </div>
+      {visibleCount > 0 && (
+        <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-hidden rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
+          {items.slice(0, visibleCount).map((navItem) => (
+            <TabButton key={navItem.view} active={activeView === navItem.view} onClick={() => onSelect(navItem.view)}>{navItem.label}</TabButton>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function SelectField({ label, value, options, onChange, placeholder }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{placeholder && <option value="">{placeholder}</option>}{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }
