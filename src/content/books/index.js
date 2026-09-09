@@ -24,8 +24,25 @@ import theGreatGatsby from "./the-great-gatsby";
 import goneWithTheWind from "./gone-with-the-wind";
 import petSematary from "./pet-sematary";
 import theWayOfKings from "./the-way-of-kings";
+import theStand from "./the-stand";
+import it from "./it";
+import rage from "./rage";
+import theGunslinger from "./the-gunslinger";
+import theDarkTowerVii from "./the-dark-tower-vii";
 
-const WORKS = [dune, eastOfEden, theGreatGatsby, goneWithTheWind, petSematary, theWayOfKings];
+const WORKS = [
+  dune,
+  eastOfEden,
+  theGreatGatsby,
+  goneWithTheWind,
+  petSematary,
+  theWayOfKings,
+  theStand,
+  it,
+  rage,
+  theGunslinger,
+  theDarkTowerVii
+];
 
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
