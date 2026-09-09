@@ -715,9 +715,14 @@ export default function FirstFinderApp() {
           // no number until the fetch has actually landed.
           { view: "wishlist", label: `Wishlist${wishlistCountKnown ? ` (${openWishlist.length})` : ""}` },
           { view: "addItems", label: "Add Items" },
-          { view: "roadmap", label: "Roadmap" },
-          { view: "about", label: "About" },
+          // Feedback sits where Roadmap used to, because the nav row only has
+          // space for the first few and this is the one worth spending it on:
+          // a collector who wants to tell us something should not have to find
+          // a menu first. Roadmap keeps its place in the list, just further
+          // down, which on most widths means inside the menu.
           { view: "feedback", label: "Feedback" },
+          { view: "about", label: "About" },
+          { view: "roadmap", label: "Roadmap" },
           { view: "account", label: "My Account" }
         ]
       : [
@@ -6765,8 +6770,23 @@ function WantDialog({ want, inventory, saving, onSave, onDelete, onClose }) {
 
   // Only real, owned copies can be upgraded from -- offering a sold one would
   // mean wanting a better version of something already gone.
+  //
+  // Labelled the way the collector would recognise the copy: its reference
+  // number, its title, and the condition that is presumably why they want a
+  // better one. The value stays the row id, because that is what the foreign
+  // key stores -- but an id is not something a person should ever be asked to
+  // pick from a list.
   const upgradeCandidates = useMemo(
-    () => inventory.filter((entry) => entry.status !== "Sold").slice(0, 200),
+    () =>
+      inventory
+        .filter((entry) => entry.status !== "Sold")
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+        .map((entry) => ({
+          value: entry.id,
+          label: [formatReference(entry.referenceNumber), entry.name || "Untitled item", entry.condition]
+            .filter(Boolean)
+            .join(" — ")
+        })),
     [inventory]
   );
 
@@ -6826,7 +6846,7 @@ function WantDialog({ want, inventory, saving, onSave, onDelete, onClose }) {
         <SelectField
           label="Upgrade for"
           value={draft.upgradeForItemId}
-          options={upgradeCandidates.map((entry) => entry.id)}
+          options={upgradeCandidates}
           onChange={(value) => set("upgradeForItemId", value)}
           placeholder="Not an upgrade"
         />
@@ -6967,7 +6987,33 @@ function FoundItDialog({ want, saving, onConfirm, onClose }) {
 
 function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
-function SelectField({ label, value, options, onChange, placeholder }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><select value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15">{placeholder && <option value="">{placeholder}</option>}{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }
+// options may be plain strings, where the value and the label are the same
+// thing (every status, condition and category list in the app), or
+// {value, label} pairs where they differ. The second shape exists because a
+// select whose value is a database id must not show that id to a person --
+// which is exactly what the wishlist's "Upgrade for" field did before it took
+// pairs.
+function SelectField({ label, value, options, onChange, placeholder }) {
+  const choices = (options || []).map((option) => (typeof option === "string" ? { value: option, label: option } : option));
+
+  return (
+    <label className="block">
+      {label && <div className="mb-2 text-sm font-medium text-[#665746]">{label}</div>}
+      <select
+        value={value || ""}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+      >
+        {placeholder && <option value="">{placeholder}</option>}
+        {choices.map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 function TextAreaField({ label, value, onChange, placeholder, rows = 6 }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><textarea value={value || ""} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={rows} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function PhotoUploader({ title, eyebrow, description, prompts, photos, onUpload, onRemove }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">{eyebrow}</div><h2 className="mt-1 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#665746]">{description}</p></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">{photos.length}</div></div><label className="mt-5 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-[#cbb894] bg-[#f7ecdc] p-6 text-center transition hover:bg-[#fff4e6]"><Icon name={title.toLowerCase().includes("receipt") ? "receipt" : "camera"} size={36} className="text-[#123f38]" /><div className="mt-3 text-lg font-semibold">Take or upload</div><div className="mt-1 max-w-sm text-xs leading-5 text-[#6b5b4c]">Works with camera or photo library on mobile.</div><input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label><div className="mt-4 flex flex-wrap gap-2">{prompts.map((prompt) => <div key={prompt} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs text-[#665746]">{prompt}</div>)}</div>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} />}</CardContent></Card>; }
 function CompactUploader({ title, icon, photos, onUpload, onRemove }) { return <div className="rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] p-4"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2 font-semibold"><Icon name={icon} size={17} /> {title}</div><span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs text-[#123f38]">{photos.length}</span></div><label className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">Take or upload<input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} compact />}</div>; }
