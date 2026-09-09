@@ -1981,8 +1981,9 @@ export default function FirstFinderApp() {
 
       {activeView === "about" && <AboutPage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} onGoToContribute={() => setActiveView("contribute")} />}
       {activeView === "contribute" && <ContributePage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
-      {activeView === "terms" && <TermsPage />}
-      {activeView === "login" && <LoginPage onViewTerms={() => setActiveView("terms")} />}
+      {activeView === "terms" && <TermsPage onViewPrivacy={() => setActiveView("privacy")} />}
+      {activeView === "privacy" && <PrivacyPage onViewTerms={() => setActiveView("terms")} />}
+      {activeView === "login" && <LoginPage onViewTerms={() => setActiveView("terms")} onViewPrivacy={() => setActiveView("privacy")} />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} loading={inventoryLoading} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} />}
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
@@ -2717,7 +2718,7 @@ function AboutPage({ onGoToFeedback, onGoToContribute }) {
 //
 // Update termsLastUpdated whenever the substance below changes -- section 12
 // tells people that date is how they know the terms moved.
-const termsLastUpdated = "September 8, 2026";
+const termsLastUpdated = "September 9, 2026";
 
 // A plain-English gloss shown above the binding text. It is explicitly not a
 // substitute for the sections themselves, and it stays short enough that
@@ -2727,7 +2728,8 @@ const termsSummary = [
   "Don't upload anything illegal, and don't use FirstFinder to catalog stolen or trafficked property.",
   "We can suspend or close an account that breaks these rules.",
   "Illegal content gets preserved and reported to law enforcement.",
-  "Estimated values are estimates, not appraisals. Don't file an insurance claim on one."
+  "Estimated values are estimates, not appraisals. Don't file an insurance claim on one.",
+  "This is a hobby project. It can break or disappear, so keep your own copies — see section 9."
 ];
 
 const termsSections = [
@@ -2736,7 +2738,8 @@ const termsSections = [
     heading: "1. The agreement",
     paragraphs: [
       "These Terms of Service (the \"Terms\") are a binding agreement between you and FirstFinder (\"FirstFinder,\" \"we,\" \"us\"). They cover the FirstFinder website and app, and everything you do with them.",
-      "By creating an account, logging in, or otherwise using FirstFinder, you accept these Terms. If you don't agree with them, don't use FirstFinder."
+      "By creating an account, logging in, or otherwise using FirstFinder, you accept these Terms. If you don't agree with them, don't use FirstFinder.",
+      "Our Privacy Policy explains what information FirstFinder collects, why, who else receives it, and how to have it deleted. It forms part of these Terms, and accepting these Terms means accepting it too."
     ]
   },
   {
@@ -2829,11 +2832,23 @@ const termsSections = [
   },
   {
     id: "as-is",
-    heading: "9. Free service, provided as is",
+    heading: "9. A hobby project, provided as is",
     paragraphs: [
-      "FirstFinder is free. It is run as a passion project, not a company with a support desk and an uptime commitment.",
+      "FirstFinder is free. It is run as a passion project by one person, not a company with a support desk, an uptime commitment, or anyone on call at three in the morning.",
       "The service is provided \"as is\" and \"as available,\" without warranties of any kind, express or implied, including any implied warranty of merchantability, fitness for a particular purpose, title, or non-infringement. We don't promise that the service will be uninterrupted, secure, error-free, or that any data will be preserved.",
-      "Keep your own copies. Export your collection to CSV from time to time, and make sure your photos exist somewhere other than FirstFinder."
+      "So that this is impossible to miss, by using FirstFinder you specifically acknowledge and agree that:"
+    ],
+    list: [
+      "FirstFinder is a hobby platform, and you will use it accordingly.",
+      "It may be slow, may break, may lose features, and may go down — briefly, for a long time, or permanently — with or without warning.",
+      "Your collection records and photos may be lost, corrupted, or made unreachable, including by a failure at one of the services FirstFinder is built on, and no backup of your data is guaranteed to exist or to be recoverable.",
+      "FirstFinder may be discontinued at any time, at which point your data may be deleted.",
+      "FirstFinder is not your system of record. It is a convenience layered on top of the copies you keep yourself.",
+      "You will not hold FirstFinder, or the people who work on it, responsible for any of that — including the value of a collection you can no longer document."
+    ],
+    closing: "Keep your own copies. Export your collection to CSV from time to time, and make sure your photos exist somewhere other than FirstFinder. This is the single most important sentence on this page.",
+    trailing: [
+      "None of this asks you to give up a right you cannot lawfully give up, and section 10 says the same thing in the language courts expect."
     ]
   },
   {
@@ -2878,19 +2893,26 @@ const termsSections = [
   }
 ];
 
-function TermsPage() {
+// Terms and Privacy are the same page with different words in it: an eyebrow, a
+// plain-English summary, jump links, numbered sections, and a closing note. One
+// component renders both, so a layout fix lands on both and the two documents
+// cannot drift into looking like they came from different sites.
+//
+// Sections are the shape used by termsSections and privacySections above:
+// { id, heading, paragraphs, list?, closing?, trailing? }.
+function LegalDocument({ eyebrow, title, lastUpdated, summary, sections, note }) {
   return (
     <section className="mx-auto max-w-3xl px-6 py-16 md:py-20">
       <div className="font-ledger inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#655644]">
-        Terms of Service
+        {eyebrow}
       </div>
-      <h1 className="font-display mt-5 text-4xl font-semibold tracking-tight md:text-5xl">The rules of the shelf.</h1>
-      <p className="font-ledger mt-4 text-sm text-[#8a7a64]">Last updated {termsLastUpdated}</p>
+      <h1 className="font-display mt-5 text-4xl font-semibold tracking-tight md:text-5xl">{title}</h1>
+      <p className="font-ledger mt-4 text-sm text-[#8a7a64]">Last updated {lastUpdated}</p>
 
       <div className="mt-10 rounded-[2rem] border border-[#d8c7ad] bg-[#fbf5e9] p-6 md:p-7">
         <div className="font-ledger text-xs uppercase tracking-[0.2em] text-[#8a7a64]">The short version</div>
         <ul className="mt-4 grid gap-2.5 text-[#4c4034]">
-          {termsSummary.map((point) => (
+          {summary.map((point) => (
             <li key={point} className="flex items-start gap-2.5 leading-7">
               <Icon name="check" size={15} className="mt-1.5 shrink-0 text-[#123f38]" />
               {point}
@@ -2898,14 +2920,14 @@ function TermsPage() {
           ))}
         </ul>
         <p className="mt-5 text-sm leading-6 text-[#7d6c5a]">
-          That summary is here to be read, not to be relied on. The sections below are the actual agreement.
+          That summary is here to be read, not to be relied on. The sections below are the real thing.
         </p>
       </div>
 
-      <nav aria-label="Terms sections" className="mt-10 rounded-2xl border border-dashed border-[#d3c1a4] bg-[#fffdf8] p-6">
+      <nav aria-label={`${eyebrow} sections`} className="mt-10 rounded-2xl border border-dashed border-[#d3c1a4] bg-[#fffdf8] p-6">
         <div className="font-ledger text-xs uppercase tracking-[0.2em] text-[#8a7a64]">Jump to</div>
         <div className="mt-3 grid gap-1.5 text-sm sm:grid-cols-2">
-          {termsSections.map((section) => (
+          {sections.map((section) => (
             <a key={section.id} href={`#${section.id}`} className="text-[#665746] underline decoration-[#cdbb9d] underline-offset-4 transition hover:text-[#123f38]">
               {section.heading}
             </a>
@@ -2914,7 +2936,7 @@ function TermsPage() {
       </nav>
 
       <div className="mt-12 space-y-12">
-        {termsSections.map((section) => (
+        {sections.map((section) => (
           <div key={section.id} id={section.id} className="scroll-mt-8">
             <h2 className="font-display text-2xl font-semibold tracking-tight">{section.heading}</h2>
 
@@ -2941,10 +2963,213 @@ function TermsPage() {
         ))}
       </div>
 
-      <p className="mt-16 border-t border-[#e0d2bc] pt-8 text-sm leading-7 text-[#8a7a64]">
-        FirstFinder is a personal project, and these Terms are written to be read by collectors rather than by lawyers. They are not legal advice, and they don't create any relationship beyond the one described here.
-      </p>
+      <p className="mt-16 border-t border-[#e0d2bc] pt-8 text-sm leading-7 text-[#8a7a64]">{note}</p>
     </section>
+  );
+}
+
+function TermsPage({ onViewPrivacy }) {
+  return (
+    <LegalDocument
+      eyebrow="Terms of Service"
+      title="The rules of the shelf."
+      lastUpdated={termsLastUpdated}
+      summary={termsSummary}
+      sections={termsSections}
+      note={
+        <>
+          FirstFinder is a personal project, and these Terms are written to be read by collectors rather than by
+          lawyers. They are not legal advice, and they don&rsquo;t create any relationship beyond the one described
+          here. Our{" "}
+          <button type="button" onClick={onViewPrivacy} className="underline decoration-[#cdbb9d] underline-offset-2 hover:text-[#123f38]">
+            Privacy Policy
+          </button>{" "}
+          covers what we do with your information.
+        </>
+      }
+    />
+  );
+}
+
+// The Privacy Policy. Same data-then-layout shape as the Terms above, and it
+// renders through the same LegalDocument component, so the two pages cannot
+// drift apart visually and a new section is a new object rather than new JSX.
+//
+// Everything below has to describe what the code actually does. When a service
+// provider changes, a column is added that holds something personal, or a
+// retention rule moves, this file is part of that change -- not a follow-up.
+const privacyLastUpdated = "September 9, 2026";
+
+const privacySummary = [
+  "We collect what running a catalog needs: your email, what you record about your items, and your photos.",
+  "We don't sell your data, and we don't run ads against it.",
+  "Your collection is private until you publish a shareable page yourself.",
+  "Photos you send to photo identification go to OpenAI to be analyzed.",
+  "Deleting your account from My Account erases your records and your photos for good."
+];
+
+const privacySections = [
+  {
+    id: "scope",
+    heading: "1. What this covers",
+    paragraphs: [
+      "This Privacy Policy explains what FirstFinder (\"FirstFinder,\" \"we,\" \"us\") collects, why we collect it, who else sees it, and what you can do about it. It covers the FirstFinder website and app.",
+      "It sits alongside our Terms of Service, which govern your use of FirstFinder generally. Where the Terms describe how your content is handled, this policy is the longer version of the same story.",
+      "FirstFinder is a free, open-source hobby project run by one person in the United States. It is not a company with a data protection department, and this policy is written to be read rather than to be impressive."
+    ]
+  },
+  {
+    id: "what-we-collect",
+    heading: "2. What we collect",
+    paragraphs: [
+      "Almost everything here is something you typed or uploaded on purpose. The exceptions are the last two groups, which are collected automatically."
+    ],
+    list: [
+      "Account information — your email address, and a password you set (stored only as a hash by our authentication provider, never as text we can read). If you sign in with Google or Apple instead, we receive the email address and account identifier that sign-in hands us, and no password at all.",
+      "Collection records — everything you enter about an item: name, maker, edition, printing, category, condition, status, notes, and its reference number.",
+      "Purchase and sale information — purchase date, source, price paid, your estimated value, and, if you mark an item sold, the sale price and date. We never see or handle a payment: FirstFinder charges nothing, and these are numbers you type about deals you made elsewhere.",
+      "Photos — item photos and receipt photos you upload. Receipts often carry a name, an address, or the last digits of a card, which is why the photo store is private and served only through short-lived signed links.",
+      "Wishlist entries — the copies you're hunting and the specification you'd accept.",
+      "Feedback — what you write in Send feedback, and any screenshots you attach. Read section 4 before you send one: feedback becomes a public GitHub issue.",
+      "Sign-in activity — a timestamped record of each sign-in, kept so the maintainer can see how many people use FirstFinder and how often they come back.",
+      "Photo identification usage — a per-day count of how many identifications your account has run, which is how the daily cap is enforced.",
+      "Analytics — page views and in-app events (for example, opening the identification flow or exporting a report), collected through Google Analytics along with the technical data it gathers: a device or browser identifier, approximate location derived from IP address, referring page, and general device and browser details."
+    ],
+    closing: "We do not ask for and do not want your street address, your phone number, your date of birth, a government identifier, or a payment card number. If one of those turns up inside a note or on a receipt photo, it is there because you put it there."
+  },
+  {
+    id: "why",
+    heading: "3. Why we use it",
+    paragraphs: [
+      "Each of these is a purpose, not a category we might expand into later."
+    ],
+    list: [
+      "To run your account: signing you in, keeping your session, resetting a password, and letting you delete everything.",
+      "To store and show your collection, your photos, your wishlist, and the totals and reports built from them.",
+      "To produce the things you ask for: an identification suggestion, an estimated value, a CSV export, an insurance report, a shareable collection page.",
+      "To answer feedback and support requests, and to fix what you tell us is broken.",
+      "To enforce the daily cap on photo identification and to protect FirstFinder from abuse, fraud, and attempts to reach other people's accounts.",
+      "To understand, in aggregate, which parts of FirstFinder people actually use, so the effort goes where it helps.",
+      "To meet a legal obligation, including the reporting duties described in section 6 of the Terms."
+    ],
+    closing: "We do not sell your personal information, we do not share it with data brokers, and we do not use it to target advertising. There is no advertising on FirstFinder."
+  },
+  {
+    id: "service-providers",
+    heading: "4. Who else sees it",
+    paragraphs: [
+      "FirstFinder is a small app standing on other people's infrastructure. These are all of them, and what each one gets:"
+    ],
+    list: [
+      "Supabase — our database, authentication, and photo storage. It holds essentially everything described in section 2 apart from analytics. Access is restricted per-account at the database level, so one user's rows and photos are not readable by another.",
+      "Vercel — hosting for the website and its server routes. It processes requests as they pass through, and keeps standard server logs including IP addresses.",
+      "OpenAI — receives the photos you submit to photo identification, along with the prompt describing what to look for, and returns the suggested details. This happens only when you press identify, and only for the photos in that request. Don't submit a photo you aren't comfortable having processed this way.",
+      "Google Analytics — receives the page views and events in section 2. It does not receive your email address, your collection, or your photos.",
+      "Google and Apple — only if you choose to sign in with them, and only to the extent that sign-in requires.",
+      "GitHub — receives your feedback. Every submission is filed as an issue in the public FirstFinder repository. The description is scanned first and obvious personal details (email addresses, phone numbers, street addresses, long card- or account-shaped numbers) are masked, but that is a pattern matcher, not a promise: don't write anything into feedback you would not want published. Your email address and account identifier are not included in the issue."
+    ],
+    closing: "Beyond those, we disclose personal information only when the law requires it, when we respond to a valid legal request, or when it is necessary to investigate abuse or protect someone from harm — the circumstances set out in sections 5 and 6 of the Terms. If FirstFinder were ever transferred to someone else, your information would move with it and you'd be told before it did."
+  },
+  {
+    id: "public-pages",
+    heading: "5. What you choose to publish",
+    paragraphs: [
+      "Your collection is private by default. Nothing in it is visible to another visitor unless you turn on a shareable collection page yourself.",
+      "When you do, you pick what appears. Purchase prices, sources, notes, and sold records are only included if you switch them on, and receipt photos are never published at all. You can also hide individual items. An unlisted page is readable by anyone holding the link; a listed page is additionally offered to search engines.",
+      "Switching the page off, or resetting its link, stops it being served immediately. It cannot recall anything already copied, screenshotted, cached, or indexed while the page was public."
+    ]
+  },
+  {
+    id: "cookies",
+    heading: "6. Cookies and analytics",
+    paragraphs: [
+      "FirstFinder uses browser storage for two things.",
+      "The first is your session. Signing in stores a token in your browser so you stay signed in; without it there is no way to keep you logged in, and clearing it signs you out.",
+      "The second is Google Analytics, which sets its own cookies to count visits and recognize a returning browser. You can block it with a browser setting, an extension, or Google's own opt-out — FirstFinder works exactly the same either way. We don't run advertising cookies, and nothing here follows you around other sites."
+    ]
+  },
+  {
+    id: "retention",
+    heading: "7. How long we keep it",
+    paragraphs: [
+      "Your collection records, photos, and wishlist stay until you delete them or delete your account. There is no automatic expiry — a catalog that quietly forgot things would be worse than useless.",
+      "Deleting an item deletes its photos with it. Deleting your account from My Account removes your account, every record under it, and every photo in your storage folder, and it is permanent — we cannot restore it afterwards, so export your CSV first if you want one.",
+      "Some things survive that deletion, and you should know which. Copies inside routine encrypted backups age out on their own schedule. Sign-in counts and analytics are aggregate figures that no longer identify you. Feedback already filed as a public GitHub issue stays on GitHub, because the issue is public and other people may have replied to it. And anything we are legally required to preserve or have already reported to authorities is kept, as section 6 of the Terms says."
+    ]
+  },
+  {
+    id: "your-rights",
+    heading: "8. Your choices and rights",
+    paragraphs: [
+      "Most of what a privacy law would have you request, you can simply do:"
+    ],
+    list: [
+      "See what we hold — it's your collection; it's on the screen.",
+      "Correct it — edit any item, at any time.",
+      "Export it — download your whole collection as a CSV from My Collection.",
+      "Delete part of it — delete an item, and its photos go with it.",
+      "Delete all of it — delete your account from My Account. You don't need to ask us first, and nobody will try to talk you out of it.",
+      "Opt out of analytics — block Google Analytics in your browser."
+    ],
+    closing: "Depending on where you live, you may also have the right to object to or restrict certain processing, to receive your data in a portable form, or to complain to a data protection authority. Write to thebookbarterer@gmail.com and we'll do our best to help — and if we ever have to refuse a request, we'll tell you why. We will not treat you differently for exercising any of this. FirstFinder is free; there is nothing to withhold."
+  },
+  {
+    id: "security",
+    heading: "9. How it's protected",
+    paragraphs: [
+      "Traffic is encrypted in transit. Passwords are stored hashed by our authentication provider and are not readable by us. Collection rows and photos are protected per-account at the database and storage layer, so the check that keeps one account out of another's data does not depend on the app remembering to ask. Photos are private and served through short-lived signed links rather than public URLs. Maintainer access to the underlying data is limited to what is needed to run the service and investigate problems.",
+      "No system is perfectly secure, and this one is maintained by one person in their spare time. If you find a vulnerability, please report it — SECURITY.md in the repository explains how, and we'd much rather hear it from you."
+    ]
+  },
+  {
+    id: "children",
+    heading: "10. Children",
+    paragraphs: [
+      "FirstFinder is not for children under 13, and we don't knowingly collect anything from them. If you believe a child under 13 has an account, write to thebookbarterer@gmail.com and we'll delete it."
+    ]
+  },
+  {
+    id: "international",
+    heading: "11. Where your data lives",
+    paragraphs: [
+      "FirstFinder is operated from the United States, and the services in section 4 store and process data there. If you use FirstFinder from somewhere else, you are sending your information to the United States, where privacy law differs from your own — including from the protections you have in the UK, the EU, and the EEA."
+    ]
+  },
+  {
+    id: "privacy-changes",
+    heading: "12. Changes to this policy",
+    paragraphs: [
+      "We'll update this policy as FirstFinder changes. The \"Last updated\" date at the top of this page always reflects the current version, and for a material change — a new service provider receiving your data, a new purpose for something we already hold — we'll make a reasonable effort to give notice in the app or by email before it takes effect."
+    ]
+  },
+  {
+    id: "privacy-contact",
+    heading: "13. Contact",
+    paragraphs: [
+      "Questions about privacy, requests about your data, and anything you think this policy gets wrong go to thebookbarterer@gmail.com."
+    ]
+  }
+];
+
+function PrivacyPage({ onViewTerms }) {
+  return (
+    <LegalDocument
+      eyebrow="Privacy Policy"
+      title="What we know about you."
+      lastUpdated={privacyLastUpdated}
+      summary={privacySummary}
+      sections={privacySections}
+      note={
+        <>
+          This policy describes what FirstFinder actually does with your information, not what a template says a
+          company might. It works alongside the{" "}
+          <button type="button" onClick={onViewTerms} className="underline decoration-[#cdbb9d] underline-offset-2 hover:text-[#123f38]">
+            Terms of Service
+          </button>
+          , which cover everything else about using FirstFinder.
+        </>
+      }
+    />
   );
 }
 
@@ -3341,19 +3566,24 @@ function AuthLink({ children, onClick }) {
 // button, so sign-up doesn't stack the same sentence twice. Deliberately absent
 // from the forgot-password form, where no account is being created and no
 // Google button is shown.
-function AuthTermsNotice({ onViewTerms, action }) {
+function AuthTermsNotice({ onViewTerms, onViewPrivacy, action }) {
   return (
     <p className="mt-4 text-xs leading-5 text-[#7d6c5a]">
       {action} means you agree to FirstFinder's{" "}
       <button type="button" onClick={onViewTerms} className="underline decoration-[#cdbb9d] underline-offset-2 hover:text-[#123f38]">
         Terms of Service
+      </button>{" "}
+      and{" "}
+      <button type="button" onClick={onViewPrivacy} className="underline decoration-[#cdbb9d] underline-offset-2 hover:text-[#123f38]">
+        Privacy Policy
       </button>
-      , including the acceptable use rules.
+      , including the acceptable use rules and the acknowledgment that FirstFinder is a hobby project that may lose
+      data or go away.
     </p>
   );
 }
 
-function LoginPage({ onViewTerms }) {
+function LoginPage({ onViewTerms, onViewPrivacy }) {
   const [mode, setMode] = useState("signin");
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "" });
   const [message, setMessage] = useState(null);
@@ -3579,6 +3809,7 @@ function LoginPage({ onViewTerms }) {
           {mode !== "forgot" && (
             <AuthTermsNotice
               onViewTerms={onViewTerms}
+              onViewPrivacy={onViewPrivacy}
               action={mode === "signup" ? `Creating an account, or continuing with ${socialProviders}` : `Continuing with ${socialProviders}`}
             />
           )}
@@ -5467,6 +5698,7 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
               : <FooterLink href="mailto:thebookbarterer@gmail.com">Contact Support</FooterLink>}
             <FooterLink href="mailto:thebookbarterer@gmail.com?subject=Business%20inquiry">Business Inquiries</FooterLink>
             <FooterLink onClick={() => onNavigate("terms")}>Terms of Service</FooterLink>
+            <FooterLink onClick={() => onNavigate("privacy")}>Privacy Policy</FooterLink>
           </div>
         </div>
 
