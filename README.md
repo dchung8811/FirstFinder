@@ -210,9 +210,16 @@ about a copy in their hand.
 Run [`supabase/book-catalog.sql`](supabase/book-catalog.sql) once, then seed it:
 
 ```bash
-npm run seed:books                       # the full curated sweep, ~15 minutes
+npm run seed:books                             # the full curated sweep, ~15 minutes
 node scripts/seed-book-catalog.mjs --dry-run   # fetch and print, write nothing
+node scripts/seed-book-catalog.mjs --out books.json   # save what was collected
+node scripts/seed-book-catalog.mjs --in books.json    # upload that, no fetching
 ```
+
+The sweep is fifteen minutes of deliberately slow, sequential requests — Open
+Library is a free service run by a nonprofit, so don't raise the concurrency to
+make a one-off job finish sooner. `--out` and `--in` exist so a failure in the
+write half doesn't cost that fifteen minutes twice.
 
 Seeding needs `SUPABASE_SERVICE_ROLE_KEY`, because `book_catalog` has no insert
 policy for anyone — the app can only read it. **Until the SQL is run, the field

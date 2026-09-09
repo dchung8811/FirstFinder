@@ -3,6 +3,8 @@
 //   SUPABASE_SERVICE_ROLE_KEY=... node scripts/seed-book-catalog.mjs
 //   node scripts/seed-book-catalog.mjs --dry-run        # fetch, print, write nothing
 //   node scripts/seed-book-catalog.mjs --authors "Frank Herbert"
+//   node scripts/seed-book-catalog.mjs --out books.json # save what was collected
+//   node scripts/seed-book-catalog.mjs --in books.json  # upload that, no fetching
 //
 // Run supabase/book-catalog.sql first -- this writes to a table that file
 // creates. Safe to re-run: rows are upserted on the Open Library work key, so a
@@ -17,8 +19,7 @@
 // This identifies itself, asks for one page at a time, and sleeps between
 // requests. Do not raise the concurrency to make a one-off seed finish faster.
 
-import { readFileSync } from "node:fs";
-import { createClient } from "@supabase/supabase-js";
+import { readFileSync, writeFileSync } from "node:fs";
 import { AUTHORS, SUBJECTS } from "./catalog-seed-list.mjs";
 
 const OPEN_LIBRARY = "https://openlibrary.org/search.json";
@@ -43,6 +44,17 @@ const LATEST_YEAR = new Date().getFullYear();
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
+
+function flagValue(flag) {
+  const at = args.indexOf(flag);
+  return at === -1 ? null : args[at + 1] || null;
+}
+
+// Collecting takes about fifteen minutes of deliberately slow requests, so a
+// failure in the write half should not cost that again. --out saves what was
+// collected; --in uploads it without touching Open Library at all.
+const outFile = flagValue("--out");
+const inFile = flagValue("--in");
 const authorOverride = args.includes("--authors")
   ? args[args.indexOf("--authors") + 1]?.split(",").map((name) => name.trim()).filter(Boolean)
   : null;
@@ -228,11 +240,63 @@ async function collect() {
   return [...rows.values()];
 }
 
+// Writes through PostgREST directly rather than through @supabase/supabase-js.
+//
+// The client library is the right tool inside the app, and the wrong one here:
+// it pulls in a realtime transport that requires a native WebSocket, so on
+// Node 20 this script died after collecting six thousand books with a complaint
+// about WebSockets it had no reason to need. An upsert is one POST. Depending on
+// the runtime's Node version for a bulk insert is a floor worth not having.
+async function upsertRows(rows) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (in .env.local or the shell).");
+  }
+
+  const endpoint = `${url.replace(/\/$/, "")}/rest/v1/book_catalog?on_conflict=openlibrary_key`;
+  let written = 0;
+
+  for (let start = 0; start < rows.length; start += UPSERT_BATCH) {
+    const batch = rows.slice(start, start + UPSERT_BATCH);
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        // merge-duplicates is what makes this an upsert rather than a conflict;
+        // return=minimal keeps six thousand rows from being echoed back.
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify(batch)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upsert failed at row ${start}: ${response.status} ${await response.text()}`);
+    }
+
+    written += batch.length;
+    console.log(`Wrote ${written}/${rows.length}`);
+  }
+
+  return written;
+}
+
 async function main() {
   loadEnvLocal();
 
-  const rows = await collect();
-  console.log(`\nCollected ${rows.length} books.`);
+  const rows = inFile
+    ? JSON.parse(readFileSync(inFile, "utf8"))
+    : await collect();
+
+  console.log(`\n${inFile ? "Loaded" : "Collected"} ${rows.length} books.`);
+
+  if (outFile) {
+    writeFileSync(outFile, JSON.stringify(rows, null, 2));
+    console.log(`Saved to ${outFile}.`);
+  }
 
   if (dryRun) {
     console.log(rows.slice(0, 20));
@@ -240,27 +304,7 @@ async function main() {
     return;
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (in .env.local or the shell).");
-  }
-
-  const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-
-  let written = 0;
-  for (let start = 0; start < rows.length; start += UPSERT_BATCH) {
-    const batch = rows.slice(start, start + UPSERT_BATCH);
-    const { error } = await supabase
-      .from("book_catalog")
-      .upsert(batch, { onConflict: "openlibrary_key", ignoreDuplicates: false });
-
-    if (error) throw new Error(`Upsert failed at row ${start}: ${error.message}`);
-
-    written += batch.length;
-    console.log(`Wrote ${written}/${rows.length}`);
-  }
-
+  await upsertRows(rows);
   console.log("\nDone.");
 }
 

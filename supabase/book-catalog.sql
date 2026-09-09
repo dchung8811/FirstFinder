@@ -48,7 +48,9 @@ create table if not exists public.book_catalog (
 
   -- The publisher of the edition Open Library happened to describe, which is
   -- very often NOT the first edition's publisher. It is shown in the suggestion
-  -- row to tell two same-titled books apart, and is not copied into the item.
+  -- row to tell two same-titled books apart, and it is copied into the item's
+  -- Make / Publisher / Brand field on a pick -- so it is the field on that form
+  -- most worth a collector's second look, and the hint under the name says so.
   publisher text not null default '',
 
   -- Year of first publication of the WORK, not of any particular printing.
