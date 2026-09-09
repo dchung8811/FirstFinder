@@ -31,13 +31,39 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+// The comparable form of a title, for deciding whether two rows are the same
+// book. Open Library's records are not typed to match ours, and three specific
+// differences all mean "same book":
+//
+//   * A dropped leading article. Its Gatsby records are filed as "Great
+//     Gatsby", and an exact match against our "The Great Gatsby" guide fails --
+//     which put three reprint rows (Arcturus 1951, Benediction 1995) directly
+//     underneath the verified Scribner's 1925 one, all claiming to be Gatsby.
+//   * A trailing annotation, as in "The Great Gatsby(Published In 1925)".
+//   * Punctuation and spacing of any kind.
+//
+// Getting this wrong is not cosmetic. The whole point of ranking guides first
+// is that a collector sees the publisher we have actually verified; a near-miss
+// on the title defeats it by showing them a reissue's imprint as well.
+function comparableTitle(value) {
+  return String(value || "")
+    .replace(/\[[^\]]*\]/g, "")
+    .replace(/\([^)]*\)?.*$/g, "")
+    .toLowerCase()
+    .replace(/^(the|a|an)\s+/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 // Title plus author is the identity of a work for de-duplication. Publisher is
 // deliberately excluded: two catalog rows for the same book from different
 // publishers are the same suggestion as far as a collector typing a title is
 // concerned, and showing both twice is worse than showing the better one once.
 function identityOf(suggestion) {
-  return `${normalize(suggestion.title)}|${normalize(suggestion.author)}`;
+  return `${comparableTitle(suggestion.title)}|${normalize(suggestion.author)}`;
 }
+
+export { comparableTitle };
 
 export function isSearchable(query) {
   return String(query || "").trim().length >= MIN_QUERY_LENGTH;

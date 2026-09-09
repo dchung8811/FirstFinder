@@ -9,7 +9,8 @@ import {
   suggestionFromCatalogRow,
   mergeSuggestions,
   suggestionSubtitle,
-  applyBookSuggestion
+  applyBookSuggestion,
+  comparableTitle
 } from "./bookSearch";
 import { emptyItem } from "./constants";
 
@@ -154,6 +155,29 @@ describe("mergeSuggestions", () => {
     expect(merged).toHaveLength(2);
   });
 
+  // These are the exact rows that sat under the verified Gatsby guide in
+  // production: Open Library files the book without its leading article, so an
+  // exact-match dedupe let three reprints through, each showing a reissue's
+  // imprint next to the 1925 Scribner's one we had actually verified.
+  it("drops a catalog row that only differs by a leading article", () => {
+    const guide = suggestionFromWork({
+      slug: "the-great-gatsby",
+      title: "The Great Gatsby",
+      author: "F. Scott Fitzgerald",
+      status: "verified",
+      firstEdition: { publisher: "Charles Scribner's Sons", year: 1925 }
+    });
+
+    const merged = mergeSuggestions(guide ? [guide] : [], [
+      catalogRow({ id: "g1", title: "Great Gatsby", author: "F. Scott Fitzgerald", publisher: "Arcturus Publishing" }),
+      catalogRow({ id: "g2", title: "Great Gatsby", author: "F. Scott Fitzgerald", publisher: "Benediction Classics" }),
+      catalogRow({ id: "g3", title: "The Great Gatsby(Published In 1925)", author: "F. Scott Fitzgerald", publisher: "Norton" })
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].publisher).toBe("Charles Scribner's Sons");
+  });
+
   it("caps the list", () => {
     const rows = Array.from({ length: 30 }, (_, index) =>
       catalogRow({ id: `c${index}`, title: `Book ${index}` })
@@ -164,6 +188,22 @@ describe("mergeSuggestions", () => {
 
   it("skips a row with no title rather than rendering a blank option", () => {
     expect(mergeSuggestions([], [catalogRow({ title: "" })])).toEqual([]);
+  });
+});
+
+describe("comparableTitle", () => {
+  it("ignores a leading article, annotations, punctuation and case", () => {
+    expect(comparableTitle("The Great Gatsby")).toBe("great gatsby");
+    expect(comparableTitle("Great Gatsby")).toBe("great gatsby");
+    expect(comparableTitle("The Great Gatsby(Published In 1925)")).toBe("great gatsby");
+    expect(comparableTitle("The Adventures of Sherlock Holmes [12 stories]")).toBe("adventures of sherlock holmes");
+    expect(comparableTitle("  IT  ")).toBe("it");
+  });
+
+  // Two genuinely different books must not collapse into one.
+  it("keeps different books apart", () => {
+    expect(comparableTitle("Dune")).not.toBe(comparableTitle("Dune Messiah"));
+    expect(comparableTitle("The Stand")).not.toBe(comparableTitle("The Shining"));
   });
 });
 
