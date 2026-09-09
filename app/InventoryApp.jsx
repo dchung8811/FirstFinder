@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
@@ -30,6 +30,15 @@ import {
   csvHeaders
 } from "../src/utils/constants";
 import { formatReference, todayIso, toNumber, formatCurrency, hasValue } from "../src/utils/format";
+import {
+  GUIDE_TIER,
+  MAX_SUGGESTIONS,
+  isSearchable,
+  searchGuides,
+  mergeSuggestions,
+  suggestionSubtitle,
+  applyBookSuggestion
+} from "../src/utils/bookSearch";
 import {
   findPossibleDuplicates,
   buildSimilarCopyLinks,
@@ -209,6 +218,59 @@ function trackEvent(eventName, params = {}) {
       console.warn("GA event failed:", eventName, error);
     }
   }
+}
+
+// Item-name autocomplete, in two tiers.
+//
+// The eleven verified guides are a local array, so they are matched in memory
+// and always rank first. The catalog is a table of books nobody has checked,
+// queried through a Postgres function that does the trigram matching and the
+// ranking -- see supabase/book-catalog.sql.
+//
+// A catalog failure is not an error the collector needs to hear about. If the
+// migration has not been run, or the table is unreachable, the guides still
+// match and the field still works; the long tail is simply missing. Falling
+// back to an empty dropdown would be worse than falling back to eleven books.
+async function searchBookCatalog(query) {
+  const guides = searchGuides(query);
+  if (!isSearchable(query)) return [];
+
+  try {
+    const { data, error } = await supabase.rpc("search_book_catalog", {
+      p_query: query.trim(),
+      p_limit: MAX_SUGGESTIONS
+    });
+
+    if (error) throw new Error(error.message);
+    return mergeSuggestions(guides, data || []);
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("Book catalog search failed:", error.message);
+    }
+    return mergeSuggestions(guides, []);
+  }
+}
+
+// Queues a book the catalog does not know about, so the catalog grows from what
+// collectors actually own rather than from a bibliography anyone can download.
+//
+// Fire-and-forget, and deliberately so: this runs after an item has already
+// been saved, the collector is not waiting on it, and a failure here must never
+// turn a successful save into an error message. The membership check happens
+// inside the function, in SQL, so this costs one round trip and never blocks.
+function queueBookSuggestion(sourceItem) {
+  if (!sourceItem || sourceItem.category !== "Book") return;
+
+  const title = (sourceItem.name || "").trim();
+  if (title.length < 3) return;
+
+  supabase
+    .rpc("queue_book_suggestion", { p_title: title, p_author: (sourceItem.maker || "").trim() })
+    .then(({ error }) => {
+      if (error && process.env.NODE_ENV === "development") {
+        console.warn("Book suggestion queue failed:", error.message);
+      }
+    });
 }
 
 // Records a sign-in for the admin dashboard's login history.
@@ -954,6 +1016,8 @@ export default function FirstFinderApp() {
           finalRow = updated;
         }
       }
+
+      queueBookSuggestion(sourceItem);
 
       trackEvent("inventory_item_submitted", {
         entry_type: entryType,
@@ -4283,7 +4347,13 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
             {autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}
 
             <div className="mt-6 grid gap-3 md:grid-cols-4">
-              <Field label="Item name" value={quickItem.name} onChange={(value) => setQuickItem({ ...quickItem, name: value })} />
+              <BookNameField
+                label="Item name"
+                value={quickItem.name}
+                enabled={quickItem.category === "Book"}
+                onChange={(value) => setQuickItem({ ...quickItem, name: value })}
+                onSelectSuggestion={(suggestion) => setQuickItem((current) => applyBookSuggestion(current, suggestion))}
+              />
               <SelectField label="Category" value={quickItem.category} options={quickCategories} onChange={(value) => setQuickItem({ ...quickItem, category: value })} />
               <Field label="What you paid" type="number" value={quickItem.purchasePrice} onChange={(value) => setQuickItem({ ...quickItem, purchasePrice: value })} />
               <Field
@@ -4341,7 +4411,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:py-16">
       <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
-      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} />{usesAuthorField(item.category) && (<Field label="Author" value={item.author} onChange={(value) => setItem({ ...item, author: value })} />)}<Field label="Make / Publisher / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><SelectField label="Edition" value={item.bookEdition} options={bookEditionOptions} placeholder="Select edition" onChange={(value) => setItem({ ...item, bookEdition: value })} /><SelectField label="Printing" value={item.bookPrinting} options={bookPrintingOptions} placeholder="Select printing" onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ ...item, condition: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="What you paid" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill what you paid." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} cost you {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>is worth an estimated {formatEstimatedValue(item)}. That's a change of {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want to be able to prove what you paid later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to collection"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
+      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><BookNameField label="Item name" value={item.name} enabled={item.category === "Book"} onChange={(value) => setItem({ ...item, name: value })} onSelectSuggestion={(suggestion) => setItem((current) => applyBookSuggestion(current, suggestion))} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} />{usesAuthorField(item.category) && (<Field label="Author" value={item.author} onChange={(value) => setItem({ ...item, author: value })} />)}<Field label="Make / Publisher / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><SelectField label="Edition" value={item.bookEdition} options={bookEditionOptions} placeholder="Select edition" onChange={(value) => setItem({ ...item, bookEdition: value })} /><SelectField label="Printing" value={item.bookPrinting} options={bookPrintingOptions} placeholder="Select printing" onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ ...item, condition: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="What you paid" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill what you paid." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} cost you {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>is worth an estimated {formatEstimatedValue(item)}. That's a change of {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want to be able to prove what you paid later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to collection"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
     </section>
   );
 }
@@ -7317,6 +7387,182 @@ function Field({ label, value, onChange, type = "text" }) { return <label classN
 // select whose value is a database id must not show that id to a person --
 // which is exactly what the wishlist's "Upgrade for" field did before it took
 // pairs.
+// The item-name field, with book autocomplete attached.
+//
+// It renders as the same input as every other Field -- that is the requirement,
+// not an accident. Someone cataloguing a Phillies program should not be able to
+// tell this field apart from the others; the suggestions only exist when the
+// category is Book and three characters have been typed.
+//
+// Two tiers show up in one list. A guide row carries a badge and, once picked,
+// a link to the identification page, because we have checked that book against
+// sources. A catalog row is a bulk import nobody has read, so it says only that
+// the book exists -- and the footer of the list says exactly that, so the
+// dropdown cannot be mistaken for a verdict on anyone's copy.
+function BookNameField({ label, value, onChange, onSelectSuggestion, enabled }) {
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(-1);
+  const [picked, setPicked] = useState(null);
+  const listId = useId();
+
+  // Debounced, and every setState happens inside the timer rather than in the
+  // effect body -- a keystroke should not schedule a render, and a fast typist
+  // should not fire a query per character.
+  useEffect(() => {
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      if (!enabled || !isSearchable(query)) {
+        if (!cancelled) setSuggestions([]);
+        return;
+      }
+
+      const results = await searchBookCatalog(query);
+
+      // The collector kept typing while this was in flight; their newer query
+      // owns the dropdown now.
+      if (cancelled) return;
+
+      setSuggestions(results);
+      setHighlighted(-1);
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, enabled]);
+
+  function handleChange(next) {
+    onChange(next);
+    setQuery(next);
+    setPicked(null);
+    setOpen(true);
+  }
+
+  function choose(suggestion) {
+    if (!suggestion) return;
+
+    onSelectSuggestion(suggestion);
+    trackEvent("book_autocomplete_selected", { tier: suggestion.tier });
+
+    // Clearing the query is what stops the effect refiring on the title we just
+    // wrote into the field and reopening the list under the collector.
+    setQuery("");
+    setSuggestions([]);
+    setOpen(false);
+    setPicked(suggestion);
+  }
+
+  const showList = open && enabled && suggestions.length > 0;
+
+  function handleKeyDown(event) {
+    if (!showList) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlighted((current) => (current + 1) % suggestions.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlighted((current) => (current <= 0 ? suggestions.length - 1 : current - 1));
+    } else if (event.key === "Enter") {
+      // Only swallow the Enter key when the collector is actually pointing at a
+      // suggestion. Otherwise this is a form, and Enter should submit it.
+      if (highlighted >= 0) {
+        event.preventDefault();
+        choose(suggestions[highlighted]);
+      }
+    } else if (event.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div className="relative block">
+      <label className="block">
+        <div className="mb-2 text-sm font-medium text-[#665746]">{label}</div>
+        <input
+          type="text"
+          value={value || ""}
+          onChange={(event) => handleChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setOpen(true)}
+          // A blur closes the list, but not before a click on an option has
+          // registered -- mousedown on the option is prevented below, so focus
+          // never actually leaves for a click inside the dropdown.
+          onBlur={() => setOpen(false)}
+          role="combobox"
+          aria-expanded={showList}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={highlighted >= 0 ? `${listId}-${highlighted}` : undefined}
+          autoComplete="off"
+          className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+        />
+      </label>
+
+      {showList && (
+        <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] shadow-xl">
+          <ul id={listId} role="listbox" aria-label="Matching books" className="max-h-72 overflow-y-auto py-1">
+            {suggestions.map((suggestion, index) => (
+              <li
+                key={suggestion.key}
+                id={`${listId}-${index}`}
+                role="option"
+                aria-selected={index === highlighted}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setHighlighted(index)}
+                onClick={() => choose(suggestion)}
+                className={`cursor-pointer px-4 py-2.5 ${index === highlighted ? "bg-[#edf4f2]" : ""}`}
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="font-medium text-[#3f362b]">{suggestion.title}</span>
+                  {suggestion.tier === GUIDE_TIER && (
+                    <span className="shrink-0 rounded-full bg-[#123f38] px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[#fff7ea]">
+                      Guide
+                    </span>
+                  )}
+                </div>
+                {suggestionSubtitle(suggestion) && (
+                  <div className="mt-0.5 text-sm leading-5 text-[#7d6c5a]">{suggestionSubtitle(suggestion)}</div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="border-t border-[#e8dcc7] bg-[#fbf5e9] px-4 py-2 text-xs leading-5 text-[#7d6c5a]">
+            These say a book exists, not what your copy is. Check it against the guide.
+          </div>
+        </div>
+      )}
+
+      {picked && (
+        <p className="mt-2 text-xs leading-5 text-[#7d6c5a]">
+          Filled in from {picked.tier === GUIDE_TIER ? "our verified guide" : "the book catalog"}. Publisher, edition
+          and printing are a starting point — check them against your copy
+          {picked.guidePath ? (
+            <>
+              , using the{" "}
+              <a
+                href={picked.guidePath}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-[#cdbb9d] underline-offset-2 hover:text-[#123f38]"
+              >
+                identification guide
+              </a>
+              .
+            </>
+          ) : (
+            "."
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SelectField({ label, value, options, onChange, placeholder }) {
   const choices = (options || []).map((option) => (typeof option === "string" ? { value: option, label: option } : option));
 

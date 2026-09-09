@@ -126,6 +126,7 @@ re-run, and it creates:
 
 - `inventory_items` and `feedback`, with owner-only Row Level Security policies
 - `shared_collections`, the per-user settings behind a public collection page
+- `book_catalog` and its search function, behind item-name autocomplete
 - the unique per-user index behind the `FF-0001` reference numbers
 - the private `item-photos` storage bucket and its per-user access policies
 
@@ -188,6 +189,43 @@ cold instance gets a fresh allowance; the route logs loudly when it takes that
 path. The allowance is claimed only after every free validation passes and
 immediately before the paid call, so a rejected upload doesn't cost the user
 one of their two.
+
+## The book catalog
+
+Typing three letters into the item name on a Book offers matching titles. The
+list has two tiers and they are not the same kind of claim.
+
+The eleven works in `src/content/books/` come first and carry a **Guide** badge.
+Those are sourced, human-verified identification pages, and picking one links
+straight to it. Underneath sits `book_catalog`: a bulk import from Open Library
+that asserts a book exists, spelled this way, by this author — and nothing else.
+No edition points, no first-edition claims, no values. The dropdown says so, in
+those words, at the bottom of the list.
+
+Picking a suggestion copies a snapshot into the item rather than storing a
+reference to the catalog row. That keeps the collector free to edit anything,
+and it stops a later catalog correction silently rewriting what someone recorded
+about a copy in their hand.
+
+Run [`supabase/book-catalog.sql`](supabase/book-catalog.sql) once, then seed it:
+
+```bash
+npm run seed:books                       # the full curated sweep, ~15 minutes
+node scripts/seed-book-catalog.mjs --dry-run   # fetch and print, write nothing
+```
+
+Seeding needs `SUPABASE_SERVICE_ROLE_KEY`, because `book_catalog` has no insert
+policy for anyone — the app can only read it. **Until the SQL is run, the field
+still works**: the catalog lookup fails softly and autocomplete falls back to
+the eleven guides.
+
+What gets seeded is deliberately not "the first ten thousand books Open Library
+will hand over". `scripts/catalog-seed-list.mjs` holds roughly a hundred and
+twenty authors whose first editions are actually collected, plus six award
+sweeps. Past that the catalog is meant to grow from use: every book saved that
+the catalog doesn't know about is queued in `book_catalog_suggestions` with a
+count of how many separate collectors have recorded it, which is a better signal
+about what belongs in here than any list assembled up front.
 
 Individual accounts can be given a different cap by putting a row in
 `identify_limits` -- a raised allowance for a beta tester, or `0` to switch the
@@ -313,6 +351,8 @@ app/
 src/lib/                    Supabase browser and admin clients, shared constants
 src/utils/publicCollection.js  The field allowlist deciding what a shared page may show
 src/content/books/          Sourced identification facts, one module per work
+src/utils/bookSearch.js     Autocomplete tiers, ranking, and what a pick fills in
+scripts/                    One-off data jobs; the book catalog seeder lives here
 supabase/                   schema.sql plus the incremental patches behind it
 .github/                    Issue and PR templates, CI, Dependabot
 ```
