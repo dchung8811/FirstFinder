@@ -3270,17 +3270,20 @@ const aiFeatureVideoPoster = "/firstfinder-ai-feature-poster.jpg";
 function LoopingVideo({ src, poster, label, className = "" }) {
   const videoRef = useRef(null);
 
+  // idle    -- nothing has played; the poster IMAGE is what is on screen.
+  // playing -- the film is running and covers the poster.
+  // manual  -- autoplay was refused or the media failed; controls are offered.
+  const [mode, setMode] = useState("idle");
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     // A film that cannot play itself has to become a film the visitor can
-    // play. Without this, a refused autoplay leaves a poster frame with no
-    // controls and preload="none" behind it -- which is not a resting state,
-    // it is indistinguishable from a broken image.
-    const offerControls = () => {
-      video.controls = true;
-    };
+    // play. Without this, a refused autoplay leaves a video element with
+    // preload="none" behind it and no controls -- nothing to click, and
+    // nothing loaded to show.
+    const offerControls = () => setMode("manual");
 
     // Anyone who has asked their system to reduce motion gets the poster frame
     // and real controls instead of a loop that starts on its own. The video is
@@ -3314,6 +3317,10 @@ function LoopingVideo({ src, poster, label, className = "" }) {
       { threshold: 0.25 }
     );
 
+    // Only once a frame is actually on screen does the video stop being
+    // transparent. Until then the poster image below is what the visitor sees.
+    const reveal = () => setMode((current) => (current === "manual" ? current : "playing"));
+
     observer.observe(video);
 
     // The reason this listener exists: intersection does not change when a tab
@@ -3321,27 +3328,47 @@ function LoopingVideo({ src, poster, label, className = "" }) {
     // video Chrome paused for being in a background tab would otherwise stay
     // paused for the rest of the visit, sitting there looking broken.
     document.addEventListener("visibilitychange", tryPlay);
+    video.addEventListener("playing", reveal);
     video.addEventListener("error", offerControls);
 
     return () => {
       observer.disconnect();
       document.removeEventListener("visibilitychange", tryPlay);
+      video.removeEventListener("playing", reveal);
       video.removeEventListener("error", offerControls);
     };
   }, []);
 
   return (
-    <video
-      ref={videoRef}
-      className={`absolute inset-0 h-full w-full object-cover ${className}`}
-      src={src}
-      poster={poster}
-      preload="none"
-      muted
-      loop
-      playsInline
-      aria-label={label}
-    />
+    <>
+      {/* The resting state is a real <img>, not the video's poster attribute.
+          A <video> with preload="none" holds no frame, so what it paints when
+          it cannot play is up to the platform -- and on an iOS home-screen web
+          app it paints solid black, ignoring the poster. The same page in
+          Chrome shows the poster, which is what makes this so easy to miss.
+          An <img> is not open to interpretation: it is on screen before the
+          video has done anything, and it stays there if the video never
+          manages to play at all. */}
+      <img
+        src={poster}
+        alt=""
+        aria-hidden="true"
+        className={`absolute inset-0 h-full w-full object-cover ${className}`}
+      />
+
+      <video
+        ref={videoRef}
+        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${mode === "idle" ? "opacity-0" : "opacity-100"} ${className}`}
+        src={src}
+        poster={poster}
+        preload="none"
+        muted
+        loop
+        playsInline
+        controls={mode === "manual"}
+        aria-label={label}
+      />
+    </>
   );
 }
 
