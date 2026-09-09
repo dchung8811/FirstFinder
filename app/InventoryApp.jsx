@@ -595,6 +595,12 @@ export default function FirstFinderApp() {
   const [inventoryViewMode, setInventoryViewMode] = useState("cards");
   const [inventoryStatusView, setInventoryStatusView] = useState("active");
   const [editingItem, setEditingItem] = useState(null);
+  // The record a visitor asked to be shown, on their way to the collection --
+  // tapping a cover in Recent finds. Cleared as soon as the collection has
+  // acted on it, so coming back later does not scroll them somewhere they did
+  // not ask to go.
+  const [focusItemId, setFocusItemId] = useState(null);
+  const focusItemRef = useRef(null);
   const [autofillMessage, setAutofillMessage] = useState("");
   const [bulkMessage, setBulkMessage] = useState("");
   const [bulkUploading, setBulkUploading] = useState(false);
@@ -692,6 +698,10 @@ export default function FirstFinderApp() {
   // tracking effect above, so it covers every way a view can change --
   // footer, top nav, mobile nav, and in-page buttons -- not just the footer.
   useEffect(() => {
+    // Except when this view change exists to show one record: the collection
+    // is about to scroll to it, and starting at the top first would either
+    // fight that or undo it. Read from a ref so this stays keyed on the view.
+    if (focusItemRef.current) return;
     window.scrollTo(0, 0);
   }, [activeView]);
 
@@ -1258,6 +1268,21 @@ export default function FirstFinderApp() {
     setInventoryLoading(false);
     setIsLoggedIn(false);
     setActiveView("home");
+  }
+
+  // Takes a tapped cover to its record. A cover in Recent finds is a picture
+  // of one book; tapping it and landing on an unscrolled list of a hundred
+  // others is the app answering a different question than the one asked.
+  //
+  // It clears whatever would hide that record -- the search box, the sold/active
+  // tab -- because "show me this" has to beat a filter set ten minutes ago.
+  function showItemInCollection(item) {
+    if (!item) return;
+    focusItemRef.current = item.id;
+    setSearchTerm("");
+    setInventoryStatusView(item.status === "Sold" ? "sold" : "active");
+    setFocusItemId(item.id);
+    setActiveView("inventory");
   }
 
   function loadSample(sample) {
@@ -2618,11 +2643,11 @@ export default function FirstFinderApp() {
       {activeView === "privacy" && <PrivacyPage onViewTerms={() => setActiveView("terms")} />}
       {activeView === "login" && <LoginPage onViewTerms={() => setActiveView("terms")} onViewPrivacy={() => setActiveView("privacy")} />}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
-      {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} loading={inventoryLoading} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} />}
+      {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} loading={inventoryLoading} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} onOpenItem={showItemInCollection} />}
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} autofillMessage={autofillMessage} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} onAddPhotos={addIdentifyPhotos} onRemovePhoto={removeIdentifyPhoto} onReIdentify={reIdentify} identifying={identifying} />}
       {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} autofillMessage={autofillMessage} />}
-      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onShare={openShareDialog} shareVisibility={shareSettings?.visibility} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} />}
+      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onShare={openShareDialog} shareVisibility={shareSettings?.visibility} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} bulkMessage={bulkMessage} focusItemId={focusItemId} onFocusHandled={() => { focusItemRef.current = null; setFocusItemId(null); }} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
@@ -5213,7 +5238,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   );
 }
 
-function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onShare, shareVisibility, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, bulkMessage }) {
+function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onShare, shareVisibility, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, bulkMessage, focusItemId, onFocusHandled }) {
   const [photoViewer, setPhotoViewer] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -5237,6 +5262,39 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
     () => Array.from(new Set(inventory.map((entry) => entry.bookPrinting).filter(Boolean))).sort(),
     [inventory]
   );
+
+  // Someone arriving from a tapped cover is asking for one specific record, so
+  // this scrolls to it and marks it.
+  //
+  // The filters above need no clearing: leaving the collection unmounts this
+  // page, so arriving from the dashboard always arrives with them at their
+  // defaults. The search box is the app's, and showItemInCollection clears it.
+  //
+  // The mark is the focusItemId prop itself rather than a copy in state, and
+  // the timer below clears it at the source. That keeps this effect free of
+  // the synchronous setState that turns a prop change into a second render.
+  useEffect(() => {
+    if (!focusItemId) return;
+
+    const element = document.getElementById(`item-${focusItemId}`);
+    if (element) {
+      // Smooth, unless the reader has asked their system for less motion --
+      // a long animated jump down a hundred-item list is exactly what they
+      // asked not to have.
+      const lessMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      element.scrollIntoView({ behavior: lessMotion ? "auto" : "smooth", block: "center" });
+    }
+
+    // Long enough to catch the eye once the scroll lands, short enough that it
+    // never becomes a state the collector has to dismiss. Leaving the
+    // collection before it fires leaves the request standing, so the next
+    // visit scrolls there once more -- the same answer to the same question.
+    const fade = setTimeout(onFocusHandled, 2600);
+    return () => clearTimeout(fade);
+    // onFocusHandled is a fresh closure every render; the id is what decides
+    // whether this runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusItemId]);
 
   const displayedInventory = filteredInventory
     .filter((entry) => categoryFilter === "All categories" || entry.category === categoryFilter)
@@ -5453,7 +5511,11 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
               </thead>
               <tbody>
                 {displayedInventory.map((entry) => (
-                  <tr key={entry.id} className="border-t border-[#e0d2bc]">
+                  <tr
+                    key={entry.id}
+                    id={`item-${entry.id}`}
+                    className={`border-t border-[#e0d2bc] transition ${focusItemId === entry.id ? "bg-[#edf4f2]" : ""}`}
+                  >
                     <td className="px-5 py-4">
                       <InlineCell
                         label="item name"
@@ -5522,7 +5584,13 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
           {displayedInventory.map((entry) => (
-            <Card key={entry.id} className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+            <Card
+              key={entry.id}
+              id={`item-${entry.id}`}
+              className={`scroll-mt-24 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm transition ${
+                focusItemId === entry.id ? "ring-2 ring-[#123f38] ring-offset-2 ring-offset-[#f6efe3]" : ""
+              }`}
+            >
               <CardContent className="p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -5892,7 +5960,7 @@ function StatTile({ label, value, sublabel }) {
 // Six most recent finds, newest first, using each item's first photo. Items
 // without a photo are skipped rather than shown as empty frames -- a gap in
 // the strip reads as a bug, a shorter strip doesn't.
-function RecentFinds({ inventory, onCollection }) {
+function RecentFinds({ inventory, onCollection, onOpenItem }) {
   const recent = useMemo(
     () =>
       [...inventory]
@@ -5941,8 +6009,11 @@ function RecentFinds({ inventory, onCollection }) {
           <button
             key={item.id}
             type="button"
-            onClick={onCollection}
-            className="group w-32 shrink-0 text-left"
+            onClick={() => onOpenItem(item)}
+            /* A cover is a picture of one book, so tapping it goes to that
+               book's record rather than to the collection in general. */
+            aria-label={`Show "${item.name || "this item"}" in your collection`}
+            className="group w-32 shrink-0 rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#123f38]/40"
           >
             <div className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3]">
               <img src={url} alt="" className="aspect-[3/4] w-full object-cover transition group-hover:opacity-90" />
@@ -5956,7 +6027,7 @@ function RecentFinds({ inventory, onCollection }) {
   );
 }
 
-function DashboardPage({ inventory, loading, onAddItems, onCollection }) {
+function DashboardPage({ inventory, loading, onAddItems, onCollection, onOpenItem }) {
   // Deliberately not persisted. The dashboard is a page you glance at, and it
   // should open showing everything rather than a filter you set weeks ago.
   const [category, setCategory] = useState("");
@@ -6115,7 +6186,7 @@ function DashboardPage({ inventory, loading, onAddItems, onCollection }) {
         </Card>
       ) : (
         <>
-          <RecentFinds inventory={visible} onCollection={onCollection} />
+          <RecentFinds inventory={visible} onCollection={onCollection} onOpenItem={onOpenItem} />
 
           <h2 className="mt-12 text-2xl font-semibold">What it's worth</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -8413,9 +8484,9 @@ function Button({ children, variant = "primary", className = "", onClick, type =
   );
 }
 
-function Card({ children, className = "" }) {
+function Card({ children, className = "", id }) {
   return (
-    <div className={`rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm ${className}`}>
+    <div id={id} className={`rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm ${className}`}>
       {children}
     </div>
   );
