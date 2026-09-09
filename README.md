@@ -92,6 +92,21 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 - Import sale information and book-specific genre, edition, and printing fields.
 - Create a printer-friendly active-collection report with photo counts and financial totals, or save it as a PDF for insurance and estate records.
 
+### Offline, at the fair
+
+- Install it to a home screen and open it like an app, browser chrome and all
+  gone.
+- The collection you last loaded is kept on the device, so a shop basement with
+  no signal still answers "do I already own this?" — the same search, filters,
+  and duplicate check, against your last synced copy.
+- A banner says plainly when you are looking at that copy and how old it is, and
+  the app refetches by itself the moment the connection comes back.
+- Saving, editing, and identifying are refused while offline rather than failing
+  halfway: your typed record stays on screen until there is a connection to save
+  it to. An offline write queue is [issue #147](https://github.com/dchung8811/FirstFinder/issues/147).
+- Photos are not cached. They are served through short-lived signed URLs, so a
+  cached one would resolve to nothing; the item's photo count still shows.
+
 ### Sharing a collection
 
 - Publish a read-only collection page at `/c/<slug>` and send the link to anyone — no FirstFinder account needed to open it.

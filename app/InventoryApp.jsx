@@ -54,6 +54,8 @@ import {
   toValueRange
 } from "../src/utils/items";
 import { csvUpdateRow, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
+import { syncAgeLabel } from "../src/utils/offlineCollection";
+import { readOfflineCollection, writeOfflineCollection, clearOfflineCollection } from "../src/lib/offlineStore";
 import {
   emptyWant,
   priorityOptions,
@@ -106,6 +108,25 @@ function Icon({ name, size = 20, className = "" }) {
       </>
     ),
     check: <path d="M20 6 9 17l-5-5" />,
+    // Signal arcs with a stroke through them: the offline banner's mark.
+    wifiOff: (
+      <>
+        <path d="M2 3l20 18" />
+        <path d="M5 12.5a11 11 0 0 1 4-2.4" />
+        <path d="M2 8.8a16 16 0 0 1 5.5-3.2" />
+        <path d="M16.7 10.4a11 11 0 0 1 2.3 2.1" />
+        <path d="M12.5 5.6a16 16 0 0 1 9 3.2" />
+        <path d="M8.5 16a6 6 0 0 1 7 0" />
+        <path d="M12 20h.01" />
+      </>
+    ),
+    // A circular arrow, for "try that again".
+    refresh: (
+      <>
+        <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+        <path d="M21 4v5h-5" />
+      </>
+    ),
     x: <path d="M18 6 6 18M6 6l12 12" />,
     search: (
       <>
@@ -526,6 +547,16 @@ export default function FirstFinderApp() {
   // collector their collection is empty while it is still loading is the
   // worst possible reading of that state.
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  // Offline state (issue #60). `online` starts true rather than reading
+  // navigator.onLine during render: the server has no such property, and a
+  // first paint that disagrees with the client's is a hydration error. The
+  // effect below corrects it immediately, and being briefly wrong in the
+  // optimistic direction costs nothing.
+  const [online, setOnline] = useState(true);
+  // When the visible collection was last known to match the database, and
+  // whether what is on screen came from the snapshot rather than the network.
+  const [syncedAt, setSyncedAt] = useState("");
+  const [fromSnapshot, setFromSnapshot] = useState(false);
   const [itemPhotos, setItemPhotos] = useState([]);
   const [receiptPhotos, setReceiptPhotos] = useState([]);
   const [quickItemPhotos, setQuickItemPhotos] = useState([]);
@@ -633,6 +664,39 @@ export default function FirstFinderApp() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [activeView]);
+
+  // Connectivity, from the browser's own view of it (issue #60).
+  //
+  // navigator.onLine is a weak signal -- it means "there is an interface up",
+  // not "Supabase is reachable" -- so it is not the only thing that puts the
+  // app in its offline state: a failed load does too, through fromSnapshot.
+  // This is the fast half, the one that catches the moment someone walks into
+  // a basement, and it is read here rather than during render because the
+  // server has no navigator to agree with.
+  useEffect(() => {
+    function syncOnline() {
+      setOnline(navigator.onLine);
+    }
+
+    syncOnline();
+    window.addEventListener("online", syncOnline);
+    window.addEventListener("offline", syncOnline);
+    return () => {
+      window.removeEventListener("online", syncOnline);
+      window.removeEventListener("offline", syncOnline);
+    };
+  }, []);
+
+  // Coming back into signal refetches what the snapshot was standing in for.
+  // Without this the collector keeps reading a stale shelf until they think
+  // to reload, which is exactly the moment they are least likely to trust it.
+  useEffect(() => {
+    if (!online || !fromSnapshot || !currentUser) return;
+    loadInventory(currentUser.id);
+    // loadInventory is recreated every render and is not a dependency worth
+    // chasing; the guards above are what decide whether this runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, fromSnapshot, currentUser]);
 
   useEffect(() => {
     let mounted = true;
@@ -846,6 +910,29 @@ export default function FirstFinderApp() {
     return visibleInventory.filter((entry) => [entry.name, entry.category, entry.author, entry.maker, entry.source, entry.status, entry.notes, entry.edition].join(" ").toLowerCase().includes(query));
   }, [visibleInventory, searchTerm]);
 
+  // Puts the last synced collection on screen, and says whether it managed
+  // to. Read-only by construction: nothing in the app writes to `inventory`
+  // expecting it to reach Postgres, and every mutation is refused while
+  // offline (see requireOnline).
+  function restoreFromSnapshot(userId) {
+    const snapshot = readOfflineCollection(userId);
+    if (!snapshot) return null;
+
+    setInventory(snapshot.items);
+    setSyncedAt(snapshot.syncedAt);
+    setFromSnapshot(true);
+    return snapshot;
+  }
+
+  // The gate in front of every write. Saving offline would fail somewhere
+  // inside Supabase and take the collector's typed record with it; refusing up
+  // front keeps the form filled in and says what to do about it.
+  function requireOnline(what) {
+    if (online) return true;
+    pushToast(`You're offline, so ${what} has to wait. Your collection is here to look through, and this will work again on a connection.`, "warning");
+    return false;
+  }
+
   async function loadInventory(userId) {
     // Set synchronously, in the same batch as the setActiveView("dashboard")
     // that precedes every call, so the dashboard's first render already knows
@@ -861,11 +948,23 @@ export default function FirstFinderApp() {
 
       if (error) {
         console.error("Load inventory error:", error.message);
-        pushToast(error.message, "error");
+        // A failed load is what a shop basement looks like from in here. If
+        // there is a snapshot, showing it beats showing an error and an empty
+        // shelf -- the collector came to look something up, and the answer is
+        // sitting in this browser.
+        const snapshot = restoreFromSnapshot(userId);
+        if (snapshot) pushToast(`No connection. Showing your collection as it was ${syncAgeLabel(snapshot.syncedAt)}.`, "warning");
+        else pushToast(error.message, "error");
         return;
       }
 
-      setInventory((data || []).map(fromDbItem));
+      const loaded = (data || []).map(fromDbItem);
+      setInventory(loaded);
+      setFromSnapshot(false);
+      // Written on every load, so the snapshot is never older than the last
+      // time the app worked. A failed write leaves syncedAt blank, which the
+      // banner reads as "at some point" rather than claiming a time.
+      setSyncedAt(writeOfflineCollection(userId, loaded) || "");
       loadShareSettings(userId);
       loadWishlist(userId);
     } finally {
@@ -887,9 +986,14 @@ export default function FirstFinderApp() {
     }
 
     trackEvent("logout");
+    // The snapshot is one person's shelf sitting in a browser other people
+    // use. Signing out has to take it with them.
+    clearOfflineCollection(currentUser?.id);
     loadedUserIdRef.current = null;
     setCurrentUser(null);
     setInventory([]);
+    setSyncedAt("");
+    setFromSnapshot(false);
     setInventoryLoading(false);
     setIsLoggedIn(false);
     setActiveView("home");
@@ -967,6 +1071,8 @@ export default function FirstFinderApp() {
       pushToast("Please log in before saving to your collection.", "error");
       return null;
     }
+
+    if (!requireOnline("saving this item")) return null;
 
     setSaving(true);
 
@@ -1098,6 +1204,8 @@ export default function FirstFinderApp() {
   }
 
   async function deleteItem(id) {
+    if (!requireOnline("deleting an item")) return;
+
     const entry = inventory.find((current) => current.id === id);
 
     const { error } = await supabase
@@ -1127,6 +1235,8 @@ export default function FirstFinderApp() {
   }
 
   async function markSold(id, { soldPrice, soldDate, condition } = {}) {
+    if (!requireOnline("marking this sold")) return;
+
     const previousItem = inventory.find((entry) => entry.id === id);
     // Remember what the item was before the sale (not "Sold" itself, in the
     // rare case this fires twice) so restoring later can put it back there
@@ -1164,6 +1274,8 @@ export default function FirstFinderApp() {
   }
 
   async function restoreSold(id) {
+    if (!requireOnline("restoring this item")) return;
+
     const previousItem = inventory.find((entry) => entry.id === id);
     const restoredStatus = previousItem?.previousStatus || "Owned";
 
@@ -1200,6 +1312,8 @@ export default function FirstFinderApp() {
       pushToast("Please log in before saving to your collection.", "error");
       return;
     }
+
+    if (!requireOnline("saving this edit")) return;
 
     setSaving(true);
 
@@ -1325,6 +1439,7 @@ export default function FirstFinderApp() {
 
   async function saveWant(want) {
     if (!currentUser || !isWantSaveable(want)) return;
+    if (!requireOnline("saving a want")) return;
     setSavingWant(true);
 
     try {
@@ -1364,6 +1479,8 @@ export default function FirstFinderApp() {
   }
 
   async function deleteWant(id) {
+    if (!requireOnline("deleting a want")) return;
+
     const { error } = await supabase.from("wishlist_items").delete().eq("id", id);
 
     if (error) {
@@ -1550,6 +1667,7 @@ export default function FirstFinderApp() {
   async function updateItemFields(itemId, fields) {
     const existing = inventory.find((entry) => entry.id === itemId);
     if (!existing || !currentUser) return;
+    if (!requireOnline("this edit")) return;
 
     // Match the edit modal: moving an item to Sold defaults the sale date to
     // today rather than leaving it blank.
@@ -1668,6 +1786,8 @@ export default function FirstFinderApp() {
       pushToast("Please log in before identifying a photo.", "error");
       return;
     }
+
+    if (!requireOnline("identifying a photo")) return;
 
     let photo;
     try {
@@ -1856,6 +1976,7 @@ export default function FirstFinderApp() {
 
   async function applyPendingImport() {
     if (!pendingImport || !currentUser) return;
+    if (!requireOnline("applying an import")) return;
 
     const { creates, updates, deletes } = pendingImport.batch;
     setApplyingImport(true);
@@ -2019,6 +2140,15 @@ export default function FirstFinderApp() {
           )}
         </div>
       </nav>
+
+      {isLoggedIn && (!online || fromSnapshot) && (
+        <OfflineBanner
+          online={online}
+          syncedAt={syncedAt}
+          refreshing={inventoryLoading}
+          onRefresh={currentUser ? () => loadInventory(currentUser.id) : undefined}
+        />
+      )}
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "login")} />}
       {activeView === "roadmap" && <RoadmapPage />}
@@ -4203,6 +4333,47 @@ function formatAccountDate(value) {
   return new Date(value).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
+// The line that stops a stale shelf from reading as the live one.
+//
+// Two states, because they are two different claims. Offline is a fact about
+// the device and says plainly that the collection is read-only. Online but
+// still on the snapshot means the load failed for some other reason -- an
+// expired token, Supabase down, a captive portal that answers every request
+// with a login page -- and there the honest offer is a retry.
+function OfflineBanner({ online, syncedAt, refreshing, onRefresh }) {
+  const age = syncAgeLabel(syncedAt);
+
+  return (
+    <div className="mx-auto max-w-6xl px-6 print:hidden">
+      <div
+        role="status"
+        className="flex flex-col gap-2 rounded-2xl border border-[#e2c78a] bg-[#fff3d8] px-5 py-4 text-sm leading-6 text-[#6d5526] sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="flex items-start gap-3">
+          <Icon name={online ? "refresh" : "wifiOff"} size={17} className="mt-0.5 shrink-0" />
+          <span>
+            {online ? (
+              <>Couldn&apos;t reach your collection just now. Showing your last synced copy, from {age}.</>
+            ) : (
+              <>You&apos;re offline. This is your collection as it was {age} — look anything up; saving waits for a connection.</>
+            )}
+          </span>
+        </div>
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="shrink-0 self-start rounded-full border border-[#d8b96a] bg-[#fff9ec] px-4 py-1.5 font-medium text-[#6d5526] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
+          >
+            {refreshing ? "Checking..." : "Try again"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MyAccountPage({ currentUser, inventory, pushToast }) {
   const [name, setName] = useState(currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || "");
   const [savingName, setSavingName] = useState(false);
@@ -4257,6 +4428,9 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
       }
 
       trackEvent("delete_account_completed");
+      // "Delete my account" has to mean the copy cached on this device too,
+      // not just the rows in Postgres.
+      clearOfflineCollection(currentUser?.id);
       await supabase.auth.signOut();
       // Full reload so every bit of app state (inventory, session, etc.)
       // clears cleanly rather than trying to unwind it all in React state.
