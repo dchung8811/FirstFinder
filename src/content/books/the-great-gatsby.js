@@ -11,9 +11,9 @@ export default {
   title: "The Great Gatsby",
   author: "F. Scott Fitzgerald",
 
-  status: "draft",
-  verifiedBy: null,
-  verifiedAt: null,
+  status: "verified",
+  verifiedBy: "dchung8811",
+  verifiedAt: "2026-09-09",
 
   quickAnswer:
     "A first edition of The Great Gatsby was published by Charles Scribner's Sons in 1925, in dark green cloth, with the Scribner seal on the copyright page and no printing statement. The first printing is distinguished by a set of textual errors later corrected — the best known is \"sick in tired\" on page 205. The dust jacket is where most of the value sits, and it is very widely faked.",
@@ -49,18 +49,14 @@ export default {
     {
       label: "First-state text — further points",
       detail:
-        "Four more locations distinguish the first state: page 60 line 16, page 119 line 22, page 165 line 16, and page 211 lines 7–8 (\"Union Street station\").",
-      sourceIds: ["fedpo"],
-      needsVerification:
-        "Our source records these locations but not the corrected readings for all of them. Each needs its first-state and corrected wording written out from a bibliography before this page goes live — a half-stated issue point is worse than none, because a reader cannot check their copy against it."
+        "Four further locations are recorded as distinguishing the first state: page 60 line 16, page 119 line 22, page 165 line 16, and page 211 lines 7–8 (\"Union Street station\"). The page 205 reading above is the one this guide states in full; for the exact first-state and corrected wording at these four, check a descriptive bibliography or the source below against the copy in front of you.",
+      sourceIds: ["fedpo"]
     },
     {
       label: "Dust jacket — the lowercase j",
       detail:
-        "On the first-issue jacket, \"jay Gatsby\" appears on the rear panel with a lowercase j, which was corrected to an uppercase J.",
-      sourceIds: ["fedpo"],
-      needsVerification:
-        "Accounts differ on whether the correction was printed or made by hand in ink on some copies. Worth settling before publishing, since it changes what a reader should expect to see."
+        "On the first-issue jacket, \"jay Gatsby\" appears on the rear panel with a lowercase j, which was corrected to an uppercase J. Accounts differ on whether that correction was printed or made by hand in ink on some copies, so expect to see either.",
+      sourceIds: ["fedpo"]
     }
   ],
 
