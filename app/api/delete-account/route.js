@@ -3,25 +3,73 @@ import { createSupabaseAdminClient } from "../../../src/lib/supabaseAdmin";
 
 const PHOTO_BUCKET = "item-photos";
 
-// Supabase Storage's list() only returns one directory level at a time --
-// recurse into every pseudo-folder to collect every file under a prefix.
-// Folder entries come back with a null id; real files have a uuid.
-async function listAllFiles(supabaseAdmin, bucket, prefix) {
-  const results = [];
-  const { data, error } = await supabaseAdmin.storage.from(bucket).list(prefix, { limit: 1000 });
-  if (error || !data) return results;
+// Supabase Storage's per-call maximum. Asking for more is silently capped, so
+// this is the page size AND the signal that another page may exist.
+const LIST_PAGE_SIZE = 1000;
 
-  for (const entry of data) {
-    const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.id) {
-      results.push(fullPath);
-    } else {
-      const nested = await listAllFiles(supabaseAdmin, bucket, fullPath);
-      results.push(...nested);
+// Photos live at <userId>/<itemId>/<file>, so the top level under a user is one
+// folder per item and the recursion below is one call per item. Doing those
+// strictly in sequence means a thousand round trips end to end, which is how a
+// correctness fix turns into a function timeout. Ten at a time keeps a large
+// collection inside the request budget without hammering storage.
+const FOLDER_CONCURRENCY = 10;
+
+// remove() takes a list; very large collections get chunked rather than sent as
+// one enormous request, matching how signPhotoPaths batches its signing.
+const REMOVE_BATCH_SIZE = 100;
+
+// Collects every file under a prefix.
+//
+// THROWS on a listing failure, and that is the point. This used to return
+// whatever it had on error, so a storage outage read as "this user has no
+// photos" -- and the caller went on to delete the account, stranding every
+// file with no owner and no way to find them again. An error here has to stop
+// the deletion, not quietly shrink it.
+async function listAllFiles(supabaseAdmin, bucket, prefix) {
+  const files = [];
+  const folders = [];
+
+  // Paged to exhaustion. Listing one page of 1000 and stopping was a silent
+  // ceiling: a collector with more than a thousand photographed items had the
+  // remainder skipped, was told deletion succeeded, and left the rest behind.
+  for (let offset = 0; ; offset += LIST_PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin.storage
+      .from(bucket)
+      .list(prefix, { limit: LIST_PAGE_SIZE, offset });
+
+    if (error) {
+      throw new Error(`Could not list ${prefix || bucket}: ${error.message}`);
     }
+
+    const page = data || [];
+    for (const entry of page) {
+      const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      // Folder entries come back with a null id; real files have a uuid.
+      if (entry.id) files.push(fullPath);
+      else folders.push(fullPath);
+    }
+
+    // A short page is the last page.
+    if (page.length < LIST_PAGE_SIZE) break;
   }
 
-  return results;
+  for (let start = 0; start < folders.length; start += FOLDER_CONCURRENCY) {
+    const batch = folders.slice(start, start + FOLDER_CONCURRENCY);
+    const nested = await Promise.all(batch.map((folder) => listAllFiles(supabaseAdmin, bucket, folder)));
+    nested.forEach((list) => files.push(...list));
+  }
+
+  return files;
+}
+
+// Deletes every listed file, in batches. Throws on the first failure so the
+// caller can stop before the account goes.
+async function removeAllFiles(supabaseAdmin, bucket, paths) {
+  for (let start = 0; start < paths.length; start += REMOVE_BATCH_SIZE) {
+    const batch = paths.slice(start, start + REMOVE_BATCH_SIZE);
+    const { error } = await supabaseAdmin.storage.from(bucket).remove(batch);
+    if (error) throw new Error(`Could not delete photos: ${error.message}`);
+  }
 }
 
 // Deletes the requesting user's own account: storage photos, inventory
@@ -54,10 +102,29 @@ export async function POST(request) {
   const userId = userData.user.id;
 
   try {
-    const filePaths = await listAllFiles(supabaseAdmin, PHOTO_BUCKET, userId);
-    if (filePaths.length > 0) {
-      const { error: removeError } = await supabaseAdmin.storage.from(PHOTO_BUCKET).remove(filePaths);
-      if (removeError) console.error("Delete account storage cleanup error:", removeError.message);
+    // Photos first, and the account only if they actually went.
+    //
+    // Storage does not cascade from auth.users, so the auth row is the only
+    // thing tying these files to a person. Deleting the account while the
+    // photos remain -- which is what logging the error and carrying on did --
+    // orphans them permanently and reports success for a deletion that did not
+    // happen. Better to leave the account in place and let them retry: an
+    // account that still exists can be deleted again, files nobody owns cannot
+    // be found.
+    try {
+      const filePaths = await listAllFiles(supabaseAdmin, PHOTO_BUCKET, userId);
+      if (filePaths.length > 0) {
+        await removeAllFiles(supabaseAdmin, PHOTO_BUCKET, filePaths);
+      }
+    } catch (storageError) {
+      console.error("Delete account storage cleanup error:", storageError.message);
+      return NextResponse.json(
+        {
+          error:
+            "We couldn't delete your photos, so your account has been left in place. Please try again in a moment, or contact support if it keeps happening."
+        },
+        { status: 500 }
+      );
     }
 
     const { error: inventoryError } = await supabaseAdmin.from("inventory_items").delete().eq("user_id", userId);
