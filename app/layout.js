@@ -1,4 +1,5 @@
 import { GoogleAnalytics } from "@next/third-parties/google";
+import ServiceWorkerRegistrar from "./ServiceWorkerRegistrar";
 import { Fraunces, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -20,6 +21,12 @@ const description = "A free, open-source catalog for collectors — not for shop
 // app already owns "FirstFinder" in search results. Leading with what the app
 // does gives Google something to match a query against.
 const defaultTitle = "FirstFinder — Catalog your collection and identify first editions";
+
+// Matches the manifest's theme_color, so an installed window's title bar is
+// the app's green rather than the browser's default.
+export const viewport = {
+  themeColor: "#123f38"
+};
 
 export const metadata = {
   metadataBase: new URL(siteUrl),
@@ -55,6 +62,7 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body className={`${fraunces.variable} ${plexMono.variable}`}>
         {children}
+        <ServiceWorkerRegistrar />
         {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
