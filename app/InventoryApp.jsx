@@ -379,18 +379,40 @@ async function uploadPhotoList(userId, itemId, photos, kind) {
 }
 
 // Resolves {path, name} photo records to short-lived, viewable signed URLs.
+//
+// The hour is the important number here: every URL this hands back stops
+// working an hour after it was signed, whether or not the page is still open.
+// SignedPhoto below is what notices, and asks for a new one.
+export const SIGNED_URL_TTL_SECONDS = 3600;
+
 async function fetchSignedPhotoUrls(photos) {
   const paths = photos.filter((photo) => photo.path).map((photo) => photo.path);
   if (paths.length === 0) return photos;
 
-  const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, 3600);
+  const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL_SECONDS);
   if (error) {
     console.error("Signed URL error:", error.message);
     return photos;
   }
 
+  // createSignedUrls reports per-path failures inside the rows rather than in
+  // `error`, and a row that failed carries a null URL. Logged rather than
+  // swallowed: without this a single unsigned photo is indistinguishable from
+  // one that simply has not arrived yet.
+  (data || []).forEach((row) => {
+    if (row.error) console.error("Signed URL error:", row.path, row.error);
+  });
+
   const urlByPath = new Map((data || []).map((row) => [row.path, row.signedUrl]));
   return photos.map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) : photo.url }));
+}
+
+// A single photo's URL, re-signed on demand. Used by SignedPhoto to recover a
+// photo whose hour is up without the page it lives on having to reload.
+async function signedUrlForPath(path) {
+  if (!path) return "";
+  const [photo] = await fetchSignedPhotoUrls([{ path }]);
+  return photo?.url || "";
 }
 
 // Allocates the next N reference numbers for a user.
@@ -5807,11 +5829,13 @@ function InsuranceExportPage({ items, onBack }) {
             {(itemPhotosById[item.id]?.length > 0) && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {itemPhotosById[item.id].map((photo) => (
-                  <img
+                  <SignedPhoto
                     key={photo.path}
+                    path={photo.path}
                     src={photo.url}
-                    alt=""
-                    className="h-24 w-24 rounded-lg border border-[#e0d2bc] object-cover"
+                    frameClassName="h-24 w-24 rounded-lg border border-[#e0d2bc]"
+                    className="h-24 w-24 object-cover"
+                    quiet
                   />
                 ))}
               </div>
@@ -5985,7 +6009,17 @@ function RecentFinds({ inventory, onCollection, onOpenItem }) {
     fetchSignedPhotoUrls(recent.map((item) => (item.itemPhotos || []).find((photo) => photo.path || photo.url))).then(
       (photos) => {
         if (cancelled) return;
-        setCovers(recent.map((item, index) => ({ item, url: photos[index]?.url })).filter((cover) => cover.url));
+        // The path travels with the URL: it is what a cover needs to ask for
+        // a new URL of its own when the one it was handed stops working.
+        setCovers(
+          recent
+            .map((item, index) => ({ item, url: photos[index]?.url, path: photos[index]?.path }))
+            // A cover whose URL did not come back is still a book the
+            // collector owns: it keeps its place, says the photo did not
+            // load, and re-signs itself. Dropping it made the strip quietly
+            // shorter, which reads as items going missing.
+            .filter((cover) => cover.url || cover.path)
+        );
       }
     );
 
@@ -6005,7 +6039,7 @@ function RecentFinds({ inventory, onCollection, onOpenItem }) {
         </button>
       </div>
       <div className="mt-4 flex gap-4 overflow-x-auto pb-2">
-        {covers.map(({ item, url }) => (
+        {covers.map(({ item, url, path }) => (
           <button
             key={item.id}
             type="button"
@@ -6016,7 +6050,13 @@ function RecentFinds({ inventory, onCollection, onOpenItem }) {
             className="group w-32 shrink-0 rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#123f38]/40"
           >
             <div className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3]">
-              <img src={url} alt="" className="aspect-[3/4] w-full object-cover transition group-hover:opacity-90" />
+              <SignedPhoto
+                path={path}
+                src={url}
+                frameClassName="aspect-[3/4] w-full"
+                className="h-full w-full object-cover transition group-hover:opacity-90"
+                allowRetry={false}
+              />
             </div>
             <div className="mt-2 truncate text-sm font-medium" title={item.name || "Untitled item"}>{item.name || "Untitled item"}</div>
             <div className="truncate text-xs text-[#7d6c5a]" title={itemCredit(item)}>{itemCredit(item) || "Unknown maker"}</div>
@@ -6971,7 +7011,7 @@ function ShareToggle({ group, checked, onChange }) {
 // What matters is that the *data* is not a copy: both call buildPublicItem
 // with the same settings, so this preview cannot show something the public
 // page would withhold, or withhold something it would show.
-function SharePreviewCard({ item, photoUrl }) {
+function SharePreviewCard({ item, photoUrl, photoPath }) {
   const editionLine =
     item.category === "Book"
       ? [item.bookEdition && `${item.bookEdition} edition`, item.bookPrinting && `${item.bookPrinting} printing`].filter(Boolean).join(" · ")
@@ -6987,8 +7027,8 @@ function SharePreviewCard({ item, photoUrl }) {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#fff9f0]">
-      {photoUrl ? (
-        <img src={photoUrl} alt="" className="h-32 w-full bg-[#f0e2cf] object-cover" />
+      {photoUrl || photoPath ? (
+        <SignedPhoto path={photoPath} src={photoUrl} frameClassName="h-32 w-full" className="h-32 w-full object-cover" quiet />
       ) : (
         <div className="flex h-32 w-full items-center justify-center bg-[#f0e2cf] text-xs text-[#8a7a64]">No photo</div>
       )}
@@ -7295,7 +7335,7 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
 
           <div className="mt-3">
             {previewItem ? (
-              <SharePreviewCard item={previewItem} photoUrl={previewPhotoUrl} />
+              <SharePreviewCard item={previewItem} photoUrl={previewPhotoUrl} photoPath={previewSource?.itemPhotos?.[0]?.path} />
             ) : (
               <div className="rounded-2xl border border-dashed border-[#cdbb9d] bg-[#fffdf8] p-4 text-xs leading-5 text-[#7d6c5a]">
                 Nothing would appear on your page with these settings.
@@ -7533,11 +7573,14 @@ function EditPhotoSection({ title, icon, existingPhotos, newPhotos, onUpload, on
         <div className="mt-4 grid grid-cols-3 gap-3">
           {existingPhotos.map((photo) => (
             <div key={photo.path} className="group relative overflow-hidden rounded-2xl border border-[#e0d2bc] bg-white shadow-sm">
-              {photo.url ? (
-                <img src={photo.url} alt={photo.name} className="h-20 w-full object-cover" />
-              ) : (
-                <div className="flex h-20 w-full items-center justify-center text-xs text-[#7d6c5a]">Loading...</div>
-              )}
+              <SignedPhoto
+                path={photo.path}
+                src={photo.url}
+                alt={photo.name}
+                frameClassName="h-20 w-full"
+                className="h-20 w-full object-cover"
+                quiet
+              />
               <button type="button" onClick={() => onRemoveExisting(photo.path)} className="absolute right-2 top-2 rounded-full bg-[#201a14]/75 p-2 text-white opacity-100 transition hover:bg-[#201a14] sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove ${photo.name}`}>
                 <Icon name="x" size={15} />
               </button>
@@ -7587,12 +7630,23 @@ function PhotoViewerModal({ entry, onClose }) {
         if (error) {
           console.error("Signed URL error:", error.message);
           setLoadError("Could not load photos. Check that the item-photos storage bucket is set up.");
-          setAllPhotos([]);
+          // The photo records are still real, so they are still listed: each
+          // one re-signs itself and says so if it cannot. Emptying the list
+          // here is what produced "No saved photos for this item yet" in front
+          // of someone whose photos were sitting in storage untouched.
+          setAllPhotos(photos.filter((photo) => photo.path || photo.url));
           return;
         }
 
         const urlByPath = new Map((data || []).map((row) => [row.path, row.signedUrl]));
-        setAllPhotos(photos.map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) : photo.url })).filter((photo) => photo.url));
+        // Kept whether or not a URL came back, for the same reason: a photo
+        // that failed to sign is a photo that failed to load, not one that
+        // does not exist.
+        setAllPhotos(
+          photos
+            .map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) : photo.url }))
+            .filter((photo) => photo.url || photo.path)
+        );
       });
 
     return () => {
@@ -7624,9 +7678,13 @@ function PhotoViewerModal({ entry, onClose }) {
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {allPhotos.map((photo) => (
             <div key={photo.id} className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-white">
-              <div className="flex h-72 w-full items-center justify-center bg-[#f3ece0]">
-                <img src={photo.url} alt={photo.name} className="h-full w-full object-contain" />
-              </div>
+              <SignedPhoto
+                path={photo.path}
+                src={photo.url}
+                alt={photo.name}
+                frameClassName="h-72 w-full bg-[#f3ece0]"
+                className="h-full w-full object-contain"
+              />
               <div className="p-4">
                 <div className="font-semibold">{photo.label}</div>
                 <div className="truncate text-sm text-[#665746]">{photo.name}</div>
@@ -8461,6 +8519,146 @@ function SelectField({ label, value, options, onChange, placeholder }) {
 function TextAreaField({ label, value, onChange, placeholder, rows = 6 }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><textarea value={value || ""} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={rows} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 function PhotoUploader({ title, eyebrow, description, prompts, photos, onUpload, onRemove }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">{eyebrow}</div><h2 className="mt-1 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#665746]">{description}</p></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">{photos.length}</div></div><label className="mt-5 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-[#cbb894] bg-[#f7ecdc] p-6 text-center transition hover:bg-[#fff4e6]"><Icon name={title.toLowerCase().includes("receipt") ? "receipt" : "camera"} size={36} className="text-[#123f38]" /><div className="mt-3 text-lg font-semibold">Take or upload</div><div className="mt-1 max-w-sm text-xs leading-5 text-[#6b5b4c]">Works with camera or photo library on mobile.</div><input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label><div className="mt-4 flex flex-wrap gap-2">{prompts.map((prompt) => <div key={prompt} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs text-[#665746]">{prompt}</div>)}</div>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} />}</CardContent></Card>; }
 function CompactUploader({ title, icon, photos, onUpload, onRemove }) { return <div className="rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] p-4"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2 font-semibold"><Icon name={icon} size={17} /> {title}</div><span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs text-[#123f38]">{photos.length}</span></div><label className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">Take or upload<input type="file" accept="image/*" capture="environment" multiple onChange={onUpload} className="hidden" /></label>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} compact />}</div>; }
+// One stored photo, and every way it can fail to arrive.
+//
+// A photo is served through a signed URL that stops working an hour after it
+// was signed, over whatever connection a collector has in a shop basement.
+// Both of those failures look identical to an <img>: the fetch fails, the
+// element renders an empty frame, and it stays that way until something
+// remounts it. That is the blank card people were seeing on their phones --
+// nothing was broken in the data, and nothing on screen said so.
+//
+// So this holds the three states a remote photo really has: arriving, arrived,
+// and did not arrive. The first retry is automatic and asks for a *new* signed
+// URL rather than re-requesting the dead one, because an expired hour is the
+// likeliest reason a photo that worked earlier stopped. After that it stops
+// and offers the reader the retry, rather than hammering a connection that is
+// already struggling.
+function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "", quiet = false, allowRetry = true }) {
+  const [current, setCurrent] = useState(src || "");
+  const [status, setStatus] = useState(src ? "loading" : "failed");
+  const [prevSrc, setPrevSrc] = useState(src);
+  const autoRetriedRef = useRef(false);
+  // When the URL now on screen was signed. Used to decide whether a resumed
+  // app is holding one that has since died of old age.
+  const signedAtRef = useRef(Date.now());
+
+  // Adjusting state during render rather than in an effect: this is the
+  // documented way to react to a changed prop without the extra render (and
+  // the visible flash of a stale photo) that an effect would add. It happens
+  // when the parent re-signs a batch of URLs.
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setCurrent(src || "");
+    setStatus(src ? "loading" : "failed");
+    autoRetriedRef.current = false;
+  }
+
+  async function resign() {
+    setStatus("loading");
+    const fresh = await signedUrlForPath(path);
+    if (!fresh) {
+      setStatus("failed");
+      return;
+    }
+    signedAtRef.current = Date.now();
+    setCurrent(fresh);
+  }
+
+  function handleError() {
+    // One automatic attempt, and only when there is a path to re-sign from.
+    // A local blob preview that fails has nowhere better to go.
+    if (!autoRetriedRef.current && path) {
+      autoRetriedRef.current = true;
+      resign();
+      return;
+    }
+    setStatus("failed");
+  }
+
+  function retry() {
+    autoRetriedRef.current = true;
+    resign();
+  }
+
+  // The installed-app case, and the one collectors actually hit.
+  //
+  // A PWA is not reloaded when you come back to it days later -- iOS freezes
+  // the page and thaws it with its React state intact, including URLs signed
+  // an hour ago that are now refused. Photos already painted survive; anything
+  // the browser has to fetch again comes back blank. Waiting for that failure
+  // works (handleError re-signs), but it means a frame of nothing first, so
+  // this gets ahead of it: on the way back to a visible page, a URL old enough
+  // to be in doubt is replaced before it is asked for.
+  //
+  // The margin is generous on purpose. Re-signing early costs one request that
+  // was going to happen anyway; re-signing late costs the reader a broken
+  // photo, which is the whole bug.
+  useEffect(() => {
+    if (!path) return;
+
+    function refreshIfStale() {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - signedAtRef.current < SIGNED_URL_TTL_SECONDS * 1000 * 0.8) return;
+      autoRetriedRef.current = false;
+      resign();
+    }
+
+    document.addEventListener("visibilitychange", refreshIfStale);
+    // Safari restoring a frozen page fires pageshow, not always
+    // visibilitychange -- and the installed app is Safari.
+    window.addEventListener("pageshow", refreshIfStale);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshIfStale);
+      window.removeEventListener("pageshow", refreshIfStale);
+    };
+    // resign closes over `path` only, which is what this is keyed on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+
+  return (
+    <div className={`relative overflow-hidden bg-[#f0e2cf] ${frameClassName}`}>
+      {status !== "ok" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-2 text-center">
+          {status === "loading" ? (
+            <div className="h-full w-full animate-pulse bg-[#e7d7bd]" />
+          ) : (
+            <>
+              <Icon name="camera" size={16} className="text-[#a2947f]" />
+              {!quiet && <span className="text-[11px] leading-4 text-[#8a7a64]">Photo didn&apos;t load</span>}
+              {/* Suppressed where this sits inside something already
+                  clickable: a button inside a button is invalid, and the
+                  outer control would fire along with it. Those places get
+                  the automatic re-sign and nothing to press. */}
+              {path && allowRetry && (
+                <button
+                  type="button"
+                  onClick={retry}
+                  className="rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-2.5 py-1 text-[11px] font-medium text-[#665746] transition hover:bg-white"
+                >
+                  Try again
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {current && (
+        <img
+          src={current}
+          alt={alt}
+          onLoad={() => setStatus("ok")}
+          onError={handleError}
+          /* Async decoding keeps a large photo off the main thread while the
+             rest of the page paints -- these are camera photos, not icons. */
+          decoding="async"
+          className={`${className} ${status === "ok" ? "" : "opacity-0"}`}
+        />
+      )}
+    </div>
+  );
+}
+
 function PhotoGrid({ photos, onRemove, compact = false }) { return <div className={`mt-4 grid gap-3 ${compact ? "grid-cols-3" : "sm:grid-cols-2"}`}>{photos.map((photo) => <div key={photo.id} className="group relative overflow-hidden rounded-2xl border border-[#e0d2bc] bg-white shadow-sm"><img src={photo.url} alt={photo.name} className={`${compact ? "h-20" : "h-32"} w-full object-cover`} /><button type="button" onClick={() => onRemove(photo.id)} className="absolute right-2 top-2 rounded-full bg-[#201a14]/75 p-2 text-white opacity-100 transition hover:bg-[#201a14] sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove ${photo.name}`}><Icon name="x" size={15} /></button>{!compact && <div className="truncate px-3 py-2 text-xs text-[#665746]">{photo.name}</div>}</div>)}</div>; }
 function SummaryPill({ label, value }) { return <div className="rounded-2xl bg-[#f7efe3] p-4"><div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</div><div className="mt-1 text-lg font-semibold">{value}</div></div>; }
 function DashboardCard({ icon, label, value }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="flex items-center gap-4 p-6"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name={icon} size={22} /></div><div><div className="text-sm text-[#665746]">{label}</div><div className="text-2xl font-semibold">{value}</div></div></CardContent></Card>; }
