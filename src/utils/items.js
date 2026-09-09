@@ -3,8 +3,29 @@
 // -- and what makes them a readable reference for any other client that has to
 // reproduce the same arithmetic.
 
-import { conditionOptions, mockAutofillOptions } from "./constants";
+import { authoredCategories, conditionOptions, mockAutofillOptions } from "./constants";
 import { toNumber, hasValue, formatCurrency } from "./format";
+
+// Books and comics carry an author; everything else is only ever made or
+// branded by someone. The forms use this to decide whether to offer the
+// Author field at all, so a trading card never asks who wrote it.
+export function usesAuthorField(category) {
+  return authoredCategories.includes(category);
+}
+
+// The one line under a title, everywhere an item is listed. An author and a
+// publisher are both worth showing when both are known ("Stephen King ·
+// Doubleday"), and either one alone still reads correctly.
+//
+// The author is shown only for the categories that offer the field, so what a
+// card displays is always something the form lets you edit. Recategorizing a
+// book as a record hides the author rather than orphaning it on screen; the
+// value is kept in the row, and comes back with the category (and still
+// leaves in a CSV export either way).
+export function itemCredit(item) {
+  const credits = usesAuthorField(item?.category) ? [item?.author, item?.maker] : [item?.maker];
+  return credits.map((value) => String(value || "").trim()).filter(Boolean).join(" · ");
+}
 
 // Case/punctuation-insensitive comparison key so "The Gunslinger" and "the
 // gunslinger." match, and blank fields don't accidentally match each other.
@@ -23,18 +44,25 @@ export function editionMatchKey(entry) {
 
 // Flags items already in the collection that look like the one being added.
 // There's no ISBN/barcode yet (see issue #43), so matching is loose: same
-// normalized name + maker. Non-blocking by design -- collectors legitimately
+// normalized name + credit. Author and maker are compared as one joined key
+// rather than field by field, so a copy catalogued before those were separate
+// fields (author in maker, or the reverse) still matches the same book.
+// Non-blocking by design -- collectors legitimately
 // keep multiple copies, upgrades, and variant states (issue #47) -- so this
 // only informs, it never prevents the save.
+export function creditMatchKey(entry) {
+  return normalizeForMatch(`${entry.author || ""} ${entry.maker || ""}`);
+}
+
 export function findPossibleDuplicates(candidate, inventory) {
   const name = normalizeForMatch(candidate.name);
   if (!name) return [];
-  const maker = normalizeForMatch(candidate.maker);
+  const credit = creditMatchKey(candidate);
   const candidateEditionKey = editionMatchKey(candidate);
   const candidateConditionRank = conditionOptions.indexOf(candidate.condition);
 
   const matches = inventory
-    .filter((entry) => normalizeForMatch(entry.name) === name && normalizeForMatch(entry.maker) === maker)
+    .filter((entry) => normalizeForMatch(entry.name) === name && creditMatchKey(entry) === credit)
     .map((entry) => {
       const editionKey = editionMatchKey(entry);
       const sameEdition = Boolean(candidateEditionKey) && candidateEditionKey === editionKey;
@@ -66,7 +94,7 @@ export function withClarifyingWord(value, word) {
 }
 
 export function buildSimilarCopyLinks(item) {
-  const parts = [item.name, item.maker];
+  const parts = [item.name, item.author, item.maker];
 
   // Book-specific detail fields narrow the search to the exact edition/
   // printing the collector actually has, e.g. "The Gunslinger Stephen King

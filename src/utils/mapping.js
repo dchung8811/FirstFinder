@@ -12,6 +12,7 @@ import { toNumber, hasValue } from "./format";
 export const csvFieldToColumn = {
   name: "name",
   category: "category",
+  author: "author",
   maker: "maker",
   edition: "edition",
   bookGenre: "book_genre",
@@ -57,6 +58,7 @@ export function toDbItem(item, userId, itemPhotoCount = 0, receiptPhotoCount = 0
     reference_number: item.referenceNumber ?? null,
     name: item.name || "",
     category: item.category || "Other",
+    author: item.author || "",
     maker: item.maker || "",
     edition: item.edition || "",
     book_genre: item.bookGenre || "",
@@ -99,6 +101,7 @@ export function fromDbItem(row) {
     referenceNumber: row.reference_number ?? null,
     name: row.name || "",
     category: row.category || "Other",
+    author: row.author || "",
     maker: row.maker || "",
     edition: row.edition || "",
     bookGenre: row.book_genre || "",

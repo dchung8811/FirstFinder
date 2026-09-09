@@ -20,7 +20,10 @@ export const sortOptions = [
   // what a returning visitor came to see.
   { value: "added", label: "Recently added" },
   { value: "name", label: "Title A–Z" },
-  { value: "maker", label: "Maker A–Z" }
+  // One control for both credit fields: a visitor sorting a mixed shelf wants
+  // the names under the titles in order, and does not care which column a
+  // given row keeps its name in.
+  { value: "maker", label: "Author / Maker A–Z" }
 ];
 
 export const viewModes = ["cards", "records"];
@@ -32,6 +35,7 @@ export const viewModes = ["cards", "records"];
 // anyone has decided it should be.
 const SEARCH_FIELDS = [
   "name",
+  "author",
   "maker",
   "edition",
   "bookEdition",
@@ -75,6 +79,14 @@ export function filterPublicItems(items, { query = "", category = "", status = "
   });
 }
 
+// "maker" sorts on whichever credit the row actually carries: the author for
+// a book, the brand for a card. Falling back the other way round would sort
+// every book to the end of a mixed shelf.
+function sortValue(item, sort) {
+  const value = sort === "maker" ? item.author || item.maker : item[sort];
+  return String(value || "").trim();
+}
+
 // Sorts a copy: the caller's array is the server's order, and "Recently added"
 // has to be able to get back to it.
 export function sortPublicItems(items, sort) {
@@ -85,8 +97,8 @@ export function sortPublicItems(items, sort) {
     // Items missing the field sort last rather than clustering at the top --
     // an untitled row is not the first thing anyone wants to see.
     sorted.sort((a, b) => {
-      const left = String(a[sort] || "").trim();
-      const right = String(b[sort] || "").trim();
+      const left = sortValue(a, sort);
+      const right = sortValue(b, sort);
       if (!left && !right) return 0;
       if (!left) return 1;
       if (!right) return -1;

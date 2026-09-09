@@ -15,7 +15,8 @@ import {
 const item = (over = {}) => ({
   id: "row-1",
   name: "East of Eden",
-  maker: "John Steinbeck",
+  author: "John Steinbeck",
+  maker: "The Viking Press",
   category: "Book",
   edition: "",
   bookEdition: "First",
@@ -65,8 +66,13 @@ describe("matchesQuery", () => {
     expect(matchesQuery(item(), "steinbeck hemingway")).toBe(false);
   });
 
-  it("finds an accented maker from the plain spelling", () => {
-    expect(matchesQuery(item({ maker: "Charlotte Brontë" }), "bronte")).toBe(true);
+  it("finds an accented author from the plain spelling", () => {
+    expect(matchesQuery(item({ author: "Charlotte Brontë" }), "bronte")).toBe(true);
+  });
+
+  it("finds a publisher as well as an author", () => {
+    expect(matchesQuery(item(), "viking")).toBe(true);
+    expect(matchesQuery(item(), "steinbeck viking")).toBe(true);
   });
 
   // A withheld field is not on the object at all, so searching for its value
@@ -110,18 +116,28 @@ describe("filterPublicItems", () => {
 
 describe("sortPublicItems", () => {
   const items = [
-    item({ id: "a", name: "Dune", maker: "Frank Herbert" }),
-    item({ id: "b", name: "East of Eden", maker: "John Steinbeck" }),
-    item({ id: "c", name: "Beloved", maker: "Toni Morrison" })
+    item({ id: "a", name: "Dune", author: "Frank Herbert" }),
+    item({ id: "b", name: "East of Eden", author: "John Steinbeck" }),
+    item({ id: "c", name: "Beloved", author: "Toni Morrison" })
   ];
 
   it("leaves the server's order alone for 'recently added'", () => {
     expect(sortPublicItems(items, "added").map((row) => row.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("sorts by title and by maker", () => {
+  it("sorts by title and by credit", () => {
     expect(sortPublicItems(items, "name").map((row) => row.id)).toEqual(["c", "a", "b"]);
     expect(sortPublicItems(items, "maker").map((row) => row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  // A mixed shelf sorts on whichever credit each row carries, so the cards
+  // without an author don't all pile up at the end.
+  it("sorts a card by its maker alongside a book by its author", () => {
+    const mixed = [
+      item({ id: "card", name: "Rookie card", category: "Trading card", author: "", maker: "Topps" }),
+      item({ id: "book", name: "Dune", author: "Frank Herbert", maker: "Chilton" })
+    ];
+    expect(sortPublicItems(mixed, "maker").map((row) => row.id)).toEqual(["book", "card"]);
   });
 
   // "Recently added" has to be able to get back to the original order, which

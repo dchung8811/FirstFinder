@@ -10,6 +10,7 @@ import {
   resultSummary
 } from "../../../src/utils/publicCollectionBrowse";
 import { formatCurrency } from "../../../src/utils/format";
+import { itemCredit } from "../../../src/utils/items";
 import { ItemCard } from "./ItemCard";
 import PhotoViewer from "./PhotoViewer";
 
@@ -118,7 +119,7 @@ function RecordTable({ items, onViewPhotos }) {
               <tr key={item.id} className="border-t border-[#e0d2bc]">
                 <td className="px-5 py-4">
                   <div className="font-semibold">{item.name || "Untitled item"}</div>
-                  <div className="text-[#665746]">{item.maker || "Unknown maker"}</div>
+                  <div className="text-[#665746]">{itemCredit(item) || "Unknown maker"}</div>
                 </td>
                 <td className="px-5 py-4">{item.category}</td>
                 <td className="px-5 py-4">{statusLabel(item.status)}</td>
@@ -213,7 +214,7 @@ export default function CollectionBrowser({ items }) {
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by title, maker, edition…"
+              placeholder="Search by title, author, maker, edition…"
               className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
             />
           </label>

@@ -3,6 +3,8 @@ import {
   normalizeForMatch,
   editionMatchKey,
   findPossibleDuplicates,
+  usesAuthorField,
+  itemCredit,
   withClarifyingWord,
   buildSimilarCopyLinks,
   hasEstimate,
@@ -16,7 +18,8 @@ import {
 
 const book = (over = {}) => ({
   name: "Dune",
-  maker: "Frank Herbert",
+  author: "Frank Herbert",
+  maker: "",
   category: "Book",
   bookEdition: "First",
   bookPrinting: "First",
@@ -152,8 +155,16 @@ describe("findPossibleDuplicates", () => {
     expect(findPossibleDuplicates(book({ name: "" }), [book()])).toEqual([]);
   });
 
-  it("ignores items by a different maker", () => {
-    expect(findPossibleDuplicates(book(), [book({ maker: "Someone Else" })])).toEqual([]);
+  it("ignores items by a different author", () => {
+    expect(findPossibleDuplicates(book(), [book({ author: "Someone Else" })])).toEqual([]);
+  });
+
+  // The two fields were one until issue #140, and a collection can hold both
+  // shapes of the same book -- one catalogued before the split, one after.
+  // Matching on the joined credit is what keeps those recognizing each other.
+  it("matches a copy catalogued before author and maker were separate fields", () => {
+    const found = findPossibleDuplicates(book(), [book({ author: "", maker: "Frank Herbert" })]);
+    expect(found).toHaveLength(1);
   });
 
   it("flags the same edition in the same condition as a possible duplicate", () => {
@@ -211,7 +222,7 @@ describe("withClarifyingWord", () => {
 
 describe("buildSimilarCopyLinks", () => {
   it("narrows a book search to the exact edition and printing", () => {
-    const links = buildSimilarCopyLinks(book({ name: "Dune", maker: "Frank Herbert" }));
+    const links = buildSimilarCopyLinks(book({ name: "Dune", author: "Frank Herbert" }));
     expect(decodeURIComponent(links.ebay)).toContain("Dune Frank Herbert First edition First printing");
     expect(links.abebooks).toContain("abebooks.com");
   });
@@ -223,6 +234,44 @@ describe("buildSimilarCopyLinks", () => {
 
   it("returns null when there is nothing to search for", () => {
     expect(buildSimilarCopyLinks({ name: "", maker: "", category: "Other", edition: "" })).toBe(null);
+  });
+
+  it("searches on the author and the publisher together", () => {
+    const links = buildSimilarCopyLinks(book({ author: "Stephen King", maker: "Doubleday" }));
+    expect(decodeURIComponent(links.ebay)).toContain("Dune Stephen King Doubleday");
+  });
+});
+
+describe("usesAuthorField", () => {
+  it("offers the field to the categories that have an author", () => {
+    expect(usesAuthorField("Book")).toBe(true);
+    expect(usesAuthorField("Comic")).toBe(true);
+  });
+
+  it("withholds it from everything else", () => {
+    expect(usesAuthorField("Trading card")).toBe(false);
+    expect(usesAuthorField("Record")).toBe(false);
+    expect(usesAuthorField(undefined)).toBe(false);
+  });
+});
+
+describe("itemCredit", () => {
+  it("shows an author and a publisher together", () => {
+    expect(itemCredit(book({ author: "Stephen King", maker: "Doubleday" }))).toBe("Stephen King · Doubleday");
+  });
+
+  it("reads correctly with either half missing", () => {
+    expect(itemCredit(book({ author: "Stephen King", maker: "" }))).toBe("Stephen King");
+    expect(itemCredit(book({ author: "", maker: "Doubleday" }))).toBe("Doubleday");
+    expect(itemCredit(book({ author: "", maker: "" }))).toBe("");
+  });
+
+  it("ignores an author on a category that has no author field", () => {
+    expect(itemCredit({ category: "Trading card", author: "Left over", maker: "Topps" })).toBe("Topps");
+  });
+
+  it("survives a missing item", () => {
+    expect(itemCredit(undefined)).toBe("");
   });
 });
 

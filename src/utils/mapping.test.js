@@ -14,6 +14,12 @@ describe("toDbItem", () => {
 
   // Null means "no estimate yet" and 0 means "estimated at nothing". Collapsing
   // them would make a blank field read as a total loss after a reload.
+  it("keeps the author and the maker as separate columns", () => {
+    const row = toDbItem({ author: "Stephen King", maker: "Doubleday" }, USER);
+    expect(row.author).toBe("Stephen King");
+    expect(row.maker).toBe("Doubleday");
+  });
+
   it("stores a missing estimate as null, not zero", () => {
     expect(toDbItem({ estimatedValue: "" }, USER).estimated_value).toBe(null);
   });
@@ -64,6 +70,13 @@ describe("fromDbItem", () => {
     expect(item.bookEdition).toBe("First");
     expect(item.bookPrinting).toBe("First");
     expect(item.referenceNumber).toBe(7);
+  });
+
+  // A row written before the author column existed has no author at all.
+  it("reads a row that predates the author column", () => {
+    const item = fromDbItem(row({ author: undefined, maker: "Frank Herbert" }));
+    expect(item.author).toBe("");
+    expect(item.maker).toBe("Frank Herbert");
   });
 
   it("brings a null estimate back as a blank field, not '0'", () => {
@@ -129,6 +142,10 @@ describe("csvUpdateRow", () => {
     expect(row.id).toBe("abc");
     expect(row.user_id).toBe(USER);
     expect(row.updated_at).toBeTruthy();
+  });
+
+  it("updates the author column from a CSV", () => {
+    expect(csvUpdateRow(existing, { author: "Toni Morrison" }, USER).author).toBe("Toni Morrison");
   });
 
   it("stores a blanked estimate as null", () => {
