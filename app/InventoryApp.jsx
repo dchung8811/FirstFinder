@@ -6898,10 +6898,25 @@ function WantDialog({ want, inventory, saving, onSave, onDelete, onClose }) {
 }
 
 // One row of the wanted-vs-got table.
-function FoundRow({ wanted, children }) {
+// One row of the found-it form: a label on the left, the field on the right.
+//
+// `hint` is the qualifier that used to be folded into the label itself, where
+// it produced a long sentence breaking mid-clause above an empty box, reading
+// as though the field were asking about the limit rather than the price.
+//
+// Deliberately two lines rather than one joined by a separator. This label sits
+// in a half-width column of a 672px modal -- about 300px -- and "What you paid
+// . You said you wouldn't pay over $1,750" does not fit on one line at any
+// viewport, so a separator would only ever end up stranded at the start of the
+// wrapped line. Label above, qualifier below, smaller and muted: it reads as
+// deliberate at every width instead of as an accident at most of them.
+function FoundRow({ wanted, hint, children }) {
   return (
     <div className="grid grid-cols-1 gap-1 border-t border-[#e0d2bc] bg-[#fffdf8] px-5 py-3 sm:grid-cols-2 sm:gap-4">
-      <div className="text-sm text-[#665746]">{wanted}</div>
+      <div className="flex flex-wrap items-baseline gap-x-1.5">
+        <span className="text-sm text-[#665746]">{wanted}</span>
+        {hint && <span className="text-xs leading-5 text-[#8a7a64]">{hint}</span>}
+      </div>
       <div className="text-sm">{children}</div>
     </div>
   );
@@ -6947,7 +6962,13 @@ function FoundItDialog({ want, saving, onConfirm, onClose }) {
           <SelectField label="" value={found.condition} options={conditionOptions} onChange={(value) => set("condition", value)} placeholder="Not graded" />
         </FoundRow>
 
-        <FoundRow wanted={hasValue(want.maxPrice) ? `You said you wouldn't pay over ${formatCurrency(want.maxPrice)}` : "What you paid"}>
+        {/* The label says what the field is for; the ceiling is context, not a
+            question. Folding both into one sentence made the field read as if
+            it were asking about the limit rather than the price. */}
+        <FoundRow
+          wanted="What you paid"
+          hint={hasValue(want.maxPrice) ? `You said you wouldn't pay over ${formatCurrency(want.maxPrice)}` : ""}
+        >
           <Field label="" type="number" value={found.purchasePrice} onChange={(value) => set("purchasePrice", value)} />
           {ceiling && (
             <div className={`mt-1 text-xs ${ceiling.under ? "text-[#1c5c4a]" : "text-[#8f3524]"}`}>
