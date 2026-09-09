@@ -30,7 +30,7 @@ import {
   csvHeaders
 } from "../src/utils/constants";
 import { formatReference, todayIso, toNumber, formatCurrency, hasValue } from "../src/utils/format";
-import { shouldAttemptPlay, isPermanentPlayRefusal, shouldSkipAutoplay } from "../src/utils/videoPlayback";
+import { shouldAttemptPlay, isPermanentPlayRefusal, hasStartedPlaying, shouldSkipAutoplay } from "../src/utils/videoPlayback";
 import {
   GUIDE_TIER,
   MAX_SUGGESTIONS,
@@ -3296,13 +3296,34 @@ function LoopingVideo({ src, poster, label, className = "" }) {
     }
 
     let onScreen = false;
+    let watchdog = null;
 
     const tryPlay = () => {
       if (!shouldAttemptPlay({ onScreen, pageHidden: document.hidden })) return;
 
+      // preload="none" means the element holds nothing at all, and not every
+      // engine treats play() as permission to go and fetch. Asking explicitly
+      // costs nothing here -- this only runs once the film is on screen, which
+      // is the moment the bandwidth was always going to be spent.
+      if (video.preload === "none") {
+        video.preload = "auto";
+        video.load();
+      }
+
       video.play().catch((error) => {
-        if (isPermanentPlayRefusal(error)) offerControls();
+        if (isPermanentPlayRefusal(error, { pageHidden: document.hidden })) offerControls();
       });
+
+      // The guarantee that this cannot sit there stuck. A play() that resolves,
+      // or never settles, can still leave a motionless poster -- so rather than
+      // trying to name every way WebKit can accept a play request and then not
+      // play, check whether a frame actually moved and hand over controls if
+      // not. Whatever the cause, the visitor ends up with something to tap.
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        if (document.hidden) return;
+        if (!hasStartedPlaying(video)) offerControls();
+      }, 2500);
     };
 
     const observer = new IntersectionObserver(
@@ -3319,7 +3340,17 @@ function LoopingVideo({ src, poster, label, className = "" }) {
 
     // Only once a frame is actually on screen does the video stop being
     // transparent. Until then the poster image below is what the visitor sees.
-    const reveal = () => setMode((current) => (current === "manual" ? current : "playing"));
+    //
+    // Listening for timeupdate as well as playing, because "playing" is an
+    // announcement and timeupdate is evidence: it cannot fire without the film
+    // having actually advanced.
+    const reveal = () => {
+      clearTimeout(watchdog);
+      // timeupdate fires several times a second for the rest of the film, and
+      // there is nothing left to learn after the first one.
+      video.removeEventListener("timeupdate", reveal);
+      setMode((current) => (current === "manual" ? current : "playing"));
+    };
 
     observer.observe(video);
 
@@ -3329,12 +3360,15 @@ function LoopingVideo({ src, poster, label, className = "" }) {
     // paused for the rest of the visit, sitting there looking broken.
     document.addEventListener("visibilitychange", tryPlay);
     video.addEventListener("playing", reveal);
+    video.addEventListener("timeupdate", reveal);
     video.addEventListener("error", offerControls);
 
     return () => {
+      clearTimeout(watchdog);
       observer.disconnect();
       document.removeEventListener("visibilitychange", tryPlay);
       video.removeEventListener("playing", reveal);
+      video.removeEventListener("timeupdate", reveal);
       video.removeEventListener("error", offerControls);
     };
   }, []);
@@ -3358,7 +3392,10 @@ function LoopingVideo({ src, poster, label, className = "" }) {
 
       <video
         ref={videoRef}
-        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${mode === "idle" ? "opacity-0" : "opacity-100"} ${className}`}
+        // The fade belongs to the happy path only. When controls are being
+        // offered, something has already gone wrong, and the play button must
+        // not depend on an animation finishing in order to be visible.
+        className={`absolute inset-0 h-full w-full object-cover ${mode === "playing" ? "transition-opacity duration-500" : ""} ${mode === "idle" ? "opacity-0" : "opacity-100"} ${className}`}
         src={src}
         poster={poster}
         preload="none"

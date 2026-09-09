@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { shouldAttemptPlay, isPermanentPlayRefusal, shouldSkipAutoplay } from "./videoPlayback";
+import { shouldAttemptPlay, isPermanentPlayRefusal, hasStartedPlaying, shouldSkipAutoplay } from "./videoPlayback";
+
+const abort = () => new DOMException("paused to save power", "AbortError");
 
 describe("shouldAttemptPlay", () => {
   it("plays only what is on screen on a visible page", () => {
@@ -19,21 +21,46 @@ describe("shouldAttemptPlay", () => {
 });
 
 describe("isPermanentPlayRefusal", () => {
-  // The distinction the whole fix rests on. Chrome pausing a background tab is
-  // temporary and self-correcting; putting controls on that video would be
-  // reacting to something that was about to fix itself.
-  it("treats a background-tab abort as temporary", () => {
-    expect(isPermanentPlayRefusal(new DOMException("paused to save power", "AbortError"))).toBe(false);
+  // Chrome pausing a hidden tab is temporary and self-correcting; a play button
+  // there would be reacting to something about to fix itself.
+  it("treats an abort on a hidden page as temporary", () => {
+    expect(isPermanentPlayRefusal(abort(), { pageHidden: true })).toBe(false);
   });
 
-  it("treats a real autoplay refusal as permanent", () => {
-    expect(isPermanentPlayRefusal(new DOMException("not allowed", "NotAllowedError"))).toBe(true);
+  // The regression this argument exists for. The same error on a page the
+  // visitor is looking at has nothing coming to rescue it, and swallowing it
+  // left an iOS home-screen web app showing a poster that never played and
+  // could not be played.
+  it("treats an abort on a visible page as needing a play button", () => {
+    expect(isPermanentPlayRefusal(abort(), { pageHidden: false })).toBe(true);
+    expect(isPermanentPlayRefusal(abort())).toBe(true);
+  });
+
+  it("treats a real autoplay refusal as permanent either way", () => {
+    const refused = new DOMException("not allowed", "NotAllowedError");
+    expect(isPermanentPlayRefusal(refused, { pageHidden: false })).toBe(true);
+    expect(isPermanentPlayRefusal(refused, { pageHidden: true })).toBe(true);
     expect(isPermanentPlayRefusal(new DOMException("no source", "NotSupportedError"))).toBe(true);
   });
 
   it("is not fooled by a missing error", () => {
     expect(isPermanentPlayRefusal(undefined)).toBe(false);
-    expect(isPermanentPlayRefusal(null)).toBe(false);
+    expect(isPermanentPlayRefusal(null, { pageHidden: true })).toBe(false);
+  });
+});
+
+describe("hasStartedPlaying", () => {
+  it("recognises a film that is actually running", () => {
+    expect(hasStartedPlaying({ paused: false, currentTime: 0.4, readyState: 4 })).toBe(true);
+  });
+
+  // Each of these is a way to look like playback without any of it happening,
+  // and each would previously have left a motionless poster on screen.
+  it("is not satisfied by a play request that went nowhere", () => {
+    expect(hasStartedPlaying({ paused: true, currentTime: 0.4, readyState: 4 })).toBe(false);
+    expect(hasStartedPlaying({ paused: false, currentTime: 0, readyState: 4 })).toBe(false);
+    expect(hasStartedPlaying({ paused: false, currentTime: 0.4, readyState: 0 })).toBe(false);
+    expect(hasStartedPlaying({ paused: false, currentTime: 0, readyState: 0 })).toBe(false);
   });
 });
 

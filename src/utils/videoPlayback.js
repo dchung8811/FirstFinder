@@ -15,18 +15,36 @@ export function shouldAttemptPlay({ onScreen, pageHidden }) {
   return Boolean(onScreen) && !pageHidden;
 }
 
-// Whether a play() rejection means the browser will never autoplay this, as
-// opposed to "not just now".
+// Whether a play() rejection means the visitor needs a play button, as opposed
+// to "not just now".
 //
-// AbortError is the background-tab power saving above: the same element plays
-// fine when the tab is looked at again, so treating it as a refusal would put a
-// play button on a video that was about to work on its own.
+// AbortError on a HIDDEN page is Chrome's background-tab power saving: the same
+// element plays fine when the tab is looked at again, so a play button there
+// would be reacting to something about to fix itself.
+//
+// AbortError on a VISIBLE page is a different animal and was previously treated
+// the same, which is the bug this argument exists for. Nothing is coming to
+// rescue a visible page -- the visitor is looking at it right now -- so
+// swallowing it leaves a poster frame that never plays and cannot be played.
+// An iOS home-screen web app reached exactly that state.
 //
 // Everything else -- NotAllowedError from autoplay being switched off or iOS
-// Low Power Mode, above all -- is permanent for this visit.
-export function isPermanentPlayRefusal(error) {
+// Low Power Mode above all -- is permanent for this visit either way.
+export function isPermanentPlayRefusal(error, { pageHidden = false } = {}) {
   if (!error) return false;
-  return error.name !== "AbortError";
+  if (error.name === "AbortError") return !pageHidden;
+  return true;
+}
+
+// Whether a video that was asked to play has actually got going.
+//
+// The watchdog behind "never stuck". play() can resolve, or never settle, and
+// still leave nothing on screen -- WebKit has more than one way to accept a
+// play request and then not play. Rather than enumerate them, this asks the
+// only question that matters a moment later: is a frame moving? If not, the
+// visitor gets controls, whatever the reason was.
+export function hasStartedPlaying({ paused, currentTime, readyState }) {
+  return !paused && currentTime > 0 && readyState >= 2;
 }
 
 // Whether to skip autoplay entirely and hand the visitor a normal video.
@@ -34,6 +52,7 @@ export function isPermanentPlayRefusal(error) {
 // Reduced motion is a request, not a preference to weigh. No
 // IntersectionObserver means nothing would ever start playback, which without
 // controls leaves a poster that cannot be played at all.
+
 export function shouldSkipAutoplay({ reducedMotion, hasIntersectionObserver }) {
   return Boolean(reducedMotion) || !hasIntersectionObserver;
 }
