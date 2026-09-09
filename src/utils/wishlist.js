@@ -13,7 +13,7 @@
 
 import { conditionOptions } from "./constants";
 import { toNumber, hasValue } from "./format";
-import { withClarifyingWord } from "./items";
+import { usesAuthorField, withClarifyingWord } from "./items";
 
 // Sorted best-first, which is also how the list renders. A want with no
 // priority set is treated as "hunting" rather than dropped to the bottom: it
@@ -197,10 +197,17 @@ export function buildWantSearchLinks(want) {
 // because "at worst Near Fine" is not a grade and guessing one would put a
 // number in the collection that nobody checked.
 export function wantToItem(want, found = {}) {
+  const category = want.category || "Book";
+  // A want records one credit line, under a label that still reads "Maker /
+  // Author / Brand". Items split that in two, so the name lands in whichever
+  // field the new item's category actually offers.
+  const credit = want.maker || "";
+
   return {
     name: want.name || "",
-    maker: want.maker || "",
-    category: want.category || "Book",
+    author: usesAuthorField(category) ? credit : "",
+    maker: usesAuthorField(category) ? "" : credit,
+    category,
     edition: "",
     bookGenre: "",
     bookEdition: want.category === "Book" ? want.wantedEdition || "" : "",

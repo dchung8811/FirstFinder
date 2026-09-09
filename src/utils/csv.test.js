@@ -62,6 +62,14 @@ describe("buildCsvTemplate and buildCsvExport", () => {
     expect(cells[cells.length - 1]).toBe("");
   });
 
+  it("exports the author and the maker as separate columns", () => {
+    const csv = buildCsvExport([{ referenceNumber: 1, name: "The Stand", category: "Book", author: "Stephen King", maker: "Doubleday" }]);
+    const cells = parseCsvRows(csv)[1];
+    const headers = parseCsvRows(csv)[0];
+    expect(cells[headers.indexOf("author")]).toBe("Stephen King");
+    expect(cells[headers.indexOf("maker")]).toBe("Doubleday");
+  });
+
   it("round-trips through the parser", () => {
     const csv = buildCsvExport([{ referenceNumber: 1, name: "Herbert, Frank", category: "Book", notes: 'said "hi"' }]);
     const cells = parseCsvRows(csv)[1];
@@ -74,6 +82,16 @@ describe("sanitizeCsvFields", () => {
   it("only reads columns the file actually had", () => {
     const fields = sanitizeCsvFields({ name: "Dune", notes: "ignored" }, ["name"]);
     expect(fields).toEqual({ name: "Dune" });
+  });
+
+  it("reads the author column", () => {
+    expect(sanitizeCsvFields({ author: "Toni Morrison" }, ["author"]).author).toBe("Toni Morrison");
+  });
+
+  // An export taken before the author/maker split has no author column, and a
+  // re-upload of it must leave the authors already in the collection alone.
+  it("leaves the author alone when the file predates the column", () => {
+    expect(sanitizeCsvFields({ name: "Dune" }, ["name"])).not.toHaveProperty("author");
   });
 
   it("falls back to a safe value for an unrecognised status", () => {

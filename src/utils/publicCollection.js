@@ -47,6 +47,9 @@ export const alwaysPublicItemFields = [
   // knowing one grants nothing.
   "id",
   "name",
+  // Both credit fields. A shelf without who wrote or made the thing is not a
+  // shelf, so neither is switchable.
+  "author",
   "maker",
   "category",
   "edition",
@@ -208,6 +211,7 @@ export function buildPublicItem(item, settings = defaultShareSettings) {
   const publicItem = {
     id: item.id,
     name: item.name || "",
+    author: item.author || "",
     maker: item.maker || "",
     category: item.category || "Other",
     edition: item.edition || "",

@@ -33,6 +33,8 @@ import { formatReference, todayIso, toNumber, formatCurrency, hasValue } from ".
 import {
   findPossibleDuplicates,
   buildSimilarCopyLinks,
+  itemCredit,
+  usesAuthorField,
   itemValueForTotals,
   calculateGain,
   formatEstimatedValue,
@@ -778,7 +780,7 @@ export default function FirstFinderApp() {
   const filteredInventory = useMemo(() => {
     const query = searchTerm.toLowerCase().trim();
     if (!query) return visibleInventory;
-    return visibleInventory.filter((entry) => [entry.name, entry.category, entry.maker, entry.source, entry.status, entry.notes, entry.edition].join(" ").toLowerCase().includes(query));
+    return visibleInventory.filter((entry) => [entry.name, entry.category, entry.author, entry.maker, entry.source, entry.status, entry.notes, entry.edition].join(" ").toLowerCase().includes(query));
   }, [visibleInventory, searchTerm]);
 
   async function loadInventory(userId) {
@@ -1182,6 +1184,7 @@ export default function FirstFinderApp() {
         .update({
           name: draft.name || "",
           category: draft.category || "Other",
+          author: draft.author || "",
           maker: draft.maker || "",
           edition: draft.edition || "",
           book_genre: draft.bookGenre || "",
@@ -1572,10 +1575,18 @@ export default function FirstFinderApp() {
   // user picks a number from that rather than the field being silently
   // pre-filled with a point estimate the schema can no longer even produce.
   function identifiedFields(result) {
+    const category = result.category || "Book";
+    // The model returns one credit line. It belongs in Author for the things
+    // that have one, and in Make / Publisher / Brand for everything else --
+    // the other field is cleared rather than left holding a stale name from a
+    // previous identification of a different item.
+    const credit = result.author || "";
+
     return {
       name: result.title || "",
-      maker: result.author || "",
-      category: result.category || "Book",
+      author: usesAuthorField(category) ? credit : "",
+      maker: usesAuthorField(category) ? "" : credit,
+      category,
       bookGenre: result.genre || "",
       bookEdition: result.edition || "",
       bookPrinting: result.printing || "",
@@ -4050,7 +4061,10 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
                 value={quickItem.status === "Sold" ? quickItem.soldPrice : quickItem.estimatedValue}
                 onChange={(value) => setQuickItem({ ...quickItem, [quickItem.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })}
               />
-              <Field label="Maker / Author / Brand" value={quickItem.maker} onChange={(value) => setQuickItem({ ...quickItem, maker: value })} />
+              {usesAuthorField(quickItem.category) && (
+                <Field label="Author" value={quickItem.author} onChange={(value) => setQuickItem({ ...quickItem, author: value })} />
+              )}
+              <Field label="Make / Publisher / Brand" value={quickItem.maker} onChange={(value) => setQuickItem({ ...quickItem, maker: value })} />
               <Field label="Where purchased" value={quickItem.source} onChange={(value) => setQuickItem({ ...quickItem, source: value })} />
               <Field label="Purchase date" type="date" value={quickItem.purchaseDate} onChange={(value) => setQuickItem({ ...quickItem, purchaseDate: value })} />
               <SelectField label="Status" value={quickItem.status} options={statuses} onChange={(value) => setQuickItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />
@@ -4096,7 +4110,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:py-16">
       <div><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><h1 className="max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight md:text-6xl">Add the complete record.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#665746]">Use this guided tutorial when you want to capture every field, item photo, and receipt/proof image before saving.</p></motion.div><Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><h2 className="text-xl font-semibold">Try a sample</h2><div className="mt-4 grid gap-3">{sampleItems.map((sample) => <button key={sample.name} onClick={() => onLoadSample(sample)} className={`rounded-2xl border p-4 text-left transition hover:bg-white ${item.name === sample.name ? "border-[#123f38] bg-white" : "border-[#e0d2bc] bg-[#f8f0e4]"}`}><div className="font-semibold">{sample.name}</div><div className="text-sm text-[#665746]">{sample.category} · {sample.source}</div></button>)}</div></CardContent></Card></div>
-      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} /><Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><SelectField label="Edition" value={item.bookEdition} options={bookEditionOptions} placeholder="Select edition" onChange={(value) => setItem({ ...item, bookEdition: value })} /><SelectField label="Printing" value={item.bookPrinting} options={bookPrintingOptions} placeholder="Select printing" onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ ...item, condition: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="What you paid" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill what you paid." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} cost you {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>is worth an estimated {formatEstimatedValue(item)}. That's a change of {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want to be able to prove what you paid later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to collection"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
+      <div className="space-y-5"><Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 1</div><h2 className="mt-1 text-2xl font-semibold">Item record</h2></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">Detailed</div></div>{autofillMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{autofillMessage}</div>}<div className="mt-5 grid gap-3 md:grid-cols-2"><Field label="Item name" value={item.name} onChange={(value) => setItem({ ...item, name: value })} /><Field label="Category" value={item.category} onChange={(value) => setItem({ ...item, category: value })} />{usesAuthorField(item.category) && (<Field label="Author" value={item.author} onChange={(value) => setItem({ ...item, author: value })} />)}<Field label="Make / Publisher / Brand" value={item.maker} onChange={(value) => setItem({ ...item, maker: value })} />{item.category === "Book" ? (<><Field label="Genre" value={item.bookGenre} onChange={(value) => setItem({ ...item, bookGenre: value })} /><SelectField label="Edition" value={item.bookEdition} options={bookEditionOptions} placeholder="Select edition" onChange={(value) => setItem({ ...item, bookEdition: value })} /><SelectField label="Printing" value={item.bookPrinting} options={bookPrintingOptions} placeholder="Select printing" onChange={(value) => setItem({ ...item, bookPrinting: value })} /></>) : (<Field label="Edition / Variant / Details" value={item.edition} onChange={(value) => setItem({ ...item, edition: value })} />)}<SelectField label="Status" value={item.status} options={statuses} onChange={(value) => setItem((current) => ({ ...current, status: value, soldDate: value === "Sold" && !current.soldDate ? todayIso() : current.soldDate }))} />{item.status === "Sold" && (<Field label="Sold on" type="date" value={item.soldDate} onChange={(value) => setItem({ ...item, soldDate: value })} />)}<SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ ...item, condition: value })} /><Field label="Purchase date" type="date" value={item.purchaseDate} onChange={(value) => setItem({ ...item, purchaseDate: value })} /><Field label="Where purchased" value={item.source} onChange={(value) => setItem({ ...item, source: value })} /><Field label="What you paid" type="number" value={item.purchasePrice} onChange={(value) => setItem({ ...item, purchasePrice: value })} /><Field label={item.status === "Sold" ? "Sold for" : "Estimated value"} type="number" value={item.status === "Sold" ? item.soldPrice : item.estimatedValue} onChange={(value) => setItem({ ...item, [item.status === "Sold" ? "soldPrice" : "estimatedValue"]: value })} /><Field label="Notes" value={item.notes} onChange={(value) => setItem({ ...item, notes: value })} /></div></CardContent></Card><div className="grid gap-5 md:grid-cols-2"><PhotoUploader title="Item photos + autofill" eyebrow="Step 2" description="Capture condition, edition points, signatures, defects, tags, labels, or packaging. The first uploaded image can mock-autofill fields." prompts={itemPhotoPrompts} photos={itemPhotos} onUpload={(event) => onUpload(event, "item", true)} onRemove={(id) => onRemove(id, "item")} /><PhotoUploader title="Receipt / proof photos + autofill" eyebrow="Step 3" description="Save receipts, invoices, order confirmations, auction records, or payment screenshots. Receipt uploads can mock-autofill what you paid." prompts={receiptPhotoPrompts} photos={receiptPhotos} onUpload={(event) => onUpload(event, "receipt", true)} onRemove={(id) => onRemove(id, "receipt")} /></div><Card className="rounded-[2rem] border-[#d8c7ad] bg-white shadow-xl"><CardContent className="p-6"><div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Step 4</div><h2 className="mt-1 text-3xl font-semibold">Review and save</h2><p className="mt-3 max-w-xl leading-7 text-[#665746]">{item.name || "This item"} cost you {formatCurrency(item.purchasePrice)} and {item.status === "Sold" ? <>sold for {formatEstimatedValue(item)}. Realized gain/loss is {formatGain(calculateGain(item))}.</> : <>is worth an estimated {formatEstimatedValue(item)}. That's a change of {formatGain(calculateGain(item))}.</>}</p></div><div className="rounded-3xl bg-[#f7efe3] p-5 text-center"><div className="text-3xl font-semibold text-[#123f38]">{formatGain(calculateGain(item))}</div><div className="mt-1 text-sm text-[#665746]">{item.status === "Sold" ? "realized gain/loss" : "est. gain/loss"}</div></div></div><div className="mt-6 grid gap-3 md:grid-cols-3"><SummaryPill label="Item photos" value={itemPhotos.length} /><SummaryPill label="Receipt photos" value={receiptPhotos.length} /><SummaryPill label="Status" value={item.status} /></div>{receiptPhotos.length === 0 && <div className="mt-5 rounded-2xl bg-[#fff3d8] p-4 text-sm leading-6 text-[#6d5526]">Add a receipt or proof photo if you want to be able to prove what you paid later.</div>}<div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button onClick={onSave} disabled={saving} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="save" size={17} className="mr-2" /> {saving ? "Saving photos..." : "Save to collection"}</Button><Button variant="outline" onClick={onReset} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">Reset form</Button></div></CardContent></Card></div>
     </section>
   );
 }
@@ -4215,7 +4229,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
         <div className="rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-3">
           <div className="flex items-center gap-3 rounded-xl bg-white px-4 py-3">
             <Icon name="search" size={18} className="text-[#746655]" />
-            <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search by item, category, maker, source, or status..." className="w-full bg-transparent outline-none" />
+            <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search by item, category, author, maker, source, or status..." className="w-full bg-transparent outline-none" />
           </div>
         </div>
 
@@ -4350,10 +4364,10 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
                         onSave={(value) => onInlineSave(entry.id, { name: value })}
                       />
                       <InlineCell
-                        label="maker"
-                        value={entry.maker}
-                        display={<span className="text-[#665746]">{entry.maker || "Unknown maker"}</span>}
-                        onSave={(value) => onInlineSave(entry.id, { maker: value })}
+                        label={usesAuthorField(entry.category) ? "author" : "maker"}
+                        value={usesAuthorField(entry.category) ? entry.author : entry.maker}
+                        display={<span className="text-[#665746]">{itemCredit(entry) || "Unknown maker"}</span>}
+                        onSave={(value) => onInlineSave(entry.id, usesAuthorField(entry.category) ? { author: value } : { maker: value })}
                       />
                     </td>
                     <td className="px-5 py-4">
@@ -4414,7 +4428,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
                       <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.category}</span>
                     </div>
                     <h2 className="mt-3 text-2xl font-semibold">{entry.name || "Untitled item"}</h2>
-                    <p className="text-[#665746]">{entry.maker || "Unknown maker"}</p>
+                    <p className="text-[#665746]">{itemCredit(entry) || "Unknown maker"}</p>
                   </div>
                   <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "this item"}`}><Icon name="trash" size={17} /></button>
                 </div>
@@ -4578,7 +4592,7 @@ function InsuranceExportPage({ items, onBack }) {
                 <tr key={item.id} className="border-t border-[#e0d2bc] align-top">
                   <td className="px-4 py-3">
                     <div className="font-semibold">{item.name || "Untitled item"}</div>
-                    <div className="text-[#665746]">{item.maker || "Unknown maker"}</div>
+                    <div className="text-[#665746]">{itemCredit(item) || "Unknown maker"}</div>
                     {item.notes && <div className="mt-1 max-w-xs text-xs text-[#8a7a64]">{item.notes}</div>}
                   </td>
                   <td className="px-4 py-3">{item.category}</td>
@@ -4605,7 +4619,7 @@ function InsuranceExportPage({ items, onBack }) {
               <div>
                 <div className="font-semibold">{item.name || "Untitled item"}</div>
                 <div className="text-sm text-[#665746]">
-                  {item.maker || "Unknown maker"} · {item.category}
+                  {itemCredit(item) || "Unknown maker"} · {item.category}
                   {item.condition ? ` · ${item.condition}` : ""}
                 </div>
               </div>
@@ -4830,7 +4844,7 @@ function RecentFinds({ inventory, onCollection }) {
               <img src={url} alt="" className="aspect-[3/4] w-full object-cover transition group-hover:opacity-90" />
             </div>
             <div className="mt-2 truncate text-sm font-medium" title={item.name || "Untitled item"}>{item.name || "Untitled item"}</div>
-            <div className="truncate text-xs text-[#7d6c5a]" title={item.maker || ""}>{item.maker || "Unknown maker"}</div>
+            <div className="truncate text-xs text-[#7d6c5a]" title={itemCredit(item)}>{itemCredit(item) || "Unknown maker"}</div>
           </button>
         ))}
       </div>
@@ -5346,7 +5360,10 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
           <CardContent className="p-6 md:p-8">
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Item name" value={item.name} onChange={(value) => setItem({ name: value })} />
-              <Field label="Maker / Author / Brand" value={item.maker} onChange={(value) => setItem({ maker: value })} />
+              {usesAuthorField(item.category) && (
+                <Field label="Author" value={item.author} onChange={(value) => setItem({ author: value })} />
+              )}
+              <Field label="Make / Publisher / Brand" value={item.maker} onChange={(value) => setItem({ maker: value })} />
               <SelectField label="Category" value={item.category} options={quickCategories} onChange={(value) => setItem({ category: value })} />
               <SelectField label="Condition" value={item.condition} options={conditionOptions} placeholder="Not set" onChange={(value) => setItem({ condition: value })} />
               {item.category === "Book" && (
@@ -5658,7 +5675,7 @@ function DuplicateWarningDialog({ matches, saving, onCancel, onConfirm }) {
         {matches.map(({ entry, matchType }) => {
           const copy = duplicateMatchCopy[matchType];
           const details = [
-            entry.maker,
+            itemCredit(entry),
             entry.category === "Book" ? [entry.bookEdition, entry.bookPrinting].filter(Boolean).join(" / ") : entry.edition,
             entry.condition
           ].filter(Boolean).join(" • ");
@@ -5801,7 +5818,7 @@ function SharePreviewCard({ item, photoUrl }) {
       )}
       <div className="p-4">
         <div className="font-semibold leading-tight">{item.name || "Untitled item"}</div>
-        {item.maker && <div className="mt-0.5 text-sm text-[#665746]">{item.maker}</div>}
+        {itemCredit(item) && <div className="mt-0.5 text-sm text-[#665746]">{itemCredit(item)}</div>}
         <div className="mt-2 flex flex-wrap gap-1.5">
           {editionLine && <span className="rounded-full bg-[#edf4f2] px-2.5 py-1 text-[11px] font-medium text-[#123f38]">{editionLine}</span>}
           {item.condition && <span className="rounded-full bg-[#f0e2cf] px-2.5 py-1 text-[11px] font-medium text-[#665746]">{item.condition}</span>}
@@ -6239,7 +6256,10 @@ function EditItemModal({ item, onClose, onSave, saving }) {
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Item name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
           <SelectField label="Category" value={draft.category} options={quickCategories} onChange={(value) => setDraft({ ...draft, category: value })} />
-          <Field label="Maker / Author / Brand" value={draft.maker} onChange={(value) => setDraft({ ...draft, maker: value })} />
+          {usesAuthorField(draft.category) && (
+            <Field label="Author" value={draft.author} onChange={(value) => setDraft({ ...draft, author: value })} />
+          )}
+          <Field label="Make / Publisher / Brand" value={draft.maker} onChange={(value) => setDraft({ ...draft, maker: value })} />
           {draft.category === "Book" ? (
             <>
               <Field label="Genre" value={draft.bookGenre} onChange={(value) => setDraft({ ...draft, bookGenre: value })} />

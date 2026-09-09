@@ -7,6 +7,7 @@
 export const emptyItem = {
   name: "",
   category: "Book",
+  author: "",
   maker: "",
   edition: "",
   bookGenre: "",
@@ -27,7 +28,8 @@ export const sampleItems = [
   {
     name: "The Gunslinger",
     category: "Book",
-    maker: "Stephen King",
+    author: "Stephen King",
+    maker: "Donald M. Grant",
     edition: "First edition candidate",
     status: "Owned",
     purchaseDate: "2026-05-12",
@@ -39,7 +41,8 @@ export const sampleItems = [
   {
     name: "Beloved",
     category: "Book",
-    maker: "Toni Morrison",
+    author: "Toni Morrison",
+    maker: "Alfred A. Knopf",
     edition: "Signed copy candidate",
     status: "Researching",
     purchaseDate: "2026-05-08",
@@ -73,17 +76,23 @@ export const receiptPhotoPrompts = ["Receipt", "Invoice", "Order confirmation", 
 // items; the value simply stops being offered as a choice.
 export const statuses = ["Owned", "Researching", "For sale", "Sold"];
 export const quickCategories = ["Book", "Sports memorabilia", "Trading card", "Comic", "Record", "Art", "Toy", "Other"];
+// Categories where the credit on the cover is a person who wrote the thing,
+// not a company that manufactured it. These are the categories that show the
+// Author field; everything else records only a maker/brand. Kept next to
+// quickCategories so the two can't drift: every value here must be one of
+// those.
+export const authoredCategories = ["Book", "Comic"];
 export const conditionOptions = ["Near Fine/Fine", "Very Good/Good", "Fair", "Poor"];
 export const bookEditionOptions = ["First", "Second", "Third", "Fourth", "Fifth", "Other"];
 export const bookPrintingOptions = ["First", "Second", "Third", "Fourth", "Fifth", "Other"];
 // Columns that map 1:1 onto item fields. Kept separate from csvHeaders because
 // the file also carries two control columns that aren't item data: "ref" (the
 // matching key) and "delete" (the row action).
-export const csvItemFields = ["name", "category", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "condition", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"];
+export const csvItemFields = ["name", "category", "author", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "condition", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"];
 export const csvHeaders = ["ref", ...csvItemFields, "delete"];
 export const csvTemplateRows = [
-  ["", "The Gunslinger", "Book", "Stephen King", "First edition candidate", "Fantasy", "First", "First", "Owned", "Near Fine/Fine", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state", ""],
-  ["", "Vintage Phillies Program", "Sports memorabilia", "Philadelphia Phillies", "1970s program", "", "", "", "Sold", "Very Good/Good", "2026-04-28", "Flea market", "12", "", "40", "2026-06-01", "Minor corner wear. Sold at a local card show.", ""]
+  ["", "The Gunslinger", "Book", "Stephen King", "Donald M. Grant", "First edition candidate", "Fantasy", "First", "First", "Owned", "Near Fine/Fine", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state", ""],
+  ["", "Vintage Phillies Program", "Sports memorabilia", "", "Philadelphia Phillies", "1970s program", "", "", "", "Sold", "Very Good/Good", "2026-04-28", "Flea market", "12", "", "40", "2026-06-01", "Minor corner wear. Sold at a local card show.", ""]
 ];
 // Values accepted in the "delete" column. Deliberately generous, since people
 // will type whatever feels natural in a spreadsheet.
@@ -96,7 +105,8 @@ export const mockAutofillOptions = [
     data: {
       name: "Receipt upload detected",
       category: "Book",
-      maker: "Unknown",
+      author: "Unknown",
+      maker: "",
       edition: "Needs item photo",
       status: "Owned",
       purchaseDate: "2026-05-12",
@@ -111,6 +121,7 @@ export const mockAutofillOptions = [
     data: {
       name: "Collectible trading card",
       category: "Trading card",
+      author: "",
       maker: "Unknown",
       edition: "Card photo detected",
       status: "Researching",
@@ -126,6 +137,7 @@ export const mockAutofillOptions = [
     data: {
       name: "Vintage Phillies Program",
       category: "Sports memorabilia",
+      author: "",
       maker: "Philadelphia Phillies",
       edition: "Program / publication",
       status: "Owned",
@@ -141,7 +153,8 @@ export const mockAutofillOptions = [
     data: {
       name: "Book photo detected",
       category: "Book",
-      maker: "Unknown author",
+      author: "Unknown author",
+      maker: "",
       edition: "Needs edition details",
       status: "Researching",
       purchaseDate: "2026-05-12",

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect } from "react";
 
+import { itemCredit } from "../../../src/utils/items";
+
 // A full-size look at one item's photos on a shared collection page.
 //
 // Cards are thumbnails, and a thumbnail of a book is mostly a guess about its
@@ -62,7 +64,7 @@ export default function PhotoViewer({ item, index, onIndex, onClose }) {
       <div className="flex w-full max-w-4xl items-start justify-between gap-4 pb-3">
         <div className="min-w-0 text-[#fff7ea]">
           <div className="truncate text-lg font-semibold">{item.name || "Untitled item"}</div>
-          {item.maker && <div className="truncate text-sm text-[#fff7ea]/70">{item.maker}</div>}
+          {itemCredit(item) && <div className="truncate text-sm text-[#fff7ea]/70">{itemCredit(item)}</div>}
         </div>
         <button
           type="button"

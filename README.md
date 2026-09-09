@@ -67,7 +67,7 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 - Identify a collectible from a photo: take a picture, and the title, maker, edition, printing, and condition are filled in for review, alongside a web-search-grounded value range backed by comparable sales and their sources. Add a copyright page or number line photo and re-check for a more confident edition read. Cost basis is deliberately left blank, and the photo is attached to the saved record.
 - Add a collectible through either a fast **Quick Add** form or a guided, tutorial-style flow.
 - Track books, trading cards, sports memorabilia, and other collectible categories.
-- Record an item's title, creator or maker, edition, status, condition (Near Fine/Fine, Very Good/Good, Fair, Poor), purchase date, source, purchase price, estimated value, and notes.
+- Record an item's title, author (books and comics) and make / publisher / brand, edition, status, condition (Near Fine/Fine, Very Good/Good, Fair, Poor), purchase date, source, purchase price, estimated value, and notes.
 - Capture book-specific genre, edition, and printing details.
 - Upload item and receipt photos, view uncropped full images, and add or remove photos while editing an existing item.
 - Store photos privately in Supabase Storage, with browser-side compression to keep uploads manageable.
@@ -79,7 +79,7 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 - Browse **My Collection** in card or record view, search across item details, and filter by category, genre, edition, and printing.
 - Switch between active and sold inventory, with item counts and totals scoped to the selected view.
 - Edit or delete entries, mark items as sold, and restore sold items to their previous status.
-- Edit names, makers, categories, statuses, and amounts inline in record view without opening the edit modal.
+- Edit names, authors and makers, categories, statuses, and amounts inline in record view without opening the edit modal.
 - Track total cost basis and estimated value for active items.
 - Capture the sold price and sold date from the sell action, edit form, Quick Add flow, guided flow, or CSV import.
 - Show realized gain for sold collectibles using the actual sale price rather than the previous estimate.
@@ -96,7 +96,7 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 
 - Publish a read-only collection page at `/c/<slug>` and send the link to anyone — no FirstFinder account needed to open it.
 - Three visibility states: **off** (the page 404s), **anyone with the link** (unguessable URL, `noindex`), and **listed** (indexed and in the sitemap).
-- Choose what it shows. It starts with titles, makers, editions, condition, and photos; estimated values, purchase and sale prices, provenance, notes, sold items, and the wishlist are each opt-in, with **Showcase / Collector's notes / Full ledger** presets and a live preview of a real card from your own collection.
+- Choose what it shows. It starts with titles, authors and makers, editions, condition, and photos; estimated values, purchase and sale prices, provenance, notes, sold items, and the wishlist are each opt-in, with **Showcase / Collector's notes / Full ledger** presets and a live preview of a real card from your own collection.
 - Hide individual items from the page without hiding them from your collection.
 - Reset the link to revoke every copy you've already shared.
 - Receipt photos are never published under any setting; items that have one show a "Receipt on file" badge instead.

@@ -27,7 +27,8 @@ const privateItem = (over = {}) => ({
   id: "row-1",
   referenceNumber: 4,
   name: "The Gunslinger",
-  maker: "Stephen King",
+  author: "Stephen King",
+  maker: "Donald M. Grant",
   category: "Book",
   edition: "",
   bookEdition: "First",
@@ -100,6 +101,12 @@ describe("buildPublicItem field allowlist", () => {
   it("reports that a receipt exists without exposing it", () => {
     expect(buildPublicItem(privateItem(), defaultShareSettings).hasReceipt).toBe(true);
     expect(buildPublicItem(privateItem({ receiptPhotos: [], receiptPhotoCount: 0 }), defaultShareSettings).hasReceipt).toBe(false);
+  });
+
+  it("publishes both halves of the credit line", () => {
+    const result = buildPublicItem(privateItem(), defaultShareSettings);
+    expect(result.author).toBe("Stephen King");
+    expect(result.maker).toBe("Donald M. Grant");
   });
 
   it("publishes item photos as path and name only", () => {

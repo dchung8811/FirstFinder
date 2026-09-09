@@ -1,6 +1,7 @@
 "use client";
 
 import { formatCurrency } from "../../../src/utils/format";
+import { itemCredit } from "../../../src/utils/items";
 
 // The card, the chip, and the detail row a shared collection page is built
 // from.
@@ -80,7 +81,7 @@ export function ItemCard({ item, onViewPhotos }) {
 
       <div className="p-5">
         <h2 className="text-xl font-semibold leading-tight">{item.name || "Untitled item"}</h2>
-        {item.maker && <p className="mt-1 text-sm text-[#665746]">{item.maker}</p>}
+        {itemCredit(item) && <p className="mt-1 text-sm text-[#665746]">{itemCredit(item)}</p>}
 
         <div className="mt-3 flex flex-wrap gap-2">
           {editionLine && <Chip tone="green">{editionLine}</Chip>}

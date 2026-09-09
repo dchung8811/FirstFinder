@@ -197,7 +197,10 @@ describe("wantToItem", () => {
   it("carries across what the collector already established", () => {
     const item = wantToItem(source, { condition: "Very Good/Good", purchasePrice: "2850", source: "Between the Covers" });
     expect(item.name).toBe("Blood Meridian");
-    expect(item.maker).toBe("Cormac McCarthy");
+    // A want keeps one credit field; the item it becomes puts it under Author,
+    // because the want was for a book.
+    expect(item.author).toBe("Cormac McCarthy");
+    expect(item.maker).toBe("");
     expect(item.bookEdition).toBe("First");
     expect(item.bookPrinting).toBe("First");
     expect(item.status).toBe("Owned");
@@ -225,6 +228,12 @@ describe("wantToItem", () => {
   it("falls back to the preferred seller only when no real one was given", () => {
     expect(wantToItem(source, {}).source).toBe("US sellers");
     expect(wantToItem(source, { source: "Heritage" }).source).toBe("Heritage");
+  });
+
+  it("puts the credit under maker when the found item has no author field", () => {
+    const item = wantToItem(want({ name: "Rookie card", maker: "Topps", category: "Trading card" }));
+    expect(item.author).toBe("");
+    expect(item.maker).toBe("Topps");
   });
 
   it("does not put book fields on a non-book want", () => {

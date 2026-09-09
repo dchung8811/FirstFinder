@@ -29,6 +29,13 @@ create table if not exists public.inventory_items (
 
   name text not null default '',
   category text not null default 'Other',
+
+  -- The two halves of the credit line. author is offered by the app only for
+  -- the categories that have one (Book, Comic); maker is the make, publisher,
+  -- or brand and applies to everything. Both are plain text: a row can carry
+  -- an author from a category it no longer belongs to, and nothing here
+  -- deletes it. See author-field.sql for the split, which was one column.
+  author text not null default '',
   maker text not null default '',
   edition text not null default '',
 

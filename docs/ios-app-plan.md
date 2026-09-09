@@ -220,8 +220,9 @@ find it here, not after Phase 2 has written data on top of it.
 
 Every genuinely hard edge case lives in this phase.
 
-- Quick Add: name, category, maker, book genre/edition/printing, status,
-  condition, purchase date, source, purchase price, estimated value, notes
+- Quick Add: name, category, author (books and comics), maker, book
+  genre/edition/printing, status, condition, purchase date, source, purchase
+  price, estimated value, notes
 - Reference number allocation: read the current max, add one, and **retry on a
   unique-violation (23505)**. The web app surfaces that error rather than
   retrying; a phone has worse connectivity and more chances to race, so a small
