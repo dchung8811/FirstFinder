@@ -291,15 +291,23 @@ export async function loadSharedCollection(slug) {
 
   const items = (itemRows || []).map(toSharedItem);
 
-  // One photo per card. A card is a thumbnail, so signing the rest would be
-  // work nobody sees -- a per-item photo view is a follow-up, and it is the
-  // reason this signs by path map rather than by index.
-  const coverPaths = items.map((item) => item.itemPhotos[0]?.path).filter(Boolean);
+  // Every shared item's photos, not just its cover.
+  //
+  // This used to sign covers only, with a note that a per-item photo view was
+  // the follow-up and was the reason it signs by path map rather than by
+  // index. That follow-up is here: a visitor can open any item and page
+  // through its photos, so every path needs a URL.
+  //
+  // The cost is bounded by what it already handles -- signing runs in parallel
+  // batches of 100, so a shelf of 400 photos is four concurrent calls rather
+  // than four sequential ones. Hidden and unshared items never reach this
+  // line, so nothing is signed that the page would not show.
+  const photoPaths = items.flatMap((item) => item.itemPhotos.map((photo) => photo.path)).filter(Boolean);
 
   // Joins the same parallel batch as the other two: the wishlist depends only
   // on the share row, so it has no reason to wait behind the photo signing.
   const [photoUrls, ownerName, wants] = await Promise.all([
-    signPhotoPaths(admin, coverPaths),
+    signPhotoPaths(admin, photoPaths),
     ownerNamePromise,
     loadSharedWants(admin, shareRow.user_id, settings).catch(() => [])
   ]);

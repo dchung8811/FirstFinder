@@ -30,7 +30,7 @@ function DetailRow({ label, children }) {
   );
 }
 
-export function ItemCard({ item }) {
+export function ItemCard({ item, onViewPhotos }) {
   // "First / First" reads the way collectors say it; either half alone still
   // needs its noun, so a lone printing doesn't render as a bare "Second".
   const editionLine =
@@ -52,13 +52,28 @@ export function ItemCard({ item }) {
           fixed h-56 means the box is reserved before the image arrives, so
           deferring costs no layout shift. */}
       {item.photoUrl ? (
-        <img
-          src={item.photoUrl}
-          alt={item.name || "Collection item"}
-          loading="lazy"
-          decoding="async"
-          className="h-56 w-full bg-[#f0e2cf] object-cover"
-        />
+        /* A card photo is a thumbnail of a book, which is mostly a guess about
+           its condition -- so it opens. A button rather than a wrapping div,
+           because this is a real control and has to be reachable by keyboard. */
+        <button
+          type="button"
+          onClick={() => onViewPhotos?.(item)}
+          aria-label={`View photos of ${item.name || "this item"}`}
+          className="group relative block w-full cursor-zoom-in"
+        >
+          <img
+            src={item.photoUrl}
+            alt={item.name || "Collection item"}
+            loading="lazy"
+            decoding="async"
+            className="h-56 w-full bg-[#f0e2cf] object-cover"
+          />
+          {item.photoUrls?.length > 1 && (
+            <span className="absolute bottom-3 right-3 rounded-full bg-[#201a14]/70 px-2.5 py-1 text-xs font-medium text-[#fff7ea]">
+              {item.photoUrls.length} photos
+            </span>
+          )}
+        </button>
       ) : (
         <div className="flex h-56 w-full items-center justify-center bg-[#f0e2cf] text-sm text-[#8a7a64]">No photo</div>
       )}
