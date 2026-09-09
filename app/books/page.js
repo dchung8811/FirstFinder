@@ -1,6 +1,10 @@
-import { getVerifiedWorks, workPath } from "../../src/content/books";
+import { getVerifiedWorks, getVerifiedWorksByAuthor, workPath } from "../../src/content/books";
 
 const SITE_URL = "https://firstfinder.app";
+
+// Below this many guides, author headings are heavier than the list they
+// organise. Above it, a flat list is a wall of titles with no way in.
+const GROUP_FROM = 5;
 
 // The hub the footer points at. Without it the guides are orphans: nothing on
 // the site links to them, and search engines find pages mainly by following
@@ -12,10 +16,35 @@ export const metadata = {
   alternates: { canonical: `${SITE_URL}/books` }
 };
 
+
+// One entry, shared by the flat and grouped layouts so they cannot drift.
+function GuideCard({ work }) {
+  return (
+    <li>
+      <a
+        href={workPath(work)}
+        className="block rounded-[1.5rem] border border-[#d8c7ad] bg-[#fff9f0] px-6 py-5 transition hover:bg-[#fffdf8]"
+      >
+        <h3 className="text-xl font-semibold">{work.title}</h3>
+        <p className="mt-1 text-sm text-[#746655]">
+          {work.author}
+          {work.firstEdition?.publisher ? ` · ${work.firstEdition.publisher}` : ""}
+          {work.firstEdition?.year ? `, ${work.firstEdition.year}` : ""}
+        </p>
+        <p className="mt-3 leading-7 text-[#3d332a]">{work.quickAnswer}</p>
+      </a>
+    </li>
+  );
+}
+
 export default function BooksIndexPage() {
   // Only verified guides. Drafts carry noindex, and linking to them from an
   // indexable hub would undercut that.
   const works = getVerifiedWorks();
+  // Grouped by author once there is enough here for a flat list to stop
+  // helping. Below the threshold the headings are just noise over a short list.
+  const groups = getVerifiedWorksByAuthor();
+  const grouped = works.length >= GROUP_FROM;
 
   return (
     <section className="mx-auto max-w-3xl px-6 pb-4">
@@ -33,24 +62,26 @@ export default function BooksIndexPage() {
           No guides are published yet. They are being written and checked one at a time.
         </p>
       ) : (
-        <ul className="mt-10 space-y-4">
-          {works.map((work) => (
-            <li key={work.slug}>
-              <a
-                href={workPath(work)}
-                className="block rounded-[1.5rem] border border-[#d8c7ad] bg-[#fff9f0] px-6 py-5 transition hover:bg-[#fffdf8]"
-              >
-                <h2 className="text-xl font-semibold">{work.title}</h2>
-                <p className="mt-1 text-sm text-[#746655]">
-                  {work.author}
-                  {work.firstEdition?.publisher ? ` · ${work.firstEdition.publisher}` : ""}
-                  {work.firstEdition?.year ? `, ${work.firstEdition.year}` : ""}
-                </p>
-                <p className="mt-3 leading-7 text-[#3d332a]">{work.quickAnswer}</p>
-              </a>
-            </li>
-          ))}
-        </ul>
+        grouped ? (
+          <div className="mt-10 space-y-10">
+            {groups.map((group) => (
+              <section key={group.author}>
+                <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[#746655]">{group.author}</h2>
+                <ul className="mt-4 space-y-4">
+                  {group.works.map((work) => (
+                    <GuideCard key={work.slug} work={work} />
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <ul className="mt-10 space-y-4">
+            {works.map((work) => (
+              <GuideCard key={work.slug} work={work} />
+            ))}
+          </ul>
+        )
       )}
 
       <section className="mt-12 rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] px-6 py-8 shadow-sm sm:px-8">
