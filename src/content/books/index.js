@@ -21,8 +21,11 @@
 import dune from "./dune";
 import eastOfEden from "./east-of-eden";
 import theGreatGatsby from "./the-great-gatsby";
+import goneWithTheWind from "./gone-with-the-wind";
+import petSematary from "./pet-sematary";
+import theWayOfKings from "./the-way-of-kings";
 
-const WORKS = [dune, eastOfEden, theGreatGatsby];
+const WORKS = [dune, eastOfEden, theGreatGatsby, goneWithTheWind, petSematary, theWayOfKings];
 
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -89,6 +92,33 @@ export function getAllWorks() {
 // Only these get a sitemap entry, JSON-LD, and an indexable page.
 export function getVerifiedWorks() {
   return WORKS.filter((work) => work.status === "verified");
+}
+
+// Verified guides grouped by author, for the hub.
+//
+// A flat list was right at three guides and stops being right somewhere around
+// a dozen: the page becomes a wall of titles with no way in, and a reader who
+// collects one author has to scan all of it. Grouping is the smallest change
+// that fixes that, and it needs no new data -- every work already names its
+// author.
+//
+// Authors are ordered by name, and titles within an author likewise, so the
+// page does not reshuffle when a guide is added.
+export function getVerifiedWorksByAuthor() {
+  const byAuthor = new Map();
+
+  for (const work of getVerifiedWorks()) {
+    const author = work.author || "Unattributed";
+    if (!byAuthor.has(author)) byAuthor.set(author, []);
+    byAuthor.get(author).push(work);
+  }
+
+  return [...byAuthor.entries()]
+    .map(([author, works]) => ({
+      author,
+      works: [...works].sort((a, b) => a.title.localeCompare(b.title))
+    }))
+    .sort((a, b) => a.author.localeCompare(b.author));
 }
 
 export function getWork(slug) {
