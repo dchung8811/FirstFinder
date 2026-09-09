@@ -20,6 +20,7 @@
 // requests. Do not raise the concurrency to make a one-off seed finish faster.
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { AUTHORS, SUBJECTS } from "./catalog-seed-list.mjs";
 
 const OPEN_LIBRARY = "https://openlibrary.org/search.json";
@@ -142,6 +143,86 @@ async function fetchPage(params) {
   return { docs: [], fatal: lastError?.message || "request failed" };
 }
 
+// Rows that are not a collectible book, whatever else they are.
+//
+// This is the seed-time half of a rule enforced in two places; the other half
+// is supabase/book-catalog-cleanup.sql, which removed 461 of these from an
+// already-seeded catalog. Both lists have to say the same thing, or a re-run
+// puts back what the cleanup took out.
+//
+// Each pattern earned its place by showing up in the first real seed:
+//
+//   * Print-on-demand houses reprinting public-domain classics. Open Library
+//     reports the WORK's year, so these arrive looking like "Frankenstein,
+//     1818, CreateSpace" -- which is the most misleading row shape possible for
+//     someone cataloguing a first edition. 368 of the 461 were these.
+//   * Omnibuses, boxed sets and collected works. Real books, but not a first
+//     edition of anything.
+//   * Study aids, colouring books, graphic novel adaptations, tie-ins.
+//   * Rows whose title is just the author's name, which is how Open Library
+//     files critical selections.
+//
+// Deliberately NOT excluded, having been caught by earlier, greedier versions
+// of these rules: anything merely containing "illustrated" or "annotated"
+// (which killed Bradbury's The Illustrated Man), and titles listing several
+// works (which killed Stevenson's The Merry Men and Orwell's Dickens, Dali &
+// Others). Both are ordinary shapes for a genuine first edition. When a rule
+// here is uncertain, it should let the row through -- a junk suggestion costs a
+// scroll, and a missing one costs the collector the feature.
+const REJECT_PUBLISHER = /(independently published|createspace|lulu\.com|bookrix|blurb|authorhouse|xlibris|iuniverse|outskirts press|dorrance|vdm publishing|alpha edition|sagwan|palala|wentworth press|trieste publishing|hansebooks|nabu press|forgotten books|bibliolife|kessinger|legare street|franklin classics|scholar select|creative media partners)/i;
+
+const REJECT_TITLE = /((movie|film|tv|television) tie[- ]?in|sparknotes|cliffsnotes|cliffs notes|study guide|lesson plans|teacher's guide|workbook|omnibus|boxed set|box set|complete (works|novels|stories|poetical works|writings|series)|collected (works|novels)|the complete sherlock|coloring book|colouring book|activity book|audiobook|audio book|graphic novel|\[audio|dvd|vhs)/i;
+
+const REJECT_AUTHOR = /^(sparknotes|cliffsnotes|bookrags)$/i;
+
+// Set-shaped titles: omnibuses, collected works, split-volume scans, and
+// bundles. A set is not a first edition of anything, so none of it belongs in a
+// catalog for people cataloguing first editions.
+//
+// These rules exist twice, here and in supabase/book-catalog-cleanup.sql, and
+// the two dialects do not spell things the same way: Postgres writes a word
+// boundary \y, JavaScript writes \b. Getting that wrong does not throw -- \y in
+// a JS regex quietly means a literal "y" -- so the filter silently passes
+// everything. That is what the tests next door are for.
+//
+// These are tested against the HEAD of the title -- everything before the first
+// bracket or parenthesis -- because Open Library appends its own annotations
+// there and they describe the edition record rather than the book. Testing the
+// raw string is how "The Adventures of Sherlock Holmes [12 stories]" reads as a
+// collection, "Cover Her Face (Adam Dalgliesh Mystery Series #1)" reads as a
+// series bundle, and two genuine first editions get thrown away.
+const SET_TITLE = /(\b(trilogy|tetralogy|quartet|quintet|duology)\b|\b(complete|collected|selected)\s+(prose\s+|poetical\s+)?(works|writings|essays|letters|poems|plays|adventures|novels)\b|\b(books?|vols?\.?|volumes?)\s*\.?\s*\d{1,2}\s*[-–—]\s*\d{1,2}\b|\bin (two|three|four|five) volumes|\b(two|three|four|five|six|seven|eight|nine|ten)\s+(complete\s+)?(novels|books)\b)/i;
+
+// A title that is nothing but a set noun.
+const BARE_SET_TITLES = new Set(["trilogy", "omnibus", "collection", "works", "novels", "stories", "complete"]);
+
+// Open Library's split-volume scans ("Wuthering Heights [1/2]") and its series
+// bundles ("Harry Potter (series) 1-7"), both of which live in the annotations
+// the head strips off -- so these two are tested against the whole title.
+const SPLIT_VOLUME = /\[\s*\d+\s*\/\s*\d+\s*\]|\(series\)\s*\d/i;
+
+function titleHead(title) {
+  return title.replace(/\[[^\]]*\]/g, "").replace(/\([^)]*\)?.*$/g, "").trim();
+}
+
+function isCollectibleShape(title, author, publisher) {
+  if (REJECT_PUBLISHER.test(publisher)) return false;
+  if (REJECT_TITLE.test(title)) return false;
+  if (REJECT_AUTHOR.test(author)) return false;
+  if (SPLIT_VOLUME.test(title)) return false;
+
+  const head = titleHead(title);
+  if (SET_TITLE.test(head)) return false;
+  if (BARE_SET_TITLES.has(head.toLowerCase())) return false;
+
+  // Open Library files critical selections under the subject's own name.
+  if (title.trim().toLowerCase() === author.trim().toLowerCase()) return false;
+
+  return true;
+}
+
+export { isCollectibleShape, titleHead };
+
 // Turns an Open Library doc into a catalog row, or null if it is not usable.
 //
 // The filters here are the difference between a catalog and a pile. A record
@@ -158,13 +239,17 @@ function toRow(doc) {
   if (!doc.key) return null;
   if (!year || year < EARLIEST_YEAR || year > LATEST_YEAR) return null;
 
+  const publisher = (doc.publisher?.[0] || "").trim().slice(0, 120);
+  if (!isCollectibleShape(title, author, publisher)) return null;
+
   return {
     title,
     author,
-    // Open Library lists every publisher that ever issued the work; the first
-    // is the closest thing it offers to the original, and it is shown only to
-    // tell two same-titled books apart.
-    publisher: (doc.publisher?.[0] || "").trim().slice(0, 120),
+    // Open Library lists every publisher that ever issued the work and the
+    // first is the closest thing it offers to the original -- which is still
+    // frequently a later reissue, so this is the field on the add form most
+    // worth a collector's second look.
+    publisher,
     first_published_year: year,
     cover_id: doc.cover_i ? String(doc.cover_i) : "",
     openlibrary_key: doc.key,
@@ -308,7 +393,11 @@ async function main() {
   console.log("\nDone.");
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exit(1);
-});
+// Only when run directly. The filters above are exported and unit-tested, and
+// importing this file must not kick off a fifteen-minute scrape of Open Library.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+}

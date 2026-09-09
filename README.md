@@ -229,7 +229,16 @@ the eleven guides.
 What gets seeded is deliberately not "the first ten thousand books Open Library
 will hand over". `scripts/catalog-seed-list.mjs` holds roughly a hundred and
 twenty authors whose first editions are actually collected, plus six award
-sweeps. Past that the catalog is meant to grow from use: every book saved that
+sweeps, and the seeder then throws out anything that cannot be a first edition
+of a single title: print-on-demand reprints of public-domain classics, omnibuses
+and boxed sets, Open Library's own split-volume scans, study aids, tie-ins and
+colouring books. That filter is the fiddliest code in the script and it was
+wrong twice in ways that quietly deleted real books, so it is unit-tested in
+`scripts/seed-book-catalog.test.js`; read the "deliberately stays" note in
+[`supabase/book-catalog-cleanup.sql`](supabase/book-catalog-cleanup.sql) before
+adding a pattern to it.
+
+An already-seeded catalog is cleaned with that same file, run once. Past that the catalog is meant to grow from use: every book saved that
 the catalog doesn't know about is queued in `book_catalog_suggestions` with a
 count of how many separate collectors have recorded it, which is a better signal
 about what belongs in here than any list assembled up front.
