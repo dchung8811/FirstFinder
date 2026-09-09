@@ -55,7 +55,22 @@ import {
 } from "../src/utils/items";
 import { csvUpdateRow, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
+import {
+  createOperation,
+  updateOperation,
+  deleteOperation,
+  enqueue,
+  applyQueueToCollection,
+  markAttempt,
+  isBlocked,
+  isPendingId,
+  newPendingId,
+  summarizeQueue,
+  queueLabel,
+  describeOperation
+} from "../src/utils/offlineQueue";
 import { readOfflineCollection, writeOfflineCollection, clearOfflineCollection } from "../src/lib/offlineStore";
+import { isQueueAvailable, loadQueue, saveOperation, loadOperationPhotos, removeOperations, clearQueue } from "../src/lib/offlineQueueStore";
 import {
   emptyWant,
   priorityOptions,
@@ -557,6 +572,21 @@ export default function FirstFinderApp() {
   // whether what is on screen came from the snapshot rather than the network.
   const [syncedAt, setSyncedAt] = useState("");
   const [fromSnapshot, setFromSnapshot] = useState(false);
+  // Writes made with no signal, waiting for one (issue #147). The queue is the
+  // only copy of a find added offline, so `queueReady` gates whether an
+  // offline write is accepted at all: a browser that cannot hold the queue
+  // gets the old refusal rather than a promise this app cannot keep.
+  const [queue, setQueue] = useState([]);
+  const [queueReady, setQueueReady] = useState(false);
+  const [flushing, setFlushing] = useState(false);
+  // Kept in a ref as well as in state, so the mutation paths can collapse an
+  // operation against the current queue without waiting for a re-render.
+  const queueRef = useRef([]);
+  // Declared here rather than beside the other memos below: the reconnect
+  // effect lists sendableCount in its dependency array, and a dependency
+  // array is evaluated during render, at the point the effect is declared.
+  const queueSummary = useMemo(() => summarizeQueue(queue), [queue]);
+  const sendableCount = queueSummary.waiting;
   const [itemPhotos, setItemPhotos] = useState([]);
   const [receiptPhotos, setReceiptPhotos] = useState([]);
   const [quickItemPhotos, setQuickItemPhotos] = useState([]);
@@ -687,16 +717,59 @@ export default function FirstFinderApp() {
     };
   }, []);
 
+  // Hydrates the pending queue once there is a signed-in user to hydrate it
+  // for, and works out whether this browser can hold one at all.
+  //
+  // This runs after the first load rather than before it, which is why it ends
+  // by putting the queue back on screen: on a cold offline launch the snapshot
+  // is restored before the queue is known, and a find added yesterday would be
+  // missing from the shelf until something else re-rendered it.
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+
+    (async () => {
+      const [available, stored] = await Promise.all([isQueueAvailable(), loadQueue(currentUser.id)]);
+      if (cancelled) return;
+
+      setQueueReady(available);
+      queueRef.current = stored;
+      setQueue(stored);
+
+      if (stored.length === 0) return;
+      if (navigator.onLine) {
+        await flushQueue(currentUser.id);
+        if (!cancelled) loadInventory(currentUser.id);
+      } else {
+        restoreFromSnapshot(currentUser.id);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Runs once per signed-in user; the functions it calls are recreated every
+    // render and are not dependencies worth chasing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser]);
+
   // Coming back into signal refetches what the snapshot was standing in for.
   // Without this the collector keeps reading a stale shelf until they think
   // to reload, which is exactly the moment they are least likely to trust it.
   useEffect(() => {
-    if (!online || !fromSnapshot || !currentUser) return;
-    loadInventory(currentUser.id);
+    if (!online || !currentUser) return;
+    // Blocked operations are deliberately not counted: they wait for the
+    // collector, and re-running this on every render they are in the queue
+    // would refetch the collection forever.
+    if (!fromSnapshot && sendableCount === 0) return;
+    // Order is load-bearing: send what is waiting before asking the server
+    // what it holds, or the refetch would paint a shelf without this
+    // morning's finds and then have them reappear.
+    flushQueue(currentUser.id).then(() => loadInventory(currentUser.id));
     // loadInventory is recreated every render and is not a dependency worth
     // chasing; the guards above are what decide whether this runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, fromSnapshot, currentUser]);
+  }, [online, fromSnapshot, currentUser, sendableCount]);
 
   useEffect(() => {
     let mounted = true;
@@ -918,10 +991,35 @@ export default function FirstFinderApp() {
     const snapshot = readOfflineCollection(userId);
     if (!snapshot) return null;
 
-    setInventory(snapshot.items);
+    // The snapshot is the last thing the server said; the queue is what has
+    // happened since. What the collector sees is the two together -- see
+    // applyQueueToCollection, and the note on setInventory in loadInventory.
+    setInventory(applyQueueToCollection(snapshot.items, queueRef.current));
     setSyncedAt(snapshot.syncedAt);
     setFromSnapshot(true);
     return snapshot;
+  }
+
+  // Persists one pending operation and puts its effect on screen.
+  //
+  // Returns false when the queue could not take it, and the caller must then
+  // tell the collector the save did not happen. Nothing in this app may report
+  // a save that only ever existed in React state.
+  async function queueWrite(operation, photos, { onQueued, message }) {
+    const { queue: nextQueue, stored, removedIds } = enqueue(queueRef.current, operation);
+
+    if (stored && !(await saveOperation(stored, photos))) {
+      pushToast("This device could not store that change, so it was not saved. Try again on a connection.", "error");
+      return false;
+    }
+
+    if (removedIds.length > 0) await removeOperations(removedIds);
+
+    queueRef.current = nextQueue;
+    setQueue(nextQueue);
+    onQueued();
+    if (message) pushToast(message, "success");
+    return true;
   }
 
   // The gate in front of every write. Saving offline would fail somewhere
@@ -931,6 +1029,160 @@ export default function FirstFinderApp() {
     if (online) return true;
     pushToast(`You're offline, so ${what} has to wait. Your collection is here to look through, and this will work again on a connection.`, "warning");
     return false;
+  }
+
+  // True when a write should be queued rather than sent. Deliberately not the
+  // same question as "are we offline": a browser that cannot hold a queue --
+  // private mode, storage blocked, no IndexedDB -- falls back to refusing the
+  // write, because a queue that cannot be written to would lose the record
+  // rather than delay it.
+  // The offline half of every edit path. `fields` is only what changed -- see
+  // the third rule at the top of offlineQueue.js.
+  async function queueItemUpdate(itemId, fields, message) {
+    const operation = updateOperation({ userId: currentUser.id, itemId, fields, id: `op-update-${itemId}` });
+
+    return queueWrite(operation, null, {
+      onQueued: () => setInventory((items) => applyQueueToCollection(items, [operation])),
+      message
+    });
+  }
+
+  // Sends one queued operation. Throws on failure, so the caller can count the
+  // attempt and keep the operation -- the queue is the only copy of an offline
+  // find, and a thrown error is what stops it being discarded.
+  async function replayOperation(operation, userId) {
+    if (operation.kind === "delete") {
+      // A delete whose row is already gone is a delete that has happened. It
+      // is not an error, and retrying it forever would be.
+      const { error } = await supabase.from("inventory_items").delete().eq("id", operation.itemId).eq("user_id", userId);
+      if (error) throw new Error(error.message);
+      return;
+    }
+
+    if (operation.kind === "update") {
+      const existing = inventory.find((entry) => entry.id === operation.itemId) || {};
+      const row = csvUpdateRow({ ...existing, id: operation.itemId }, operation.fields, userId);
+      delete row.id;
+      delete row.user_id;
+
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .update(row)
+        .eq("id", operation.itemId)
+        .eq("user_id", userId)
+        .select();
+
+      if (error) throw new Error(error.message);
+      // No row came back: it was deleted on another device while this edit sat
+      // in a pocket. There is nothing left to apply it to, and inventing the
+      // row again would resurrect something the collector deleted on purpose.
+      if (!data || data.length === 0) throw new Error("That item no longer exists -- it was deleted somewhere else.");
+      return;
+    }
+
+    // A create. The reference number is allocated now rather than when the
+    // item was photographed: a number claimed hours ago in a basement may
+    // belong to something else by the time there is a connection.
+    const { numbers, error: referenceError } = await nextReferenceNumbers(userId, 1);
+    if (referenceError) throw new Error(referenceError);
+
+    const photos = await loadOperationPhotos(operation.id);
+    const itemPhotoList = photos.itemPhotos || [];
+    const receiptPhotoList = photos.receiptPhotos || [];
+
+    const { data, error } = await supabase
+      .from("inventory_items")
+      .insert(toDbItem({ ...operation.fields, referenceNumber: numbers[0] }, userId, itemPhotoList.length, receiptPhotoList.length))
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    if (itemPhotoList.length === 0 && receiptPhotoList.length === 0) return;
+
+    const itemResult = await uploadPhotoList(userId, data.id, itemPhotoList, "item");
+    const receiptResult = await uploadPhotoList(userId, data.id, receiptPhotoList, "receipt");
+
+    // The row is saved by this point, so a photo problem must not send the
+    // whole operation round again -- that would insert the item twice. The
+    // failure is reported instead, in the same words the online path uses.
+    const { error: photoError } = await supabase
+      .from("inventory_items")
+      .update({
+        item_photos: itemResult.uploaded,
+        receipt_photos: receiptResult.uploaded,
+        item_photo_count: itemResult.uploaded.length,
+        receipt_photo_count: receiptResult.uploaded.length,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", data.id);
+
+    const failures = [...itemResult.failures, ...receiptResult.failures];
+    if (photoError) console.error("Queued photo record update error:", photoError.message);
+    if (failures.length > 0 || photoError) {
+      pushToast(`"${operation.fields.name || "Item"}" synced, but some photos did not upload.`, "warning");
+    }
+  }
+
+  // Sends everything waiting, oldest first, then refetches so the screen shows
+  // what the server actually holds rather than what we hoped it would.
+  async function flushQueue(userId) {
+    if (flushing) return;
+
+    const pending = queueRef.current.filter((operation) => !isBlocked(operation));
+    if (pending.length === 0) return;
+
+    setFlushing(true);
+    let sent = 0;
+    let failed = 0;
+
+    try {
+      for (const operation of pending) {
+        try {
+          await replayOperation(operation, userId);
+          await removeOperations([operation.id]);
+          queueRef.current = queueRef.current.filter((entry) => entry.id !== operation.id);
+          sent += 1;
+        } catch (error) {
+          console.error("Queued write failed:", error.message);
+          const attempted = markAttempt(operation, error.message);
+          await saveOperation(attempted);
+          queueRef.current = queueRef.current.map((entry) => (entry.id === operation.id ? attempted : entry));
+          failed += 1;
+          // Keep going. One rejected row must not hold up the rest of a
+          // morning's finds.
+        }
+      }
+
+      setQueue(queueRef.current);
+
+      if (sent > 0) trackEvent("offline_queue_synced", { operations: sent });
+      if (sent > 0 && failed === 0) pushToast(sent === 1 ? "Your offline change synced." : `${sent} offline changes synced.`, "success");
+      else if (failed > 0) pushToast(`${failed} offline ${failed === 1 ? "change" : "changes"} could not be saved. See "Waiting to sync".`, "warning");
+    } finally {
+      setFlushing(false);
+    }
+  }
+
+  // Gives up on one operation at the collector's request. The only way a
+  // pending write leaves the queue unsent.
+  async function discardOperation(operationId) {
+    await removeOperations([operationId]);
+    queueRef.current = queueRef.current.filter((entry) => entry.id !== operationId);
+    setQueue(queueRef.current);
+    if (currentUser) loadInventory(currentUser.id);
+  }
+
+  // Clears the failure count so the next flush picks it up again.
+  async function retryOperation(operationId) {
+    const operation = queueRef.current.find((entry) => entry.id === operationId);
+    if (!operation) return;
+
+    const reset = { ...operation, attempts: 0, lastError: "" };
+    await saveOperation(reset);
+    queueRef.current = queueRef.current.map((entry) => (entry.id === operationId ? reset : entry));
+    setQueue(queueRef.current);
+    if (currentUser && online) flushQueue(currentUser.id).then(() => loadInventory(currentUser.id));
   }
 
   async function loadInventory(userId) {
@@ -959,7 +1211,11 @@ export default function FirstFinderApp() {
       }
 
       const loaded = (data || []).map(fromDbItem);
-      setInventory(loaded);
+      // The snapshot records what the server said; the screen shows that with
+      // anything still queued applied on top. Keeping the two apart is what
+      // lets a reload rebuild the same view without counting a pending find
+      // twice.
+      setInventory(applyQueueToCollection(loaded, queueRef.current));
       setFromSnapshot(false);
       // Written on every load, so the snapshot is never older than the last
       // time the app worked. A failed write leaves syncedAt blank, which the
@@ -989,6 +1245,11 @@ export default function FirstFinderApp() {
     // The snapshot is one person's shelf sitting in a browser other people
     // use. Signing out has to take it with them.
     clearOfflineCollection(currentUser?.id);
+    // The queue goes too. It holds photographs and unsaved finds, and this is
+    // a device someone else may sign in on next.
+    clearQueue(currentUser?.id);
+    queueRef.current = [];
+    setQueue([]);
     loadedUserIdRef.current = null;
     setCurrentUser(null);
     setInventory([]);
@@ -1072,7 +1333,49 @@ export default function FirstFinderApp() {
       return null;
     }
 
-    if (!requireOnline("saving this item")) return null;
+    // Offline: the find goes in the queue, photos and all, and on the shelf
+    // immediately. This is the case the whole feature exists for -- a book in
+    // your hands, in a basement, with no signal.
+    if (!online) {
+      if (!queueReady) {
+        requireOnline("saving this item");
+        return null;
+      }
+
+      const pendingItem = {
+        ...emptyItem,
+        ...sourceItem,
+        id: newPendingId(`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+      };
+
+      const operation = createOperation({
+        userId: currentUser.id,
+        item: pendingItem,
+        itemPhotoCount: itemPhotoList.length,
+        receiptPhotoCount: receiptPhotoList.length,
+        id: `op-${pendingItem.id}`
+      });
+
+      const queued = await queueWrite(
+        operation,
+        // The blobs themselves, not the object URLs the form renders: a blob
+        // URL dies with the page, and this has to survive being closed in a
+        // shop and reopened at home.
+        {
+          itemPhotos: itemPhotoList.map((photo) => ({ name: photo.name, file: photo.file })),
+          receiptPhotos: receiptPhotoList.map((photo) => ({ name: photo.name, file: photo.file }))
+        },
+        {
+          onQueued: () => setInventory((items) => applyQueueToCollection(items, [operation])),
+          message: "Saved on this device. It'll sync when you're back online."
+        }
+      );
+
+      if (!queued) return null;
+
+      trackEvent("inventory_item_queued", { entry_type: entryType, category: sourceItem.category || "Other" });
+      return { id: operation.itemId, queued: true };
+    }
 
     setSaving(true);
 
@@ -1204,9 +1507,35 @@ export default function FirstFinderApp() {
   }
 
   async function deleteItem(id) {
-    if (!requireOnline("deleting an item")) return;
-
     const entry = inventory.find((current) => current.id === id);
+
+    // A row that only exists in the queue has no uuid to send anywhere, so it
+    // is edited and deleted through the queue whatever the connection is
+    // doing. This is reachable online too: an operation that has stopped
+    // trying leaves its row on screen, still pending.
+    if (!online || isPendingId(id)) {
+      if (!queueReady) {
+        requireOnline("deleting an item");
+        return;
+      }
+
+      const operation = deleteOperation({
+        userId: currentUser.id,
+        itemId: id,
+        name: entry?.name || "",
+        id: `op-delete-${id}`
+      });
+
+      await queueWrite(operation, null, {
+        onQueued: () => setInventory((items) => items.filter((current) => current.id !== id)),
+        // A create that never left the device is dropped whole by enqueue, so
+        // there is nothing to sync and nothing to promise.
+        message: isPendingId(id)
+          ? `Removed "${entry?.name || "item"}".`
+          : `Deleted "${entry?.name || "item"}" on this device. It'll sync when you're back online.`
+      });
+      return;
+    }
 
     const { error } = await supabase
       .from("inventory_items")
@@ -1235,13 +1564,28 @@ export default function FirstFinderApp() {
   }
 
   async function markSold(id, { soldPrice, soldDate, condition } = {}) {
-    if (!requireOnline("marking this sold")) return;
-
     const previousItem = inventory.find((entry) => entry.id === id);
     // Remember what the item was before the sale (not "Sold" itself, in the
     // rare case this fires twice) so restoring later can put it back there
     // instead of always defaulting to "Owned".
     const statusToRestore = previousItem && previousItem.status !== "Sold" ? previousItem.status : previousItem?.previousStatus || "Owned";
+
+    if (!online || isPendingId(id)) {
+      if (!queueReady) {
+        requireOnline("marking this sold");
+        return;
+      }
+
+      // Replayed through csvUpdateRow, which derives previous_status and the
+      // sale columns from the status the item ends up with -- the same
+      // arithmetic a CSV-driven sale goes through.
+      await queueItemUpdate(
+        id,
+        { status: "Sold", soldPrice: hasValue(soldPrice) ? String(soldPrice) : "", soldDate: soldDate || todayIso(), condition: condition || previousItem?.condition || "" },
+        "Marked sold on this device. It'll sync when you're back online."
+      );
+      return;
+    }
 
     const { data, error } = await supabase
       .from("inventory_items")
@@ -1274,10 +1618,19 @@ export default function FirstFinderApp() {
   }
 
   async function restoreSold(id) {
-    if (!requireOnline("restoring this item")) return;
-
     const previousItem = inventory.find((entry) => entry.id === id);
     const restoredStatus = previousItem?.previousStatus || "Owned";
+
+    if (!online || isPendingId(id)) {
+      if (!queueReady) {
+        requireOnline("restoring this item");
+        return;
+      }
+
+      await queueItemUpdate(id, { status: restoredStatus, soldPrice: "", soldDate: "" }, "Restored on this device. It'll sync when you're back online.");
+      setInventoryStatusView("active");
+      return;
+    }
 
     const { data, error } = await supabase
       .from("inventory_items")
@@ -1313,7 +1666,50 @@ export default function FirstFinderApp() {
       return;
     }
 
-    if (!requireOnline("saving this edit")) return;
+    if (!online || isPendingId(draft.id)) {
+      if (!queueReady) {
+        requireOnline("saving this edit");
+        return;
+      }
+
+      // Photos are the one part of an edit that cannot wait here.
+      //
+      // Adding one means uploading a blob and writing the row's photo list;
+      // removing one means deleting from storage. Both are storage
+      // operations, not column changes, and queueing them would mean holding
+      // a second kind of pending photo state -- one attached to a row that
+      // already exists -- for the rarest thing anyone does in a shop. The
+      // fields are queued; the photos are refused, in the same breath, rather
+      // than silently dropped.
+      const photoChange =
+        (newItemPhotos || []).length > 0 ||
+        (newReceiptPhotos || []).length > 0 ||
+        (removedItemPhotoPaths || []).length > 0 ||
+        (removedReceiptPhotoPaths || []).length > 0;
+
+      if (photoChange) {
+        pushToast("You're offline, so photo changes have to wait. Edit the details now and add or remove photos on a connection.", "warning");
+        return;
+      }
+
+      const existing = inventory.find((entry) => entry.id === draft.id) || {};
+      // Only what actually changed: a whole-row write would clobber fields
+      // edited on another device with values this one merely displayed.
+      const fields = {};
+      Object.entries(draft).forEach(([key, value]) => {
+        if (key === "id" || key === "itemPhotos" || key === "receiptPhotos") return;
+        if (existing[key] !== value) fields[key] = value;
+      });
+
+      if (Object.keys(fields).length === 0) {
+        setEditingItem(null);
+        return;
+      }
+
+      const queued = await queueItemUpdate(draft.id, fields, "Edited on this device. It'll sync when you're back online.");
+      if (queued) setEditingItem(null);
+      return;
+    }
 
     setSaving(true);
 
@@ -1503,6 +1899,10 @@ export default function FirstFinderApp() {
   // over while the book never reached the collection, which they could not.
   async function markWantFound(want, found, photos = { itemPhotos: [], receiptPhotos: [] }) {
     if (!currentUser) return;
+    // Deliberately not queued: marking a want found writes the new item's id
+    // onto the want, and a queued item has no id until it reaches Postgres.
+    // The collector can add the copy offline and close the want later.
+    if (!requireOnline("marking a want found")) return;
     setSavingWant(true);
 
     try {
@@ -1667,7 +2067,17 @@ export default function FirstFinderApp() {
   async function updateItemFields(itemId, fields) {
     const existing = inventory.find((entry) => entry.id === itemId);
     if (!existing || !currentUser) return;
-    if (!requireOnline("this edit")) return;
+    if (!online || isPendingId(itemId)) {
+      if (!queueReady) {
+        requireOnline("this edit");
+        return;
+      }
+
+      const enriched = { ...fields };
+      if (fields.status === "Sold" && !existing.soldDate) enriched.soldDate = todayIso();
+      await queueItemUpdate(itemId, enriched, "Edited on this device. It'll sync when you're back online.");
+      return;
+    }
 
     // Match the edit modal: moving an item to Sold defaults the sale date to
     // today rather than leaving it blank.
@@ -2146,7 +2556,24 @@ export default function FirstFinderApp() {
           online={online}
           syncedAt={syncedAt}
           refreshing={inventoryLoading}
-          onRefresh={currentUser ? () => loadInventory(currentUser.id) : undefined}
+          // Offered only when the connection is supposedly working: "try
+          // again" in front of someone who knows they have no signal is a
+          // button that can only disappoint.
+          onRefresh={online && currentUser ? () => loadInventory(currentUser.id) : undefined}
+          queueNote={queueLabel(queueSummary)}
+        />
+      )}
+
+      {isLoggedIn && queue.length > 0 && (
+        <PendingSyncPanel
+          summary={queueSummary}
+          operations={queue}
+          items={inventory}
+          online={online}
+          flushing={flushing}
+          onSyncNow={() => currentUser && flushQueue(currentUser.id).then(() => loadInventory(currentUser.id))}
+          onRetry={retryOperation}
+          onDiscard={discardOperation}
         />
       )}
 
@@ -4333,6 +4760,113 @@ function formatAccountDate(value) {
   return new Date(value).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
+// The mark on a row that exists on this device and nowhere else yet. Small on
+// purpose -- it is a fact about the record, not a warning about the book --
+// except when the change has stopped trying, which the collector does need to
+// notice.
+function PendingChip({ error, className = "" }) {
+  if (error) {
+    return (
+      <span title={error} className={`inline-flex items-center gap-1 rounded-full bg-[#fbe4e0] px-3 py-1 text-xs font-medium text-[#8a3527] ${className}`}>
+        <Icon name="wifiOff" size={12} /> Not saved
+      </span>
+    );
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full bg-[#fff3d8] px-3 py-1 text-xs font-medium text-[#6d5526] ${className}`}>
+      <Icon name="wifiOff" size={12} /> Waiting to sync
+    </span>
+  );
+}
+
+// What is waiting to reach the server, and what has stopped trying.
+//
+// A queue that silently drops a record is worse than one that refuses the
+// write, so nothing here is hidden: every pending change is named, every
+// failure carries its reason, and the only way one leaves without being sent
+// is the collector saying so.
+function PendingSyncPanel({ summary, operations, items, online, flushing, onSyncNow, onRetry, onDiscard }) {
+  const [open, setOpen] = useState(false);
+  const blocked = operations.filter((operation) => isBlocked(operation));
+
+  return (
+    <div className="mx-auto max-w-6xl px-6 pt-3 print:hidden">
+      <div className="rounded-2xl border border-[#d8c7ad] bg-[#fff9f0] px-5 py-4 text-sm text-[#3f352a]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="font-medium">
+            {queueLabel(summary)}
+            {flushing && <span className="ml-2 font-normal text-[#665746]">syncing now...</span>}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {online && summary.waiting > 0 && (
+              <button
+                type="button"
+                onClick={onSyncNow}
+                disabled={flushing}
+                className="rounded-full bg-[#123f38] px-4 py-1.5 text-xs font-medium text-[#fff7ea] transition hover:bg-[#0f332d] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Sync now
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setOpen((current) => !current)}
+              aria-expanded={open}
+              className="rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-4 py-1.5 text-xs font-medium transition hover:bg-white"
+            >
+              {open ? "Hide" : "Show"} {summary.total === 1 ? "it" : "them"}
+            </button>
+          </div>
+        </div>
+
+        {open && (
+          <ul className="mt-4 space-y-2">
+            {operations.map((operation) => (
+              <li key={operation.id} className="flex flex-wrap items-start justify-between gap-3 rounded-xl bg-[#f8f0e4] px-4 py-3">
+                <div className="min-w-0">
+                  <div className="font-medium">{describeOperation(operation, items)}</div>
+                  <div className="text-xs leading-5 text-[#665746]">
+                    {isBlocked(operation)
+                      ? operation.lastError || "This could not be saved."
+                      : online
+                        ? "Sending..."
+                        : "Waiting for a connection."}
+                  </div>
+                </div>
+                {isBlocked(operation) && (
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onRetry(operation.id)}
+                      className="rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-3 py-1 text-xs font-medium transition hover:bg-white"
+                    >
+                      Try again
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDiscard(operation.id)}
+                      className="rounded-full border border-[#e0b4aa] bg-[#fff5f3] px-3 py-1 text-xs font-medium text-[#8a3527] transition hover:bg-white"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {blocked.length > 0 && !open && (
+          <p className="mt-2 text-xs leading-5 text-[#8a3527]">
+            {blocked.length === 1 ? "One change" : `${blocked.length} changes`} stopped trying. Open the list to see why, and to retry or discard.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // The line that stops a stale shelf from reading as the live one.
 //
 // Two states, because they are two different claims. Offline is a fact about
@@ -4340,7 +4874,7 @@ function formatAccountDate(value) {
 // still on the snapshot means the load failed for some other reason -- an
 // expired token, Supabase down, a captive portal that answers every request
 // with a login page -- and there the honest offer is a retry.
-function OfflineBanner({ online, syncedAt, refreshing, onRefresh }) {
+function OfflineBanner({ online, syncedAt, refreshing, onRefresh, queueNote }) {
   const age = syncAgeLabel(syncedAt);
 
   return (
@@ -4355,7 +4889,10 @@ function OfflineBanner({ online, syncedAt, refreshing, onRefresh }) {
             {online ? (
               <>Couldn&apos;t reach your collection just now. Showing your last synced copy, from {age}.</>
             ) : (
-              <>You&apos;re offline. This is your collection as it was {age} — look anything up; saving waits for a connection.</>
+              <>
+                You&apos;re offline. This is your collection as it was {age} — add and edit freely; it syncs when you reconnect.
+                {queueNote ? ` ${queueNote}.` : ""}
+              </>
             )}
           </span>
         </div>
@@ -4431,6 +4968,7 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
       // "Delete my account" has to mean the copy cached on this device too,
       // not just the rows in Postgres.
       clearOfflineCollection(currentUser?.id);
+      await clearQueue(currentUser?.id);
       await supabase.auth.signOut();
       // Full reload so every bit of app state (inventory, session, etc.)
       // clears cleanly rather than trying to unwind it all in React state.
@@ -4920,7 +5458,12 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
                       <InlineCell
                         label="item name"
                         value={entry.name}
-                        display={<span className="font-semibold">{entry.name || "Untitled item"}</span>}
+                        display={
+                          <span className="font-semibold">
+                            {entry.name || "Untitled item"}
+                            {entry.pendingSync && <PendingChip error={entry.pendingError} className="ml-2 align-middle" />}
+                          </span>
+                        }
                         onSave={(value) => onInlineSave(entry.id, { name: value })}
                       />
                       <InlineCell
@@ -4986,6 +5529,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
                     <div className="flex flex-wrap gap-2">
                       <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">{entry.status}</span>
                       <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.category}</span>
+                      {entry.pendingSync && <PendingChip error={entry.pendingError} />}
                     </div>
                     <h2 className="mt-3 text-2xl font-semibold">{entry.name || "Untitled item"}</h2>
                     <p className="text-[#665746]">{itemCredit(entry) || "Unknown maker"}</p>
