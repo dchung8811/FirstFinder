@@ -101,11 +101,20 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
   and duplicate check, against your last synced copy.
 - A banner says plainly when you are looking at that copy and how old it is, and
   the app refetches by itself the moment the connection comes back.
-- Saving, editing, and identifying are refused while offline rather than failing
-  halfway: your typed record stays on screen until there is a connection to save
-  it to. An offline write queue is [issue #147](https://github.com/dchung8811/FirstFinder/issues/147).
-- Photos are not cached. They are served through short-lived signed URLs, so a
-  cached one would resolve to nothing; the item's photo count still shows.
+- Add a find with no signal at all, photos included. It goes on the shelf
+  straight away, marked **Waiting to sync**, and is sent the moment you
+  reconnect. Edits, sales, and deletions queue the same way.
+- A **Waiting to sync** panel names every pending change. Anything that fails
+  three times stops and waits for you, with the reason it gave, and a button to
+  retry it or discard it — nothing is ever dropped quietly.
+- Repeated edits of the same item collapse into one write, and a find added and
+  then deleted before it syncs is never sent at all.
+- Photo *changes* to an existing item still need a connection, and so does
+  identifying a photo (which is a call to a model) and marking a wishlist want
+  found. Each says so rather than failing halfway.
+- Cached photos are not shown offline: they are served through short-lived
+  signed URLs, so a cached one would resolve to nothing. The item's photo count
+  still shows.
 
 ### Sharing a collection
 
