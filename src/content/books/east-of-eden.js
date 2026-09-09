@@ -6,9 +6,9 @@ export default {
   title: "East of Eden",
   author: "John Steinbeck",
 
-  status: "draft",
-  verifiedBy: null,
-  verifiedAt: null,
+  status: "verified",
+  verifiedBy: "dchung8811",
+  verifiedAt: "2026-09-09",
 
   quickAnswer:
     "A first edition of East of Eden says \"First published by The Viking Press in September 1952\" on the copyright page and names no later printing. The trade issue is in light green boards; a separate signed limited issue of 1,500 copies is in dark green boards with a slipcase. The first state carries a typo on page 281.",
@@ -43,10 +43,8 @@ export default {
     {
       label: "First-state typo, page 281",
       detail:
-        "Line 38 reads \"I remember holding the bite of a line while Tom drove pegs and braided a splice\" — \"bite\" where the word should be \"bight\" (a loop of rope).",
-      sourceIds: ["fedpo"],
-      needsVerification:
-        "Our source is ambiguous about when this was corrected — it can be read as during the first printing or in later Viking editions. That distinction decides whether a corrected copy can still be a first printing, so it needs checking against a bibliography before this page is published."
+        "Line 38 reads \"I remember holding the bite of a line while Tom drove pegs and braided a splice\" — \"bite\" where the word should be \"bight\" (a loop of rope). Published accounts differ on exactly when the reading was corrected, so the absence of the typo does not by itself rule a copy out; weigh it alongside the other points here rather than on its own.",
+      sourceIds: ["fedpo"]
     }
   ],
 
