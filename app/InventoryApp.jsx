@@ -30,6 +30,7 @@ import {
   csvHeaders
 } from "../src/utils/constants";
 import { formatReference, todayIso, toNumber, formatCurrency, hasValue } from "../src/utils/format";
+import { shouldAttemptPlay, isPermanentPlayRefusal, shouldSkipAutoplay } from "../src/utils/videoPlayback";
 import {
   GUIDE_TIER,
   MAX_SUGGESTIONS,
@@ -3273,31 +3274,39 @@ function LoopingVideo({ src, poster, label, className = "" }) {
     const video = videoRef.current;
     if (!video) return;
 
+    // A film that cannot play itself has to become a film the visitor can
+    // play. Without this, a refused autoplay leaves a poster frame with no
+    // controls and preload="none" behind it -- which is not a resting state,
+    // it is indistinguishable from a broken image.
+    const offerControls = () => {
+      video.controls = true;
+    };
+
     // Anyone who has asked their system to reduce motion gets the poster frame
     // and real controls instead of a loop that starts on its own. The video is
-    // still here to watch -- it just waits to be asked.
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    if (reducedMotion?.matches) {
-      video.controls = true;
+    // still here to watch -- it just waits to be asked. Same for a browser with
+    // no IntersectionObserver, where there is nothing to drive playback.
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    if (shouldSkipAutoplay({ reducedMotion, hasIntersectionObserver: typeof IntersectionObserver !== "undefined" })) {
+      offerControls();
       return;
     }
 
-    if (typeof IntersectionObserver === "undefined") {
-      video.controls = true;
-      return;
-    }
+    let onScreen = false;
+
+    const tryPlay = () => {
+      if (!shouldAttemptPlay({ onScreen, pageHidden: document.hidden })) return;
+
+      video.play().catch((error) => {
+        if (isPermanentPlayRefusal(error)) offerControls();
+      });
+    };
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          // play() rejects when the browser refuses autoplay outright -- iOS
-          // Low Power Mode is the usual reason. There is no recovery worth
-          // attempting, and the poster frame is a fine resting state, so
-          // swallow it rather than leave an unhandled rejection in the console.
-          video.play().catch(() => {});
-        } else {
-          video.pause();
-        }
+        onScreen = entry.isIntersecting;
+        if (onScreen) tryPlay();
+        else video.pause();
       },
       // Low enough that a tall portrait clip on a short phone screen still
       // counts as "on screen" -- a 0.5 threshold can never be met when the
@@ -3306,7 +3315,19 @@ function LoopingVideo({ src, poster, label, className = "" }) {
     );
 
     observer.observe(video);
-    return () => observer.disconnect();
+
+    // The reason this listener exists: intersection does not change when a tab
+    // is switched away and back, so the observer never fires a second time. A
+    // video Chrome paused for being in a background tab would otherwise stay
+    // paused for the rest of the visit, sitting there looking broken.
+    document.addEventListener("visibilitychange", tryPlay);
+    video.addEventListener("error", offerControls);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", tryPlay);
+      video.removeEventListener("error", offerControls);
+    };
   }, []);
 
   return (
