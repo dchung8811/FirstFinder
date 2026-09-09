@@ -1316,35 +1316,28 @@ export default function FirstFinderApp() {
   // mode is a collector who owns the book and still has the want on their
   // list, which they can see and clear. The reverse order could mark a hunt
   // over while the book never reached the collection, which they could not.
-  async function markWantFound(want, found) {
+  async function markWantFound(want, found, photos = { itemPhotos: [], receiptPhotos: [] }) {
     if (!currentUser) return;
     setSavingWant(true);
 
     try {
-      const item = wantToItem(want, found);
+      // The same path the Add Items flows use, rather than a second thinner
+      // insert of its own: it allocates the reference number, uploads the
+      // photos, writes their paths back onto the row, and reports partial
+      // photo failures. A found copy deserves the same record as one added
+      // any other way -- and this is one insert to keep correct, not two.
+      const row = await insertItemWithPhotos(
+        wantToItem(want, found),
+        photos.itemPhotos || [],
+        photos.receiptPhotos || [],
+        "wishlist_found"
+      );
 
-      // Same allocation the normal save path uses, so a found want gets a
-      // reference number in the same sequence as everything else.
-      const { numbers, error: referenceError } = await nextReferenceNumbers(currentUser.id, 1);
-      if (referenceError) {
-        pushToast(referenceError, "error");
-        return;
-      }
+      // Already reported by insertItemWithPhotos. Leaving the want open is the
+      // right outcome: the collector can see the hunt is unfinished and retry.
+      if (!row) return;
 
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .insert(toDbItem({ ...item, referenceNumber: numbers[0] }, currentUser.id))
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Found-want insert error:", error.message);
-        pushToast(error.message, "error");
-        return;
-      }
-
-      const savedItem = fromDbItem(data);
-      setInventory((current) => [savedItem, ...current]);
+      const savedItem = fromDbItem(row);
 
       const { data: wantData, error: wantError } = await supabase
         .from("wishlist_items")
@@ -1367,11 +1360,12 @@ export default function FirstFinderApp() {
       const ceiling = compareToCeiling(want, found.purchasePrice);
       trackEvent("want_found", {
         priority: want.priority,
-        under_ceiling: ceiling ? ceiling.under : null
+        under_ceiling: ceiling ? ceiling.under : null,
+        has_item_photo: (photos.itemPhotos || []).length > 0,
+        has_receipt_photo: (photos.receiptPhotos || []).length > 0
       });
 
       setFoundWant(null);
-      pushToast(`${savedItem.name || "It"} is in your collection.`, "success");
     } finally {
       setSavingWant(false);
     }
@@ -6924,11 +6918,46 @@ function FoundRow({ wanted, hint, children }) {
 
 function FoundItDialog({ want, saving, onConfirm, onClose }) {
   const [found, setFound] = useState({ condition: "", purchasePrice: "", source: want.preferredSource || "", purchaseDate: todayIso() });
+  // Staged locally and handed over on confirm, the same {id, name, url, file}
+  // shape the Add Items flows use, so CompactUploader and uploadPhotoList both
+  // take them unchanged. Nothing uploads until the item row exists to attach
+  // them to -- abandoning this dialog leaves no orphaned files in storage.
+  const [itemPhotos, setItemPhotos] = useState([]);
+  const [receiptPhotos, setReceiptPhotos] = useState([]);
   const criteria = describeCriteria(want);
   const ceiling = compareToCeiling(want, found.purchasePrice);
 
+  // Every staged photo holds an object URL. Without this they leak for as long
+  // as the tab lives, which on a phone in a bookshop is exactly the session
+  // where it matters.
+  useEffect(
+    () => () => {
+      [...itemPhotos, ...receiptPhotos].forEach((photo) => photo.url && URL.revokeObjectURL(photo.url));
+    },
+    [itemPhotos, receiptPhotos]
+  );
+
   function set(field, value) {
     setFound((current) => ({ ...current, [field]: value }));
+  }
+
+  function addPhotos(event, kind) {
+    const files = Array.from(event.target.files || []);
+    const staged = files.map((file) => ({
+      id: `${kind}-${file.name}-${Date.now()}-${Math.random()}`,
+      name: file.name,
+      url: URL.createObjectURL(file),
+      type: file.type || "image",
+      file
+    }));
+    const setter = kind === "item" ? setItemPhotos : setReceiptPhotos;
+    setter((current) => [...current, ...staged]);
+    event.target.value = "";
+  }
+
+  function dropPhoto(id, kind) {
+    const setter = kind === "item" ? setItemPhotos : setReceiptPhotos;
+    setter((current) => current.filter((photo) => photo.id !== id));
   }
 
   return (
@@ -6990,6 +7019,27 @@ function FoundItDialog({ want, saving, onConfirm, onClose }) {
         </FoundRow>
       </div>
 
+      {/* The same two uploaders the Add Items flows offer, because this is the
+          moment a copy arrives -- photographing it now is the whole point, and
+          sending someone to a separate edit screen afterwards is how a record
+          ends up without a receipt. */}
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <CompactUploader
+          title="Photos of this copy"
+          icon="camera"
+          photos={itemPhotos}
+          onUpload={(event) => addPhotos(event, "item")}
+          onRemove={(id) => dropPhoto(id, "item")}
+        />
+        <CompactUploader
+          title="Receipt / proof"
+          icon="receipt"
+          photos={receiptPhotos}
+          onUpload={(event) => addPhotos(event, "receipt")}
+          onRemove={(id) => dropPhoto(id, "receipt")}
+        />
+      </div>
+
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-[#eadfcd] pt-5">
         <p className="max-w-xs text-xs leading-5 text-[#7d6c5a]">
           It joins your collection. The hunt stays on record rather than being deleted.
@@ -6998,7 +7048,7 @@ function FoundItDialog({ want, saving, onConfirm, onClose }) {
           <Button variant="outline" onClick={onClose} disabled={saving} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
             Not yet
           </Button>
-          <Button onClick={() => onConfirm(want, found)} disabled={saving} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+          <Button onClick={() => onConfirm(want, found, { itemPhotos, receiptPhotos })} disabled={saving} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
             {saving ? "Adding..." : "Add to collection"}
           </Button>
         </div>

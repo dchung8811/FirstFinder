@@ -11,6 +11,7 @@ import {
 } from "../../../src/utils/publicCollectionBrowse";
 import { formatCurrency } from "../../../src/utils/format";
 import { ItemCard } from "./ItemCard";
+import PhotoViewer from "./PhotoViewer";
 
 // The interactive half of a shared collection page.
 //
@@ -90,7 +91,7 @@ function valueForItem(item) {
   return item.status === "Sold" ? item.soldPrice : item.estimatedValue;
 }
 
-function RecordTable({ items }) {
+function RecordTable({ items, onViewPhotos }) {
   // Derived from the items rather than passed down: a withheld field is absent
   // from the object, so "does anything here have a price" is the same question
   // as "did the owner publish prices".
@@ -126,15 +127,22 @@ function RecordTable({ items }) {
                 {showPhotos && (
                   <td className="px-5 py-4">
                     {item.photoUrl ? (
-                      /* Lazy for the same reason the cards are: one request to
-                         Supabase storage per row. */
-                      <img
-                        src={item.photoUrl}
-                        alt={item.name || "Collection item"}
-                        loading="lazy"
-                        decoding="async"
-                        className="h-12 w-12 rounded-lg bg-[#f0e2cf] object-cover"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => onViewPhotos?.(item)}
+                        aria-label={`View photos of ${item.name || "this item"}`}
+                        className="cursor-zoom-in"
+                      >
+                        {/* Lazy for the same reason the cards are: one request
+                            to Supabase storage per row. */}
+                        <img
+                          src={item.photoUrl}
+                          alt={item.name || "Collection item"}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-12 w-12 rounded-lg bg-[#f0e2cf] object-cover"
+                        />
+                      </button>
                     ) : (
                       <span className="text-[#8a7a64]">--</span>
                     )}
@@ -173,6 +181,16 @@ export default function CollectionBrowser({ items }) {
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("added");
   const view = useSyncExternalStore(viewStore.subscribe, viewStore.read, serverView);
+  // One viewer for the whole page, opened from either layout, rather than a
+  // lightbox per card.
+  const [viewing, setViewing] = useState(null);
+  const [photoIndex, setPhotoIndex] = useState(0);
+
+  function openPhotos(item) {
+    if (!item?.photoUrls?.length) return;
+    setViewing(item);
+    setPhotoIndex(0);
+  }
 
   const options = useMemo(() => collectFilterOptions(items), [items]);
 
@@ -285,11 +303,15 @@ export default function CollectionBrowser({ items }) {
       ) : view === "cards" ? (
         <div className={`${showControls ? "mt-8" : "mt-10"} grid gap-6 sm:grid-cols-2 lg:grid-cols-3`}>
           {visible.map((item) => (
-            <ItemCard key={item.id} item={item} />
+            <ItemCard key={item.id} item={item} onViewPhotos={openPhotos} />
           ))}
         </div>
       ) : (
-        <RecordTable items={visible} />
+        <RecordTable items={visible} onViewPhotos={openPhotos} />
+      )}
+
+      {viewing && (
+        <PhotoViewer item={viewing} index={photoIndex} onIndex={setPhotoIndex} onClose={() => setViewing(null)} />
       )}
     </>
   );

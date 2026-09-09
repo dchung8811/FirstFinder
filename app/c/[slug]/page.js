@@ -79,10 +79,13 @@ export default async function SharedCollectionPage({ params }) {
   // carries its own photo URL crosses that boundary as plain data. Only the
   // one signed URL the card actually renders is included -- the rest of an
   // item's photo paths stay on the server, unsigned.
-  const items = collection.items.map((item) => ({
-    ...item,
-    photoUrl: photoUrls.get(item.photos[0]?.path) || null
-  }));
+  const items = collection.items.map((item) => {
+    // Every signed URL this item has, in order, plus the cover as its own
+    // field so a card needs no array indexing. Paths stay on the server: what
+    // crosses to the browser is only the URLs it will actually render.
+    const urls = item.photos.map((photo) => photoUrls.get(photo.path)).filter(Boolean);
+    return { ...item, photoUrl: urls[0] || null, photoUrls: urls };
+  });
 
   return (
     <main className="mx-auto max-w-5xl px-6 pb-6">
