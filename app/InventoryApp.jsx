@@ -5458,6 +5458,7 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
           <div className="mt-4 flex flex-col gap-3">
             <FooterLink onClick={go("tutorial")}>How to / Tutorial</FooterLink>
             <FooterLink onClick={go("inventory")}>My Collection</FooterLink>
+            <FooterLink onClick={go("wishlist")}>Wishlist</FooterLink>
             <FooterLink onClick={go("account")}>My Account</FooterLink>
             <FooterLink href="/books">Identification guides</FooterLink>
           </div>
