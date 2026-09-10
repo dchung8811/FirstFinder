@@ -62,6 +62,7 @@ import {
 } from "../src/utils/items";
 import { csvUpdateRow, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
+import { createSignedUrlBatcher } from "../src/utils/signedUrlBatch";
 import {
   createOperation,
   updateOperation,
@@ -416,11 +417,17 @@ async function fetchSignedPhotoUrls(photos) {
 
 // A single photo's URL, re-signed on demand. Used by SignedPhoto to recover a
 // photo whose hour is up without the page it lives on having to reload.
-async function signedUrlForPath(path) {
-  if (!path) return "";
-  const [photo] = await fetchSignedPhotoUrls([{ path }]);
-  return photo?.url || "";
-}
+//
+// Batched, because these do not arrive one at a time. Every URL on a page is
+// signed in the same call at load, so every URL expires in the same second,
+// so every photo asks for a replacement in the same second -- and the
+// insurance export puts a photo of every item on screen at once. Without the
+// batcher that is one request per photo; with it, one request for all of them,
+// which is what the load path was already doing.
+const signedUrlForPath = createSignedUrlBatcher(async (paths) => {
+  const photos = await fetchSignedPhotoUrls(paths.map((path) => ({ path })));
+  return photos.map((photo) => ({ path: photo.path, url: photo.url }));
+});
 
 // Allocates the next N reference numbers for a user.
 //
