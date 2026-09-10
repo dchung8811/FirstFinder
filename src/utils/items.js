@@ -3,7 +3,7 @@
 // -- and what makes them a readable reference for any other client that has to
 // reproduce the same arithmetic.
 
-import { authoredCategories, conditionOptions, mockAutofillOptions } from "./constants";
+import { authoredCategories, conditionOptions } from "./constants";
 import { toNumber, hasValue, formatCurrency } from "./format";
 
 // Books and comics carry an author; everything else is only ever made or
@@ -164,13 +164,6 @@ export function makeSavedItem(item, itemPhotos = [], receiptPhotos = []) {
 
 export function getActiveInventory(inventory) {
   return inventory.filter((entry) => entry.status !== "Sold");
-}
-
-export function pickMockAutofill(fileName, photoType) {
-  const normalized = String(fileName || "").toLowerCase();
-  if (photoType.toLowerCase().includes("receipt")) return mockAutofillOptions[0].data;
-  const matched = mockAutofillOptions.find((option) => normalized.includes(option.match));
-  return matched?.data || mockAutofillOptions[mockAutofillOptions.length - 1].data;
 }
 
 // A model can return low > high, or one side missing, if search evidence
