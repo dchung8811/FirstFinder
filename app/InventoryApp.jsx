@@ -5310,6 +5310,10 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
 
 function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onShare, shareVisibility, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, bulkMessage, focusItemId, onFocusHandled }) {
   const [photoViewer, setPhotoViewer] = useState(null);
+  // Cover URL per item, for the card grid. Signed in one call for the whole
+  // collection rather than one per card -- see signedUrlBatch.js for why that
+  // distinction is worth keeping.
+  const [coverUrls, setCoverUrls] = useState({});
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [pendingMarkSold, setPendingMarkSold] = useState(null);
@@ -5365,6 +5369,51 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
     // whether this runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusItemId]);
+
+  // The first photo of every item that has one. Derived from the full
+  // collection rather than from what is currently filtered into view, so
+  // typing in the search box does not re-sign anything: the set only changes
+  // when the collection does.
+  // A Map rather than a list, so a card looks its cover up in one step
+  // instead of scanning -- this renders once per item, and a collection is
+  // hundreds of them. It is also what decides whether a card shows a photo at
+  // all: derived from the collection as it is now, so an item whose photos
+  // were deleted cannot keep showing one from a stale URL cache.
+  const coverPathById = useMemo(() => {
+    const map = new Map();
+    inventory.forEach((entry) => {
+      const path = (entry.itemPhotos || []).find((photo) => photo.path)?.path;
+      if (path) map.set(entry.id, path);
+    });
+    return map;
+  }, [inventory]);
+
+  // A stable key for the effect below: the Map above is a new object every
+  // render, and depending on it directly would re-sign on every keystroke.
+  const coverPathKey = [...coverPathById.values()].join("|");
+
+  useEffect(() => {
+    if (coverPathById.size === 0) return;
+
+    let cancelled = false;
+    const entries = [...coverPathById.entries()];
+
+    fetchSignedPhotoUrls(entries.map(([, path]) => ({ path }))).then((photos) => {
+      if (cancelled) return;
+      const byId = {};
+      entries.forEach(([id], index) => {
+        if (photos[index]?.url) byId[id] = photos[index].url;
+      });
+      setCoverUrls(byId);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // coverPathById is rebuilt every render; coverPathKey is what actually
+    // changes when the collection does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coverPathKey]);
 
   const displayedInventory = filteredInventory
     .filter((entry) => categoryFilter === "All categories" || entry.category === categoryFilter)
@@ -5657,22 +5706,61 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
             <Card
               key={entry.id}
               id={`item-${entry.id}`}
-              className={`scroll-mt-24 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm transition ${
+              className={`scroll-mt-24 overflow-hidden rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm transition ${
                 focusItemId === entry.id ? "ring-2 ring-[#123f38] ring-offset-2 ring-offset-[#f6efe3]" : ""
               }`}
             >
+              {/* The photo leads the card, and the photo is the control.
+                  It used to be a text pill down among the chips, which is
+                  what made "these open" impossible to guess -- it looked
+                  exactly like the status and category chips beside it, which
+                  do nothing. A picture of a book invites a tap on its own,
+                  and cursor-zoom-in says what the tap does. Same shape as the
+                  card on a shared collection page, deliberately: it is the
+                  same object, and there is no reason to draw it twice. */}
+              {coverPathById.has(entry.id) ? (
+                <button
+                  type="button"
+                  onClick={() => setPhotoViewer(entry)}
+                  aria-label={`View photos of ${entry.name || "this item"}`}
+                  className="group relative block w-full cursor-zoom-in"
+                >
+                  <SignedPhoto
+                    path={coverPathById.get(entry.id)}
+                    src={coverUrls[entry.id]}
+                    alt={entry.name || "Collection item"}
+                    frameClassName="h-56 w-full"
+                    className="h-56 w-full object-cover transition group-hover:opacity-95"
+                    allowRetry={false}
+                  />
+                  {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0) > 1 && (
+                    <span className="absolute bottom-3 right-3 rounded-full bg-[#201a14]/70 px-2.5 py-1 text-xs font-medium text-[#fff7ea]">
+                      {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0)} photos
+                    </span>
+                  )}
+                </button>
+              ) : (
+                /* Not a button: there is nothing to open, and a control that
+                   does nothing when pressed is worse than an honest blank. */
+                <div className="flex h-56 w-full items-center justify-center bg-[#f0e2cf] text-sm text-[#8a7a64]">No photo yet</div>
+              )}
+
               <CardContent className="p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">{entry.status}</span>
-                      <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.category}</span>
-                      {entry.pendingSync && <PendingChip error={entry.pendingError} />}
-                    </div>
-                    <h2 className="mt-3 text-2xl font-semibold">{entry.name || "Untitled item"}</h2>
-                    <p className="text-[#665746]">{itemCredit(entry) || "Unknown maker"}</p>
-                  </div>
-                  <button onClick={() => setPendingDelete(entry)} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label={`Delete ${entry.name || "this item"}`}><Icon name="trash" size={17} /></button>
+                <h2 className="text-2xl font-semibold leading-tight">{entry.name || "Untitled item"}</h2>
+                <p className="mt-1 text-[#665746]">{itemCredit(entry) || "Unknown maker"}</p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">{entry.status}</span>
+                  <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.category}</span>
+                  {entry.condition && <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.condition}</span>}
+                  {/* Kept as a badge rather than a second button. The photo
+                      above opens everything this item has, receipts included,
+                      so a receipt needs to report that it exists -- not offer
+                      a second door to the same room. */}
+                  {entry.receiptPhotoCount > 0 && (
+                    <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">Receipt on file</span>
+                  )}
+                  {entry.pendingSync && <PendingChip error={entry.pendingError} />}
                 </div>
 
                 <div className="mt-5 grid gap-3 md:grid-cols-3">
@@ -5688,32 +5776,37 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
                 )}
 
                 <div className="mt-5 rounded-2xl bg-white p-4">
-                  <div className="text-sm leading-6 text-[#665746]">{entry.edition || "No edition details"} · Purchased from {entry.source || "unknown source"} on {entry.purchaseDate || "unknown date"}</div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <button type="button" onClick={() => setPhotoViewer(entry)} className={`rounded-full px-3 py-1 ${entry.receiptPhotoCount > 0 ? "bg-[#edf4f2] text-[#123f38]" : "bg-[#fff3d8] text-[#6d5526]"}`}>
-                      {entry.receiptPhotoCount > 0 ? `${entry.receiptPhotoCount} receipt proof` : "No receipt proof"}
-                    </button>
-                    <button type="button" onClick={() => setPhotoViewer(entry)} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-[#665746]">
-                      {entry.itemPhotoCount || 0} item photo{entry.itemPhotoCount === 1 ? "" : "s"}
-                    </button>
-                  </div>
+                  <div className="text-sm leading-6 text-[#665746]">{entry.edition || "No edition details"} · Purchased from {entry.source || "unknown source"}</div>
                   {buildSimilarCopyLinks(entry) && (
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#f0e2cf] pt-3 text-xs">
                       <span className="text-[#7d6c5a]">Find similar copies:</span>
-                      <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies_clicked", { site: "abebooks", category: entry.category || "Other" })} className="rounded-full bg-[#e6ecf5] px-3 py-1 font-medium text-[#2c3f5c] hover:bg-[#d8e0ee]">AbeBooks ↗</a>
-                      <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies_clicked", { site: "ebay", category: entry.category || "Other" })} className="rounded-full bg-[#fff3d8] px-3 py-1 font-medium text-[#6d5526] hover:bg-[#ffe9bd]">eBay ↗</a>
+                      <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "abebooks" })} className="font-medium text-[#123f38] underline underline-offset-4">AbeBooks</a>
+                      <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "ebay" })} className="font-medium text-[#123f38] underline underline-offset-4">eBay</a>
                     </div>
                   )}
                 </div>
 
-                <p className="mt-4 text-sm leading-6 text-[#665746]">{entry.notes}</p>
+                {entry.notes && <p className="mt-4 text-sm leading-6 text-[#665746]">{entry.notes}</p>}
+
+                {/* Delete sits with the other actions now rather than as an
+                    icon in the top corner: that corner is the photo, and an
+                    irreversible control floating over a tap target is a
+                    mis-tap waiting to happen. */}
                 <div className="mt-5 flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => onEdit(entry)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Edit</Button>
                   {entry.status === "Sold" ? (
-                    <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleRestoreSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">{busyId === entry.id ? "Restoring..." : "Restore to active"}</Button>
+                    <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleRestoreSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Restore</Button>
                   ) : (
                     <Button variant="outline" onClick={() => setPendingMarkSold(entry)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Mark sold</Button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setPendingDelete(entry)}
+                    className="ml-auto rounded-full bg-[#f0e2cf] p-2.5 text-[#665746] transition hover:bg-[#ead8bf]"
+                    aria-label={`Delete ${entry.name || "this item"}`}
+                  >
+                    <Icon name="trash" size={17} />
+                  </button>
                 </div>
               </CardContent>
             </Card>
