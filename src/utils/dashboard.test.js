@@ -153,7 +153,7 @@ describe("findDateFor", () => {
 });
 
 describe("recentFinds", () => {
-  const item = (id, purchaseDate, savedAt) => ({ id, purchaseDate, savedAt });
+  const item = (id, purchaseDate, savedAt) => ({ id, purchaseDate, savedAt, status: "Owned" });
 
   it("orders by when the item was found, not when it was typed in", () => {
     const inventory = [
@@ -186,6 +186,28 @@ describe("recentFinds", () => {
       item("dated-newest", "2026-09-09", "2026-09-09T09:00:00.000Z")
     ];
     expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["dated-newest", "undated-recent", "dated-old"]);
+  });
+
+  it("leaves out items that have been sold", () => {
+    const inventory = [
+      { id: "sold-last-week", status: "Sold", purchaseDate: "2026-09-03", savedAt: "2026-09-03T09:00:00.000Z" },
+      { id: "still-held", status: "Owned", purchaseDate: "2026-08-01", savedAt: "2026-08-01T09:00:00.000Z" }
+    ];
+    expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["still-held"]);
+  });
+
+  it("counts a sold item against neither the order nor the limit", () => {
+    const inventory = [
+      { id: "sold", status: "Sold", purchaseDate: "2026-09-09", savedAt: "2026-09-09T09:00:00.000Z" },
+      { id: "held-a", status: "Owned", purchaseDate: "2026-09-08", savedAt: "2026-09-08T09:00:00.000Z" },
+      { id: "held-b", status: "Owned", purchaseDate: "2026-09-07", savedAt: "2026-09-07T09:00:00.000Z" }
+    ];
+    expect(recentFinds(inventory, 2).map((entry) => entry.id)).toEqual(["held-a", "held-b"]);
+  });
+
+  it("keeps an item whose status has not been set", () => {
+    const inventory = [{ id: "no-status", purchaseDate: "2026-09-03", savedAt: "2026-09-03T09:00:00.000Z" }];
+    expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["no-status"]);
   });
 
   it("caps the strip at the limit", () => {

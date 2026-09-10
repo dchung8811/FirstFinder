@@ -112,8 +112,15 @@ export function findDateFor(item) {
 // tiebreak earns its keep: purchase dates are day-granular and collectors buy
 // in batches, so without it a whole afternoon's haul orders arbitrarily and
 // can shuffle between renders.
+//
+// Sold items are left out. A find is something you went and got and still
+// have; a book you have since sold on is a completed trade, and the strip is
+// the one place on the dashboard that answers "what have I turned up lately"
+// rather than "what has passed through my hands". The sold panels above it
+// already account for those.
 export function recentFinds(inventory, limit) {
-  return [...inventory]
+  return inventory
+    .filter((item) => item.status !== "Sold")
     .sort(
       (a, b) =>
         new Date(findDateFor(b)) - new Date(findDateFor(a)) ||
