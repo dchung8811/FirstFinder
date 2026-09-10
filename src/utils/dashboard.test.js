@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { monthLabel, monthlyBuckets, applyDashboardFilters, dashboardDateFor, dashboardRangeStart, findDateFor, recentFinds } from "./dashboard";
+import { monthLabel, monthlyBuckets, applyDashboardFilters, dashboardDateFor, dashboardRangeStart, hasFindDate, recentFinds } from "./dashboard";
 
 describe("monthLabel", () => {
   it("renders a bucket key as a short month and year", () => {
@@ -142,13 +142,28 @@ describe("dashboardRangeStart", () => {
   });
 });
 
-describe("findDateFor", () => {
-  it("uses the purchase date, not the day it was catalogued", () => {
-    expect(findDateFor({ purchaseDate: "2025-12-05", savedAt: "2026-09-10T00:00:00.000Z" })).toBe("2025-12-05");
+describe("hasFindDate", () => {
+  it("accepts a purchase date", () => {
+    expect(hasFindDate({ purchaseDate: "2025-12-05" })).toBe(true);
   });
 
-  it("falls back to the catalogue date when nothing was entered", () => {
-    expect(findDateFor({ purchaseDate: "", savedAt: "2026-09-10T00:00:00.000Z" })).toBe("2026-09-10T00:00:00.000Z");
+  it("rejects an item with nothing entered, however it was left blank", () => {
+    expect(hasFindDate({ purchaseDate: "" })).toBe(false);
+    expect(hasFindDate({ purchaseDate: null })).toBe(false);
+    expect(hasFindDate({})).toBe(false);
+  });
+
+  it("rejects a date that is not a date, rather than sorting on NaN", () => {
+    expect(hasFindDate({ purchaseDate: "sometime in the spring" })).toBe(false);
+  });
+
+  it("agrees with the range filters about what counts as dated", () => {
+    // Both read the same shape. If these ever disagree, an item can be inside
+    // "this year" and missing from the strip that "this year" is filtering.
+    const dated = { status: "Owned", purchaseDate: "2026-03-04", savedAt: "2026-03-04T09:00:00.000Z" };
+    const undated = { status: "Owned", purchaseDate: "", savedAt: "2026-03-04T09:00:00.000Z" };
+    expect(applyDashboardFilters([dated, undated], "", "ytd").undatedExcluded).toBe(1);
+    expect(recentFinds([dated, undated], 20)).toHaveLength(1);
   });
 });
 
@@ -179,13 +194,22 @@ describe("recentFinds", () => {
     expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["second-in", "first-in"]);
   });
 
-  it("sorts an undated item by when it was catalogued rather than at random", () => {
+  it("leaves out an item with no purchase date instead of floating it on its catalogue date", () => {
     const inventory = [
       item("dated-old", "2024-01-01", "2024-01-01T09:00:00.000Z"),
-      item("undated-recent", "", "2026-09-08T09:00:00.000Z"),
+      item("undated-but-entered-today", "", "2026-09-08T09:00:00.000Z"),
       item("dated-newest", "2026-09-09", "2026-09-09T09:00:00.000Z")
     ];
-    expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["dated-newest", "undated-recent", "dated-old"]);
+    expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["dated-newest", "dated-old"]);
+  });
+
+  it("counts an undated item against neither the order nor the limit", () => {
+    const inventory = [
+      item("undated", "", "2026-09-09T09:00:00.000Z"),
+      item("dated-a", "2026-09-08", "2026-09-08T09:00:00.000Z"),
+      item("dated-b", "2026-09-07", "2026-09-07T09:00:00.000Z")
+    ];
+    expect(recentFinds(inventory, 2).map((entry) => entry.id)).toEqual(["dated-a", "dated-b"]);
   });
 
   it("leaves out items that have been sold", () => {

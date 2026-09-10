@@ -98,14 +98,18 @@ export function applyDashboardFilters(inventory, category, rangeKey) {
 
 // Recent finds --------------------------------------------------------------
 
-// Which date makes an item a recent *find*. When you got it, not when you got
-// round to cataloguing it: a book bought last December but typed in this
-// morning is not a recent find, and sorting by the row's creation date claimed
-// it was. Items with no purchase date fall back to when they were catalogued,
-// which is the only date they have -- and a blank would otherwise parse to NaN
-// and sort them to an arbitrary spot rather than a predictable one.
-export function findDateFor(item) {
-  return item.purchaseDate || item.savedAt;
+// A recent find is dated by when you got it, not by when you got round to
+// cataloguing it: a book bought last December but typed in this morning is
+// not a recent find, and sorting by the row's creation date claimed it was.
+//
+// An item with no purchase date cannot answer the question the strip asks, so
+// it is left out rather than stood in for. Falling back to the catalogue date
+// floated undated items to the front on the strength of having been entered
+// recently, which is the same wrong answer in a quieter voice. Same date
+// shape the range filters insist on, so "has a date" means one thing across
+// the dashboard.
+export function hasFindDate(item) {
+  return /^\d{4}-\d{2}/.test(String(item.purchaseDate || ""));
 }
 
 // Newest first, ties broken by which was catalogued more recently. The
@@ -117,13 +121,14 @@ export function findDateFor(item) {
 // have; a book you have since sold on is a completed trade, and the strip is
 // the one place on the dashboard that answers "what have I turned up lately"
 // rather than "what has passed through my hands". The sold panels above it
-// already account for those.
+// already account for those. Undated items are left out for the reason above
+// hasFindDate.
 export function recentFinds(inventory, limit) {
   return inventory
-    .filter((item) => item.status !== "Sold")
+    .filter((item) => item.status !== "Sold" && hasFindDate(item))
     .sort(
       (a, b) =>
-        new Date(findDateFor(b)) - new Date(findDateFor(a)) ||
+        new Date(b.purchaseDate) - new Date(a.purchaseDate) ||
         new Date(b.savedAt) - new Date(a.savedAt)
     )
     .slice(0, limit);
