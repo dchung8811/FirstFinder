@@ -50,6 +50,7 @@ import {
 import {
   findPossibleDuplicates,
   buildSimilarCopyLinks,
+  hasEstimate,
   itemCredit,
   usesAuthorField,
   itemValueForTotals,
@@ -5679,7 +5680,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
                       />
                     </td>
                     <td className="px-5 py-4">
-                      <button type="button" onClick={() => setPhotoViewer(entry)} className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">
+                      <button type="button" onClick={() => setPhotoViewer({ entry, kind: "all" })} className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">
                         View {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0)}
                       </button>
                     </td>
@@ -5721,7 +5722,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
               {coverPathById.has(entry.id) ? (
                 <button
                   type="button"
-                  onClick={() => setPhotoViewer(entry)}
+                  onClick={() => setPhotoViewer({ entry, kind: "all" })}
                   aria-label={`View photos of ${entry.name || "this item"}`}
                   className="group relative block w-full cursor-zoom-in"
                 >
@@ -5750,43 +5751,77 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
                 <p className="mt-1 text-[#665746]">{itemCredit(entry) || "Unknown maker"}</p>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">{entry.status}</span>
-                  <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.category}</span>
+                  {/* Edition first and in green, the way the shared card leads
+                      with it: on a shelf of first editions it is the line
+                      worth reading before any other. */}
+                  {cardEditionLine(entry) && (
+                    <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">{cardEditionLine(entry)}</span>
+                  )}
                   {entry.condition && <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.condition}</span>}
-                  {/* Kept as a badge rather than a second button. The photo
-                      above opens everything this item has, receipts included,
-                      so a receipt needs to report that it exists -- not offer
-                      a second door to the same room. */}
+                  {entry.bookGenre && <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.bookGenre}</span>}
+                  {/* Only when it is not the ordinary case. "Owned" on every
+                      card in a collection of owned things is a chip that never
+                      varies, and a chip that never varies is furniture. */}
+                  {entry.status !== "Owned" && (
+                    <span className="rounded-full bg-[#fff3d8] px-3 py-1 text-xs font-medium text-[#6d5526]">{entry.status}</span>
+                  )}
+                  {/* Books carry a genre chip that already says what they are;
+                      a card, a programme or a record has nothing else naming
+                      it, so the category earns its place there and not here. */}
+                  {!entry.bookGenre && entry.category && entry.category !== "Book" && (
+                    <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.category}</span>
+                  )}
+                  {/* A button, not a badge. Reaching a receipt is its own
+                      errand -- proving what you paid, for insurance or a
+                      sale -- and going by way of the cover photo and then
+                      scrolling past every shot of the book is the long way
+                      round to a document you asked for by name. */}
                   {entry.receiptPhotoCount > 0 && (
-                    <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">Receipt on file</span>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoViewer({ entry, kind: "receipt" })}
+                      aria-label={`View the receipt for ${entry.name || "this item"}`}
+                      className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38] underline decoration-[#123f38]/30 underline-offset-4 transition hover:bg-[#dceae5] hover:decoration-[#123f38]"
+                    >
+                      <Icon name="receipt" size={12} className="mr-1 inline align-[-1px]" />
+                      {entry.receiptPhotoCount === 1 ? "Receipt on file" : `${entry.receiptPhotoCount} receipts on file`}
+                    </button>
                   )}
                   {entry.pendingSync && <PendingChip error={entry.pendingError} />}
                 </div>
 
-                <div className="mt-5 grid gap-3 md:grid-cols-3">
-                  <SmallMetric label="Paid" value={formatCurrency(entry.purchasePrice)} />
-                  <SmallMetric label="Value" value={formatEstimatedValue(entry)} />
-                  <SmallMetric label="Change" value={formatGain(calculateGain(entry))} />
-                </div>
-
-                {entry.status === "Sold" && hasValue(entry.soldPrice) && (
-                  <div className="mt-3 rounded-2xl bg-[#edf4f2] px-4 py-3 text-sm text-[#123f38]">
-                    Sold for {formatCurrency(entry.soldPrice)}{entry.soldDate ? ` on ${entry.soldDate}` : ""}
-                  </div>
-                )}
-
-                <div className="mt-5 rounded-2xl bg-white p-4">
-                  <div className="text-sm leading-6 text-[#665746]">{entry.edition || "No edition details"} · Purchased from {entry.source || "unknown source"}</div>
-                  {buildSimilarCopyLinks(entry) && (
-                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#f0e2cf] pt-3 text-xs">
-                      <span className="text-[#7d6c5a]">Find similar copies:</span>
-                      <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "abebooks" })} className="font-medium text-[#123f38] underline underline-offset-4">AbeBooks</a>
-                      <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "ebay" })} className="font-medium text-[#123f38] underline underline-offset-4">eBay</a>
+                {/* Label left, figure right, hairline between -- the shared
+                    card's rows. They read as a ledger, which is what this is,
+                    and they collapse to nothing on an item that has no
+                    numbers yet rather than printing a row of blanks. */}
+                <div className="mt-5 flex flex-col gap-2">
+                  {hasEstimate(entry) && <DetailRow label="Est. value">{formatEstimatedValue(entry)}</DetailRow>}
+                  {hasValue(entry.purchasePrice) && <DetailRow label="Paid">{formatCurrency(entry.purchasePrice)}</DetailRow>}
+                  {/* Private to the owner: the shared card never shows what a
+                      copy has done since it was bought. */}
+                  {calculateGain(entry) !== null && <DetailRow label="Change">{formatGain(calculateGain(entry))}</DetailRow>}
+                  {entry.status === "Sold" && hasValue(entry.soldPrice) && (
+                    <DetailRow label="Sold for">
+                      {formatCurrency(entry.soldPrice)}{entry.soldDate ? ` · ${entry.soldDate}` : ""}
+                    </DetailRow>
+                  )}
+                  {entry.purchaseDate && <DetailRow label="Acquired">{entry.purchaseDate}</DetailRow>}
+                  {entry.source && <DetailRow label="Source">{entry.source}</DetailRow>}
+                  {entry.notes && (
+                    <div className="border-t border-[#eadfcd] pt-2">
+                      <div className="text-xs uppercase tracking-[0.14em] text-[#8a7a64]">Notes</div>
+                      <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#3f352a]">{entry.notes}</p>
                     </div>
                   )}
                 </div>
 
-                {entry.notes && <p className="mt-4 text-sm leading-6 text-[#665746]">{entry.notes}</p>}
+                {buildSimilarCopyLinks(entry) && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#eadfcd] pt-3 text-xs">
+                    <span className="text-[#7d6c5a]">Find similar copies:</span>
+                    <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "abebooks" })} className="font-medium text-[#123f38] underline underline-offset-4">AbeBooks</a>
+                    <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "ebay" })} className="font-medium text-[#123f38] underline underline-offset-4">eBay</a>
+                  </div>
+                )}
 
                 {/* Delete sits with the other actions now rather than as an
                     icon in the top corner: that corner is the photo, and an
@@ -5814,7 +5849,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
         </div>
       )}
 
-      {photoViewer && <PhotoViewerModal entry={photoViewer} onClose={() => setPhotoViewer(null)} />}
+      {photoViewer && <PhotoViewerModal entry={photoViewer.entry} kind={photoViewer.kind} onClose={() => setPhotoViewer(null)} />}
 
       {pendingDelete && (
         <DeleteConfirmDialog
@@ -7757,15 +7792,21 @@ function EditPhotoSection({ title, icon, existingPhotos, newPhotos, onUpload, on
   );
 }
 
-function PhotoViewerModal({ entry, onClose }) {
+// kind "receipt" opens straight to the proof of purchase, which is its own
+// errand: someone checking what they paid, for insurance or before a sale, is
+// not browsing the book. Anything else shows the lot.
+function PhotoViewerModal({ entry, kind = "all", onClose }) {
   const [allPhotos, setAllPhotos] = useState(null);
   const [loadError, setLoadError] = useState("");
+  const receiptsOnly = kind === "receipt";
 
   useEffect(() => {
-    const photos = [
-      ...(entry.itemPhotos || []).map((photo) => ({ ...photo, label: "Item photo" })),
-      ...(entry.receiptPhotos || []).map((photo) => ({ ...photo, label: "Receipt proof" }))
-    ];
+    const photos = receiptsOnly
+      ? (entry.receiptPhotos || []).map((photo) => ({ ...photo, label: "Receipt proof" }))
+      : [
+          ...(entry.itemPhotos || []).map((photo) => ({ ...photo, label: "Item photo" })),
+          ...(entry.receiptPhotos || []).map((photo) => ({ ...photo, label: "Receipt proof" }))
+        ];
 
     const savedPaths = photos.filter((photo) => photo.path).map((photo) => photo.path);
 
@@ -7808,13 +7849,13 @@ function PhotoViewerModal({ entry, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [entry]);
+  }, [entry, receiptsOnly]);
 
   return (
     <ModalShell onClose={onClose} contentClassName="max-h-[85vh] max-w-4xl">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Photos</div>
+          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">{receiptsOnly ? "Receipts" : "Photos"}</div>
           <h2 className="mt-1 text-3xl font-semibold">{entry.name || "Untitled item"}</h2>
         </div>
         <button onClick={onClose} className="rounded-full bg-[#f0e2cf] p-2 text-[#665746] hover:bg-[#ead8bf]" aria-label="Close photo viewer">
@@ -7828,7 +7869,7 @@ function PhotoViewerModal({ entry, onClose }) {
         </div>
       ) : allPhotos.length === 0 ? (
         <div className="mt-6 rounded-2xl bg-[#f7efe3] p-6 text-center text-[#665746]">
-          {loadError || "No saved photos for this item yet."}
+          {loadError || (receiptsOnly ? "No receipt saved for this item yet." : "No saved photos for this item yet.")}
         </div>
       ) : (
         <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -8823,7 +8864,24 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
 function PhotoGrid({ photos, onRemove, compact = false }) { return <div className={`mt-4 grid gap-3 ${compact ? "grid-cols-3" : "sm:grid-cols-2"}`}>{photos.map((photo) => <div key={photo.id} className="group relative overflow-hidden rounded-2xl border border-[#e0d2bc] bg-white shadow-sm"><img src={photo.url} alt={photo.name} className={`${compact ? "h-20" : "h-32"} w-full object-cover`} /><button type="button" onClick={() => onRemove(photo.id)} className="absolute right-2 top-2 rounded-full bg-[#201a14]/75 p-2 text-white opacity-100 transition hover:bg-[#201a14] sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove ${photo.name}`}><Icon name="x" size={15} /></button>{!compact && <div className="truncate px-3 py-2 text-xs text-[#665746]">{photo.name}</div>}</div>)}</div>; }
 function SummaryPill({ label, value }) { return <div className="rounded-2xl bg-[#f7efe3] p-4"><div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</div><div className="mt-1 text-lg font-semibold">{value}</div></div>; }
 function DashboardCard({ icon, label, value }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="flex items-center gap-4 p-6"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name={icon} size={22} /></div><div><div className="text-sm text-[#665746]">{label}</div><div className="text-2xl font-semibold">{value}</div></div></CardContent></Card>; }
-function SmallMetric({ label, value }) { return <div className="rounded-2xl bg-white p-4"><div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</div><div className="mt-1 font-semibold">{value}</div></div>; }
+// The shared card's ledger row: label left, figure right, hairline above.
+function DetailRow({ label, children }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-t border-[#eadfcd] pt-2">
+      <span className="text-xs uppercase tracking-[0.14em] text-[#8a7a64]">{label}</span>
+      <span className="text-right text-sm font-medium text-[#3f352a]">{children}</span>
+    </div>
+  );
+}
+
+// "First edition · First printing" for a book, the free-text edition for
+// everything else -- the same line the shared card leads its chips with.
+function cardEditionLine(entry) {
+  if (entry.category !== "Book") return entry.edition;
+  return [entry.bookEdition && `${entry.bookEdition} edition`, entry.bookPrinting && `${entry.bookPrinting} printing`]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 function Button({ children, variant = "primary", className = "", onClick, type = "button", disabled = false }) {
   const styles =
