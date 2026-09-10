@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { monthLabel, monthlyBuckets, applyDashboardFilters, dashboardDateFor, dashboardRangeStart } from "./dashboard";
+import { monthLabel, monthlyBuckets, applyDashboardFilters, dashboardDateFor, dashboardRangeStart, findDateFor, recentFinds } from "./dashboard";
 
 describe("monthLabel", () => {
   it("renders a bucket key as a short month and year", () => {
@@ -139,5 +139,65 @@ describe("dashboardRangeStart", () => {
     expect(start.getMonth()).toBe(0);
     expect(start.getDate()).toBe(1);
     vi.useRealTimers();
+  });
+});
+
+describe("findDateFor", () => {
+  it("uses the purchase date, not the day it was catalogued", () => {
+    expect(findDateFor({ purchaseDate: "2025-12-05", savedAt: "2026-09-10T00:00:00.000Z" })).toBe("2025-12-05");
+  });
+
+  it("falls back to the catalogue date when nothing was entered", () => {
+    expect(findDateFor({ purchaseDate: "", savedAt: "2026-09-10T00:00:00.000Z" })).toBe("2026-09-10T00:00:00.000Z");
+  });
+});
+
+describe("recentFinds", () => {
+  const item = (id, purchaseDate, savedAt) => ({ id, purchaseDate, savedAt });
+
+  it("orders by when the item was found, not when it was typed in", () => {
+    const inventory = [
+      item("old-buy-typed-today", "2025-12-05", "2026-09-10T09:00:00.000Z"),
+      item("bought-last-week", "2026-09-03", "2026-09-03T09:00:00.000Z")
+    ];
+    expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["bought-last-week", "old-buy-typed-today"]);
+  });
+
+  it("keeps items that have no photo", () => {
+    const inventory = [
+      { id: "no-photo", purchaseDate: "2026-09-03", savedAt: "2026-09-03T09:00:00.000Z", itemPhotos: [] },
+      { id: "photo", purchaseDate: "2026-08-01", savedAt: "2026-08-01T09:00:00.000Z", itemPhotos: [{ path: "a.jpg" }] }
+    ];
+    expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["no-photo", "photo"]);
+  });
+
+  it("breaks a same-day haul by which was catalogued last", () => {
+    const inventory = [
+      item("first-in", "2026-08-22", "2026-08-22T09:00:00.000Z"),
+      item("second-in", "2026-08-22", "2026-08-22T11:00:00.000Z")
+    ];
+    expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["second-in", "first-in"]);
+  });
+
+  it("sorts an undated item by when it was catalogued rather than at random", () => {
+    const inventory = [
+      item("dated-old", "2024-01-01", "2024-01-01T09:00:00.000Z"),
+      item("undated-recent", "", "2026-09-08T09:00:00.000Z"),
+      item("dated-newest", "2026-09-09", "2026-09-09T09:00:00.000Z")
+    ];
+    expect(recentFinds(inventory, 20).map((entry) => entry.id)).toEqual(["dated-newest", "undated-recent", "dated-old"]);
+  });
+
+  it("caps the strip at the limit", () => {
+    const inventory = Array.from({ length: 30 }, (_, index) =>
+      item(`item-${index}`, `2026-01-${String((index % 28) + 1).padStart(2, "0")}`, "2026-02-01T09:00:00.000Z")
+    );
+    expect(recentFinds(inventory, 20)).toHaveLength(20);
+  });
+
+  it("does not reorder the caller's array", () => {
+    const inventory = [item("a", "2020-01-01", "2020-01-01T09:00:00.000Z"), item("b", "2026-01-01", "2026-01-01T09:00:00.000Z")];
+    recentFinds(inventory, 20);
+    expect(inventory.map((entry) => entry.id)).toEqual(["a", "b"]);
   });
 });
