@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { shouldAttemptPlay, isPermanentPlayRefusal, hasStartedPlaying, shouldSkipAutoplay } from "./videoPlayback";
+import {
+  shouldAttemptPlay,
+  isPermanentPlayRefusal,
+  hasStartedPlaying,
+  shouldSkipAutoplay,
+  nextWatchdogDelayMs,
+  WATCHDOG_PATIENCE_MS,
+  WATCHDOG_HARD_CAP_MS
+} from "./videoPlayback";
 
 const abort = () => new DOMException("paused to save power", "AbortError");
 
@@ -61,6 +69,30 @@ describe("hasStartedPlaying", () => {
     expect(hasStartedPlaying({ paused: false, currentTime: 0, readyState: 4 })).toBe(false);
     expect(hasStartedPlaying({ paused: false, currentTime: 0.4, readyState: 0 })).toBe(false);
     expect(hasStartedPlaying({ paused: false, currentTime: 0, readyState: 0 })).toBe(false);
+  });
+});
+
+describe("nextWatchdogDelayMs", () => {
+  // The ordinary case: plenty of the hard cap left, so a progress event buys
+  // the full patience window.
+  it("grants the full patience window when the cap is far off", () => {
+    expect(nextWatchdogDelayMs({ now: 0, deadline: WATCHDOG_HARD_CAP_MS })).toBe(WATCHDOG_PATIENCE_MS);
+  });
+
+  // Downloading, but not for much longer: the cap is what still catches a
+  // download that keeps trickling data forever without ever playing.
+  it("shortens to whatever is left of the cap once that is the binding constraint", () => {
+    const now = WATCHDOG_HARD_CAP_MS - 1500;
+    expect(nextWatchdogDelayMs({ now, deadline: WATCHDOG_HARD_CAP_MS })).toBe(1500);
+  });
+
+  // Past the cap: check right away rather than scheduling a negative delay.
+  it("never returns a negative delay once the cap has passed", () => {
+    expect(nextWatchdogDelayMs({ now: WATCHDOG_HARD_CAP_MS + 500, deadline: WATCHDOG_HARD_CAP_MS })).toBe(0);
+  });
+
+  it("accepts a custom patience window", () => {
+    expect(nextWatchdogDelayMs({ now: 0, deadline: 100000, patience: 1000 })).toBe(1000);
   });
 });
 

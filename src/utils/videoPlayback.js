@@ -47,6 +47,35 @@ export function hasStartedPlaying({ paused, currentTime, readyState }) {
   return !paused && currentTime > 0 && readyState >= 2;
 }
 
+// How long the watchdog waits before checking hasStartedPlaying, in
+// milliseconds -- and the reason it is not one fixed number.
+//
+// A slow mobile connection is not a refusal. play() on a video with nothing
+// buffered yet does not reject; it just stays pending until enough data
+// arrives, and that can easily take longer than a couple of seconds on
+// cellular for a multi-megabyte clip. The original fixed 2.5s watchdog could
+// not tell "still downloading" from "never going to play", and reaching for a
+// bigger fixed number only moves where that line is drawn wrong.
+//
+// So the deadline moves instead: every `progress` event (fired as bytes
+// actually arrive) pushes it out by PATIENCE_MS, which is what tells a slow
+// download apart from a stalled one -- a video that keeps receiving data
+// keeps earning more time, one that stops receiving data does not. HARD_CAP_MS
+// is the backstop that keeps this from waiting forever: the pathological case
+// #146 exists for (data present, decoder simply never starts) downloads its
+// whole preload="none" fetch in one burst of progress events and then goes
+// quiet, so the cap is what still catches it.
+export const WATCHDOG_PATIENCE_MS = 4000;
+export const WATCHDOG_HARD_CAP_MS = 15000;
+
+// The delay to arm the next watchdog check with, given how much of the hard
+// cap is left. Clamped at both ends: never negative (the cap has already
+// passed -- check immediately), never longer than the ordinary patience
+// window (progress alone should not buy unlimited time).
+export function nextWatchdogDelayMs({ now, deadline, patience = WATCHDOG_PATIENCE_MS }) {
+  return Math.max(0, Math.min(patience, deadline - now));
+}
+
 // Whether to skip autoplay entirely and hand the visitor a normal video.
 //
 // Reduced motion is a request, not a preference to weigh. No
