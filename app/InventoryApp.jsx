@@ -3908,6 +3908,13 @@ function LoopingVideo({ src, poster, label, className = "" }) {
 
     let onScreen = false;
     let watchdog = null;
+    // Set right before pausing, read inside the catch below. What actually
+    // rejects play() when we call pause() on it mid-flight is an AbortError
+    // indistinguishable, by name alone, from one the browser generates on its
+    // own -- this is the flag that tells the two apart. See the comment on
+    // isPermanentPlayRefusal's selfInterrupted parameter for why the
+    // difference matters.
+    let pausedSinceLastPlay = false;
     // The moment the watchdog stops being patient, however much the film keeps
     // downloading in the meantime. Reset whenever playback is attempted from
     // scratch (freshly on screen, or resuming after the tab was hidden), so a
@@ -3943,8 +3950,12 @@ function LoopingVideo({ src, poster, label, className = "" }) {
         video.load();
       }
 
+      // A fresh attempt, so a pause from a previous cycle cannot excuse a
+      // rejection that belongs to this one.
+      pausedSinceLastPlay = false;
+
       video.play().catch((error) => {
-        if (isPermanentPlayRefusal(error, { pageHidden: document.hidden })) offerControls();
+        if (isPermanentPlayRefusal(error, { pageHidden: document.hidden, selfInterrupted: pausedSinceLastPlay })) offerControls();
       });
 
       // The guarantee that this cannot sit there stuck. A play() that resolves,
@@ -3956,11 +3967,25 @@ function LoopingVideo({ src, poster, label, className = "" }) {
       armWatchdog();
     };
 
+    // The bug this exists for: the ratio this measures can wobble across the
+    // threshold right after load -- fonts swapping in above the fold, an
+    // image finishing and shifting the film down a few pixels -- which the
+    // observer reports as a real, if brief, exit and re-entry. Calling
+    // pause() on the tail of that reports back here as a rejected play(), and
+    // without pausedSinceLastPlay that reads exactly like a real refusal.
+    // Reported reproducing in a plain mobile browser tab and, separately, an
+    // installed PWA is what pointed at this rather than at autoplay policy:
+    // the two share nothing except that both can experience this kind of
+    // post-load settling.
     const observer = new IntersectionObserver(
       ([entry]) => {
         onScreen = entry.isIntersecting;
-        if (onScreen) tryPlay();
-        else video.pause();
+        if (onScreen) {
+          tryPlay();
+        } else {
+          pausedSinceLastPlay = true;
+          video.pause();
+        }
       },
       // Low enough that a tall portrait clip on a short phone screen still
       // counts as "on screen" -- a 0.5 threshold can never be met when the
