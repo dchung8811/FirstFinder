@@ -30,8 +30,23 @@ export function shouldAttemptPlay({ onScreen, pageHidden }) {
 //
 // Everything else -- NotAllowedError from autoplay being switched off or iOS
 // Low Power Mode above all -- is permanent for this visit either way.
-export function isPermanentPlayRefusal(error, { pageHidden = false } = {}) {
+//
+// A third case belongs here too, and is not about the page at all: an
+// AbortError we caused ourselves. The observer below calls video.pause()
+// whenever the film scrolls (or is measured as) out of view, and pausing a
+// video whose play() is still pending is exactly what produces this error --
+// it is not the browser declining anything, it is our own code interrupting
+// its own request. That happens on any platform where the intersection ratio
+// can wobble across the 0.25 threshold right after load, as fonts swap in or
+// images above the film settle and shift its position -- a cold PWA launch
+// is not exempt from this, and reported reproducing there as readily as in a
+// mobile browser tab is what pointed at this rather than at anything to do
+// with autoplay policy. Nothing was refused; the next intersection (or the
+// visibilitychange listener) will ask again, and selfInterrupted says so
+// takes priority over the error's own name.
+export function isPermanentPlayRefusal(error, { pageHidden = false, selfInterrupted = false } = {}) {
   if (!error) return false;
+  if (selfInterrupted) return false;
   if (error.name === "AbortError") return !pageHidden;
   return true;
 }

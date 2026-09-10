@@ -51,6 +51,27 @@ describe("isPermanentPlayRefusal", () => {
     expect(isPermanentPlayRefusal(new DOMException("no source", "NotSupportedError"))).toBe(true);
   });
 
+  // The bug: an intersection ratio that wobbles across the threshold right
+  // after load -- fonts swapping in, images above the film settling -- makes
+  // the observer call pause() while our own play() is still pending, which
+  // produces this exact error. Nothing was refused; we did it to ourselves,
+  // and the next intersection asks again. Reported reproducing on a mobile
+  // browser tab and, separately, an installed PWA is what pointed here rather
+  // than at autoplay policy: neither has anything in common except that both
+  // can experience this kind of post-load layout settling.
+  it("does not treat a self-inflicted abort as any kind of verdict", () => {
+    expect(isPermanentPlayRefusal(abort(), { pageHidden: false, selfInterrupted: true })).toBe(false);
+    expect(isPermanentPlayRefusal(abort(), { pageHidden: true, selfInterrupted: true })).toBe(false);
+  });
+
+  // selfInterrupted overrides the error's own name entirely, not just for
+  // AbortError -- if we know we caused the interruption, no error occurring
+  // as a result of it is evidence the film cannot play.
+  it("overrides even a NotAllowedError when we caused the interruption ourselves", () => {
+    const refused = new DOMException("not allowed", "NotAllowedError");
+    expect(isPermanentPlayRefusal(refused, { pageHidden: false, selfInterrupted: true })).toBe(false);
+  });
+
   it("is not fooled by a missing error", () => {
     expect(isPermanentPlayRefusal(undefined)).toBe(false);
     expect(isPermanentPlayRefusal(null, { pageHidden: true })).toBe(false);
