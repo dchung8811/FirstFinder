@@ -225,6 +225,31 @@ async function loadSharedWants(admin, userId, settings) {
 // unknown slug, or the owner has switched sharing off. The caller turns null
 // into a 404, so those two cases are indistinguishable from outside: a
 // visitor cannot tell "never existed" from "was taken down".
+// Whether a slug resolves to a page that may be shown at all -- the same
+// question loadSharedCollection answers first, without the items or the photo
+// signing that follow it.
+//
+// Split out so the route's layout can settle "does this exist" before the HTML
+// shell is flushed. Once streaming has begun the status code is already sent,
+// and notFound() can only swap the body, so a 404 has to be decided here.
+export async function sharedCollectionExists(slug) {
+  if (!isValidShareSlug(slug)) return false;
+
+  const { data, error } = await createSupabaseAdminClient()
+    .from("shared_collections")
+    .select("slug")
+    .eq("slug", slug)
+    .neq("visibility", "off")
+    .maybeSingle();
+
+  if (error) {
+    console.error("Shared collection lookup error:", error.message);
+    return false;
+  }
+
+  return Boolean(data);
+}
+
 export async function loadSharedCollection(slug) {
   // Checked before the query so a malformed URL costs nothing, and so the
   // slug column only ever sees strings of the expected shape.
