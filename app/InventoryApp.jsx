@@ -106,7 +106,7 @@ import {
   sharePath
 } from "../src/utils/publicCollection";
 import { buildCsvTemplate, buildCsvExport, parseCsvBatch } from "../src/utils/csv";
-import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters } from "../src/utils/dashboard";
+import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters, recentFinds } from "../src/utils/dashboard";
 
 function Icon({ name, size = 20, className = "" }) {
   const icons = {
@@ -6047,55 +6047,56 @@ function StatTile({ label, value, sublabel }) {
   );
 }
 
-// The dashboard opens on the collection itself, not on its balance sheet.
-// Six most recent finds, newest first, using each item's first photo. Items
-// without a photo are skipped rather than shown as empty frames -- a gap in
-// the strip reads as a bug, a shorter strip doesn't.
-function RecentFinds({ inventory, onCollection, onOpenItem }) {
-  const recent = useMemo(
-    () =>
-      [...inventory]
-        .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
-        .filter((item) => (item.itemPhotos || []).some((photo) => photo.path || photo.url))
-        .slice(0, 6),
-    [inventory]
-  );
+const RECENT_FINDS_LIMIT = 20;
 
-  const [covers, setCovers] = useState([]);
+function firstPhoto(item) {
+  return (item.itemPhotos || []).find((photo) => photo.path || photo.url);
+}
+
+// The dashboard opens on the collection itself, not on its balance sheet.
+// The twenty most recent finds, newest first. Every one of them appears: a
+// book with no photo keeps its place behind a frame that says so, rather than
+// being dropped. Skipping them made the strip a view of what had been
+// photographed rather than of what had been found, which put a book bought in
+// December ahead of one bought last week on the strength of having a picture.
+function RecentFinds({ inventory, onCollection, onOpenItem }) {
+  const recent = useMemo(() => recentFinds(inventory, RECENT_FINDS_LIMIT), [inventory]);
+
+  // Signed URLs keyed by item, and whether the round trip has come back yet.
+  // Held apart from `recent` so the strip paints its titles and its photoless
+  // frames at once instead of waiting on the network to show anything.
+  const [signed, setSigned] = useState({ ready: false, byItem: {} });
 
   useEffect(() => {
-    if (recent.length === 0) {
-      setCovers([]);
+    const photoed = recent.map((item) => ({ item, photo: firstPhoto(item) })).filter((entry) => entry.photo);
+
+    if (photoed.length === 0) {
+      setSigned({ ready: true, byItem: {} });
       return;
     }
 
     let cancelled = false;
+    setSigned({ ready: false, byItem: {} });
 
     // One signed-URL round trip for the whole strip rather than one per
     // thumbnail: these expire in an hour, so they can't be cached with the row.
-    fetchSignedPhotoUrls(recent.map((item) => (item.itemPhotos || []).find((photo) => photo.path || photo.url))).then(
-      (photos) => {
-        if (cancelled) return;
+    fetchSignedPhotoUrls(photoed.map((entry) => entry.photo)).then((photos) => {
+      if (cancelled) return;
+      const byItem = {};
+      photoed.forEach((entry, index) => {
         // The path travels with the URL: it is what a cover needs to ask for
         // a new URL of its own when the one it was handed stops working.
-        setCovers(
-          recent
-            .map((item, index) => ({ item, url: photos[index]?.url, path: photos[index]?.path }))
-            // A cover whose URL did not come back is still a book the
-            // collector owns: it keeps its place, says the photo did not
-            // load, and re-signs itself. Dropping it made the strip quietly
-            // shorter, which reads as items going missing.
-            .filter((cover) => cover.url || cover.path)
-        );
-      }
-    );
+        byItem[entry.item.id] = { url: photos[index]?.url, path: photos[index]?.path };
+      });
+      setSigned({ ready: true, byItem });
+    });
 
     return () => {
       cancelled = true;
     };
   }, [recent]);
 
-  if (covers.length === 0) return null;
+  if (recent.length === 0) return null;
 
   return (
     <div className="mt-8">
@@ -6106,29 +6107,43 @@ function RecentFinds({ inventory, onCollection, onOpenItem }) {
         </button>
       </div>
       <div className="mt-4 flex gap-4 overflow-x-auto pb-2">
-        {covers.map(({ item, url, path }) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onOpenItem(item)}
-            /* A cover is a picture of one book, so tapping it goes to that
-               book's record rather than to the collection in general. */
-            aria-label={`Show "${item.name || "this item"}" in your collection`}
-            className="group w-32 shrink-0 rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#123f38]/40"
-          >
-            <div className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3]">
-              <SignedPhoto
-                path={path}
-                src={url}
-                frameClassName="aspect-[3/4] w-full"
-                className="h-full w-full object-cover transition group-hover:opacity-90"
-                allowRetry={false}
-              />
-            </div>
-            <div className="mt-2 truncate text-sm font-medium" title={item.name || "Untitled item"}>{item.name || "Untitled item"}</div>
-            <div className="truncate text-xs text-[#7d6c5a]" title={itemCredit(item)}>{itemCredit(item) || "Unknown maker"}</div>
-          </button>
-        ))}
+        {recent.map((item) => {
+          const cover = signed.byItem[item.id];
+          const hasPhoto = Boolean(firstPhoto(item));
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onOpenItem(item)}
+              /* A cover is a picture of one book, so tapping it goes to that
+                 book's record rather than to the collection in general. */
+              aria-label={`Show "${item.name || "this item"}" in your collection`}
+              className="group w-32 shrink-0 rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#123f38]/40"
+            >
+              <div className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3]">
+                {hasPhoto && !signed.ready ? (
+                  /* Waiting on the batch of URLs. The shimmer is the one
+                     SignedPhoto uses while an image loads, so the handover
+                     when the URL lands isn't a visible change of state. */
+                  <div className="aspect-[3/4] w-full animate-pulse bg-[#e7d7bd]" />
+                ) : (
+                  <SignedPhoto
+                    path={cover?.path}
+                    src={cover?.url}
+                    /* A book nobody has photographed hasn't failed at
+                       anything, and shouldn't be reported as though it had. */
+                    missingLabel={hasPhoto ? "Photo didn't load" : "No photo"}
+                    frameClassName="aspect-[3/4] w-full"
+                    className="h-full w-full object-cover transition group-hover:opacity-90"
+                    allowRetry={false}
+                  />
+                )}
+              </div>
+              <div className="mt-2 truncate text-sm font-medium" title={item.name || "Untitled item"}>{item.name || "Untitled item"}</div>
+              <div className="truncate text-xs text-[#7d6c5a]" title={itemCredit(item)}>{itemCredit(item) || "Unknown maker"}</div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -8601,7 +8616,12 @@ function CompactUploader({ title, icon, photos, onUpload, onRemove }) { return <
 // likeliest reason a photo that worked earlier stopped. After that it stops
 // and offers the reader the retry, rather than hammering a connection that is
 // already struggling.
-function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "", quiet = false, allowRetry = true }) {
+function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "", quiet = false, allowRetry = true,
+  // What the empty frame says. The default assumes a photo exists and
+  // didn't arrive; callers that know there was never one to fetch pass
+  // their own, because reporting a failure for a book nobody photographed
+  // sends the owner looking for a bug instead of a camera.
+  missingLabel = "Photo didn't load" }) {
   const [current, setCurrent] = useState(src || "");
   const [status, setStatus] = useState(src ? "loading" : "failed");
   const [prevSrc, setPrevSrc] = useState(src);
@@ -8692,7 +8712,7 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
           ) : (
             <>
               <Icon name="camera" size={16} className="text-[#a2947f]" />
-              {!quiet && <span className="text-[11px] leading-4 text-[#8a7a64]">Photo didn&apos;t load</span>}
+              {!quiet && <span className="text-[11px] leading-4 text-[#8a7a64]">{missingLabel}</span>}
               {/* Suppressed where this sits inside something already
                   clickable: a button inside a button is invalid, and the
                   outer control would fire along with it. Those places get

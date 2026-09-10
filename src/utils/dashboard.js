@@ -95,3 +95,29 @@ export function applyDashboardFilters(inventory, category, rangeKey) {
 
   return { visible, undatedExcluded };
 }
+
+// Recent finds --------------------------------------------------------------
+
+// Which date makes an item a recent *find*. When you got it, not when you got
+// round to cataloguing it: a book bought last December but typed in this
+// morning is not a recent find, and sorting by the row's creation date claimed
+// it was. Items with no purchase date fall back to when they were catalogued,
+// which is the only date they have -- and a blank would otherwise parse to NaN
+// and sort them to an arbitrary spot rather than a predictable one.
+export function findDateFor(item) {
+  return item.purchaseDate || item.savedAt;
+}
+
+// Newest first, ties broken by which was catalogued more recently. The
+// tiebreak earns its keep: purchase dates are day-granular and collectors buy
+// in batches, so without it a whole afternoon's haul orders arbitrarily and
+// can shuffle between renders.
+export function recentFinds(inventory, limit) {
+  return [...inventory]
+    .sort(
+      (a, b) =>
+        new Date(findDateFor(b)) - new Date(findDateFor(a)) ||
+        new Date(b.savedAt) - new Date(a.savedAt)
+    )
+    .slice(0, limit);
+}
