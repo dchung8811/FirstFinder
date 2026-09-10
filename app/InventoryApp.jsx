@@ -30,7 +30,14 @@ import {
   csvHeaders
 } from "../src/utils/constants";
 import { formatReference, todayIso, toNumber, formatCurrency, hasValue } from "../src/utils/format";
-import { shouldAttemptPlay, isPermanentPlayRefusal, hasStartedPlaying, shouldSkipAutoplay } from "../src/utils/videoPlayback";
+import {
+  shouldAttemptPlay,
+  isPermanentPlayRefusal,
+  hasStartedPlaying,
+  shouldSkipAutoplay,
+  nextWatchdogDelayMs,
+  WATCHDOG_HARD_CAP_MS
+} from "../src/utils/videoPlayback";
 import {
   GUIDE_TIER,
   MAX_SUGGESTIONS,
@@ -3901,6 +3908,28 @@ function LoopingVideo({ src, poster, label, className = "" }) {
 
     let onScreen = false;
     let watchdog = null;
+    // The moment the watchdog stops being patient, however much the film keeps
+    // downloading in the meantime. Reset whenever playback is attempted from
+    // scratch (freshly on screen, or resuming after the tab was hidden), so a
+    // visitor who scrolls away and back gets a fresh window rather than the
+    // remainder of one spent while nothing was even trying to play.
+    let hardDeadline = 0;
+
+    // Arms (or re-arms) the check for whether the film has actually started.
+    // Called once when play() is first requested, and again on every
+    // `progress` event -- the signal that bytes are still arriving. That is
+    // what tells a slow download apart from a stalled one: a video that keeps
+    // receiving data keeps earning more time to start, one that goes quiet
+    // does not. See the comment on WATCHDOG_HARD_CAP_MS in videoPlayback.js
+    // for why this cannot extend forever.
+    const armWatchdog = () => {
+      clearTimeout(watchdog);
+      const delay = nextWatchdogDelayMs({ now: Date.now(), deadline: hardDeadline });
+      watchdog = setTimeout(() => {
+        if (document.hidden) return;
+        if (!hasStartedPlaying(video)) offerControls();
+      }, delay);
+    };
 
     const tryPlay = () => {
       if (!shouldAttemptPlay({ onScreen, pageHidden: document.hidden })) return;
@@ -3923,11 +3952,8 @@ function LoopingVideo({ src, poster, label, className = "" }) {
       // trying to name every way WebKit can accept a play request and then not
       // play, check whether a frame actually moved and hand over controls if
       // not. Whatever the cause, the visitor ends up with something to tap.
-      clearTimeout(watchdog);
-      watchdog = setTimeout(() => {
-        if (document.hidden) return;
-        if (!hasStartedPlaying(video)) offerControls();
-      }, 2500);
+      hardDeadline = Date.now() + WATCHDOG_HARD_CAP_MS;
+      armWatchdog();
     };
 
     const observer = new IntersectionObserver(
@@ -3950,21 +3976,36 @@ function LoopingVideo({ src, poster, label, className = "" }) {
     // having actually advanced.
     const reveal = () => {
       clearTimeout(watchdog);
+      // Once actually playing there is nothing left for the watchdog to guard
+      // against, so further `progress` events (a loop restarting, a later
+      // chunk of an unusually long file) should not re-arm it.
+      hardDeadline = 0;
       // timeupdate fires several times a second for the rest of the film, and
       // there is nothing left to learn after the first one.
       video.removeEventListener("timeupdate", reveal);
       setMode((current) => (current === "manual" ? current : "playing"));
     };
 
+    // A slow connection keeps arriving in chunks; each one is worth pushing
+    // the watchdog back for, which is the fix armWatchdog exists for above.
+    // Guarded on hardDeadline so a `progress` event firing before anything has
+    // tried to play, or after reveal() has already declared victory, does
+    // nothing.
+    const onProgress = () => {
+      if (hardDeadline > 0) armWatchdog();
+    };
+
     observer.observe(video);
 
-    // The reason this listener exists: intersection does not change when a tab
-    // is switched away and back, so the observer never fires a second time. A
-    // video Chrome paused for being in a background tab would otherwise stay
-    // paused for the rest of the visit, sitting there looking broken.
+    // The reason the visibilitychange listener exists: intersection does not
+    // change when a tab is switched away and back, so the observer never
+    // fires a second time. A video Chrome paused for being in a background
+    // tab would otherwise stay paused for the rest of the visit, sitting
+    // there looking broken.
     document.addEventListener("visibilitychange", tryPlay);
     video.addEventListener("playing", reveal);
     video.addEventListener("timeupdate", reveal);
+    video.addEventListener("progress", onProgress);
     video.addEventListener("error", offerControls);
 
     return () => {
@@ -3973,6 +4014,7 @@ function LoopingVideo({ src, poster, label, className = "" }) {
       document.removeEventListener("visibilitychange", tryPlay);
       video.removeEventListener("playing", reveal);
       video.removeEventListener("timeupdate", reveal);
+      video.removeEventListener("progress", onProgress);
       video.removeEventListener("error", offerControls);
     };
   }, []);
