@@ -393,6 +393,11 @@ async function uploadPhotoList(userId, itemId, photos, kind) {
 // SignedPhoto below is what notices, and asks for a new one.
 export const SIGNED_URL_TTL_SECONDS = 3600;
 
+// One page of a storage listing. Matches the page size the account-deletion
+// route uses, for the same reason: large enough that one call covers any
+// ordinary item, small enough to be a sane request.
+const PHOTO_LIST_PAGE_SIZE = 100;
+
 async function fetchSignedPhotoUrls(photos) {
   const paths = photos.filter((photo) => photo.path).map((photo) => photo.path);
   if (paths.length === 0) return photos;
@@ -413,6 +418,56 @@ async function fetchSignedPhotoUrls(photos) {
 
   const urlByPath = new Map((data || []).map((row) => [row.path, row.signedUrl]));
   return photos.map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) : photo.url }));
+}
+
+// Every file stored for one item, listed rather than read off the row.
+//
+// The row records the photos it knows about, and that is not always all of
+// them. A photo re-uploaded for the same item, or a save whose photo-record
+// write failed after the files had already landed, leaves files in the folder
+// that no column points at. Deleting by the row's own list left those behind
+// for good: six files from a single deleted item, two of them receipts, were
+// still sitting in the bucket a month later with nothing referencing them.
+//
+// Listing the folder is the version of this that cannot miss, because the
+// folder is the truth -- photos live at <userId>/<itemId>/<file>, so
+// everything an item ever stored is in one place regardless of what the row
+// remembers.
+//
+// Returns null, distinct from an empty array, when the listing itself failed:
+// "there are no files" and "I could not find out" call for different
+// behaviour from the caller.
+async function listItemPhotoPaths(userId, itemId) {
+  if (!userId || !itemId) return null;
+
+  const prefix = `${userId}/${itemId}`;
+  const paths = [];
+
+  // Paged to exhaustion for the same reason app/api/delete-account/route.js
+  // pages: one page of results is a silent ceiling, and the failure it causes
+  // looks exactly like success.
+  for (let offset = 0; ; offset += PHOTO_LIST_PAGE_SIZE) {
+    const { data, error } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .list(prefix, { limit: PHOTO_LIST_PAGE_SIZE, offset });
+
+    if (error) {
+      console.error("Photo listing error:", error.message);
+      return null;
+    }
+
+    const page = data || [];
+    // Folder entries come back with a null id; real files carry a uuid. An
+    // item folder holds files, but this keeps a stray folder from being sent
+    // to remove() as though it were one.
+    page.forEach((entry) => {
+      if (entry.id) paths.push(`${prefix}/${entry.name}`);
+    });
+
+    if (page.length < PHOTO_LIST_PAGE_SIZE) break;
+  }
+
+  return paths;
 }
 
 // A single photo's URL, re-signed on demand. Used by SignedPhoto to recover a
@@ -1587,9 +1642,16 @@ export default function FirstFinderApp() {
     }
 
     // Best-effort cleanup of the item's stored photos; the row is already gone.
-    const photoPaths = [...(entry?.itemPhotos || []), ...(entry?.receiptPhotos || [])]
-      .map((photo) => photo.path)
-      .filter(Boolean);
+    //
+    // Listed from the folder rather than taken from the row, because the row
+    // is not a complete record of what was stored for it -- see
+    // listItemPhotoPaths. When the listing fails we still clean up what the
+    // row knew about: that is the old behaviour, and less than the folder, but
+    // better than leaving everything.
+    const listed = await listItemPhotoPaths(currentUser?.id, id);
+    const photoPaths =
+      listed ??
+      [...(entry?.itemPhotos || []), ...(entry?.receiptPhotos || [])].map((photo) => photo.path).filter(Boolean);
 
     if (photoPaths.length > 0) {
       const { error: storageError } = await supabase.storage.from(PHOTO_BUCKET).remove(photoPaths);
