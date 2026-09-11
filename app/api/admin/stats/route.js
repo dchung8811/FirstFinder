@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../../src/lib/supabaseAdmin";
 import { requireAdmin, adminUserIds } from "../../../../src/lib/adminAuth";
 import { buildPlatformChecks, worstStatus } from "../../../../src/utils/platformLimits";
+import { buildComputeChecks } from "../../../../src/utils/computeMetrics";
+import { readComputeMetrics } from "../../../../src/lib/computeMetrics";
 import { GITHUB_SLUG, REPO_URL } from "../../../../src/lib/project";
 
 // Everything the admin dashboard shows, in one response.
@@ -105,9 +107,12 @@ export async function GET(request) {
 
   const excluded = adminUserIds();
 
-  const [{ data: metrics, error: metricsError }, github] = await Promise.all([
+  // Fetched alongside the rest rather than after it: the metrics endpoint is
+  // the slowest thing on this page and the only one that can time out.
+  const [{ data: metrics, error: metricsError }, github, compute] = await Promise.all([
     supabaseAdmin.rpc("admin_platform_metrics", { p_exclude: excluded }),
-    readGithub()
+    readGithub(),
+    readComputeMetrics()
   ]);
 
   if (metricsError) {
@@ -122,12 +127,18 @@ export async function GET(request) {
   // rather than silently wrong.
   const plan = process.env.SUPABASE_PLAN || "free";
 
-  const checks = buildPlatformChecks({
-    capacity: metrics?.capacity || {},
-    plan,
-    now: new Date(),
-    github
-  });
+  // Quota checks first, then the health of the machine underneath them. Both
+  // render through the same row, but they answer different questions -- see
+  // the note at the top of computeMetrics.js.
+  const checks = [
+    ...buildPlatformChecks({
+      capacity: metrics?.capacity || {},
+      plan,
+      now: new Date(),
+      github
+    }),
+    ...buildComputeChecks(compute)
+  ];
 
   return NextResponse.json({
     ok: true,
@@ -136,6 +147,7 @@ export async function GET(request) {
     plan,
     metrics,
     github,
+    compute,
     checks,
     status: worstStatus(checks)
   });
