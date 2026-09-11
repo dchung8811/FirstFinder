@@ -7941,6 +7941,7 @@ function PhotoViewerModal({ entry, kind = "all", onClose }) {
                 path={photo.path}
                 src={photo.url}
                 alt={photo.name}
+                eager
                 frameClassName="h-72 w-full bg-[#f3ece0]"
                 className="h-full w-full object-contain"
               />
@@ -8798,7 +8799,10 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
   // didn't arrive; callers that know there was never one to fetch pass
   // their own, because reporting a failure for a book nobody photographed
   // sends the owner looking for a bug instead of a camera.
-  missingLabel = "Photo didn't load" }) {
+  missingLabel = "Photo didn't load",
+  // Opt out of lazy loading, for the one case where the reader has already
+  // asked for this exact photo: the viewer they just opened.
+  eager = false }) {
   const [current, setCurrent] = useState(src || "");
   const [status, setStatus] = useState(src ? "loading" : "failed");
   const [prevSrc, setPrevSrc] = useState(src);
@@ -8915,6 +8919,16 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
           onError={handleError}
           /* Async decoding keeps a large photo off the main thread while the
              rest of the page paints -- these are camera photos, not icons. */
+          /* Lazy by default, which matters more here than it looks: a
+             collection is hundreds of cards and every photo is its own
+             request to Supabase storage. Loading them all eagerly spends the
+             whole shelf's bandwidth to show the four cards on screen. The
+             same reasoning is already written on the public card in
+             app/c/[slug]/ItemCard.jsx -- this component did not inherit it
+             when the private cards grew photos. The fixed frame height means
+             the box is reserved before the image arrives, so deferring costs
+             no layout shift. */
+          loading={eager ? "eager" : "lazy"}
           decoding="async"
           className={`${className} ${status === "ok" ? "" : "opacity-0"}`}
         />
