@@ -78,6 +78,8 @@ import {
   describeOperation
 } from "../src/utils/offlineQueue";
 import { readOfflineCollection, writeOfflineCollection, clearOfflineCollection } from "../src/lib/offlineStore";
+import { readSignedUrls, writeSignedUrls, clearSignedUrls } from "../src/lib/signedUrlStore";
+import { ownerIdFromPath, groupPathsByOwner, selectCachedUrls, mergeSignedUrls, pruneSignedUrls } from "../src/utils/signedUrlCache";
 import { isQueueAvailable, loadQueue, saveOperation, loadOperationPhotos, removeOperations, clearQueue } from "../src/lib/offlineQueueStore";
 import {
   emptyWant,
@@ -436,25 +438,91 @@ export const SIGNED_URL_TTL_SECONDS = 604800;
 // ordinary item, small enough to be a sane request.
 const PHOTO_LIST_PAGE_SIZE = 100;
 
-async function fetchSignedPhotoUrls(photos) {
+// The one funnel every signed URL comes through -- the load path calls it
+// directly, and SignedPhoto's re-signs reach it through the batcher below. The
+// cache therefore sits here rather than at either call site: one place decides
+// what gets signed, so there is one answer to "why did this photo download
+// again".
+//
+// `bypassCache` is for the one caller that is recovering from a URL that did
+// not work. Reusing a stored URL is right when a page is simply asking for
+// photos again; it is exactly wrong when the answer to the last one was a
+// broken image, because the stored URL *is* the thing that failed. Handing it
+// back would make the automatic retry a no-op and the reader's "Try again"
+// button unable to ever produce anything different. A bypassed call still
+// writes what it signs, so the next ordinary load gets the URL that works
+// rather than the one that did not.
+async function fetchSignedPhotoUrls(photos, { bypassCache = false } = {}) {
   const paths = photos.filter((photo) => photo.path).map((photo) => photo.path);
   if (paths.length === 0) return photos;
 
-  const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL_SECONDS);
-  if (error) {
-    console.error("Signed URL error:", error.message);
-    return photos;
-  }
+  const now = Date.now();
 
-  // createSignedUrls reports per-path failures inside the rows rather than in
-  // `error`, and a row that failed carries a null URL. Logged rather than
-  // swallowed: without this a single unsigned photo is indistinguishable from
-  // one that simply has not arrived yet.
-  (data || []).forEach((row) => {
-    if (row.error) console.error("Signed URL error:", row.path, row.error);
+  // Read per owner, because that is how the store is keyed. In practice every
+  // path in a call belongs to the signed-in reader; grouping means a mixed
+  // list would still be filed correctly rather than under whichever owner
+  // happened to come first.
+  const byOwner = groupPathsByOwner(paths);
+  const cached = new Map();
+  const urlByPath = new Map();
+  const needSigning = [];
+
+  byOwner.forEach((ownerPaths, ownerId) => {
+    const entries = readSignedUrls(ownerId);
+    cached.set(ownerId, entries);
+
+    if (bypassCache) {
+      ownerPaths.forEach((path) => {
+        if (!needSigning.includes(path)) needSigning.push(path);
+      });
+      return;
+    }
+
+    const { reusable, missing } = selectCachedUrls(entries, ownerPaths, { now, ttlSeconds: SIGNED_URL_TTL_SECONDS });
+    Object.keys(reusable).forEach((path) => urlByPath.set(path, reusable[path]));
+    missing.forEach((path) => needSigning.push(path));
   });
 
-  const urlByPath = new Map((data || []).map((row) => [row.path, row.signedUrl]));
+  // The whole point: a warm load signs nothing, so every photo resolves to the
+  // URL the browser already has bytes for.
+  if (needSigning.length > 0) {
+    const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(needSigning, SIGNED_URL_TTL_SECONDS);
+
+    if (error) {
+      console.error("Signed URL error:", error.message);
+      // Anything already answered from the cache is still good, so this
+      // returns what it has rather than nothing. Before the cache there was
+      // nothing to salvage and bailing out was the only option.
+      return photos.map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) || photo.url : photo.url }));
+    }
+
+    // createSignedUrls reports per-path failures inside the rows rather than in
+    // `error`, and a row that failed carries a null URL. Logged rather than
+    // swallowed: without this a single unsigned photo is indistinguishable from
+    // one that simply has not arrived yet.
+    (data || []).forEach((row) => {
+      if (row.error) console.error("Signed URL error:", row.path, row.error);
+    });
+
+    const freshByOwner = new Map();
+    (data || []).forEach((row) => {
+      if (!row.signedUrl) return;
+      urlByPath.set(row.path, row.signedUrl);
+      const owner = ownerIdFromPath(row.path);
+      if (!owner) return;
+      const bucket = freshByOwner.get(owner) || {};
+      bucket[row.path] = row.signedUrl;
+      freshByOwner.set(owner, bucket);
+    });
+
+    // Written back per owner, pruned on the way so the store does not grow a
+    // dead entry for every photo ever deleted.
+    freshByOwner.forEach((fresh, ownerId) => {
+      const merged = mergeSignedUrls(cached.get(ownerId) || {}, fresh, { now });
+      writeSignedUrls(ownerId, pruneSignedUrls(merged, { now, ttlSeconds: SIGNED_URL_TTL_SECONDS }));
+    });
+  }
+
   return photos.map((photo) => ({ ...photo, url: photo.path ? urlByPath.get(photo.path) : photo.url }));
 }
 
@@ -518,7 +586,10 @@ async function listItemPhotoPaths(userId, itemId) {
 // batcher that is one request per photo; with it, one request for all of them,
 // which is what the load path was already doing.
 const signedUrlForPath = createSignedUrlBatcher(async (paths) => {
-  const photos = await fetchSignedPhotoUrls(paths.map((path) => ({ path })));
+  // Always signs fresh. This batcher serves SignedPhoto's resign(), which runs
+  // when a photo failed to load or when a thawed page is holding a URL too old
+  // to trust -- both cases where the stored URL is the suspect.
+  const photos = await fetchSignedPhotoUrls(paths.map((path) => ({ path })), { bypassCache: true });
   return photos.map((photo) => ({ path: photo.path, url: photo.url }));
 });
 
@@ -1383,6 +1454,9 @@ export default function FirstFinderApp() {
     // The snapshot is one person's shelf sitting in a browser other people
     // use. Signing out has to take it with them.
     clearOfflineCollection(currentUser?.id);
+    // And the photo URLs, which are worse than the snapshot: each one is a
+    // bearer token that opens a photo for anyone holding it, with no login.
+    clearSignedUrls(currentUser?.id);
     // The queue goes too. It holds photographs and unsaved finds, and this is
     // a device someone else may sign in on next.
     clearQueue(currentUser?.id);
@@ -5166,6 +5240,10 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
       // "Delete my account" has to mean the copy cached on this device too,
       // not just the rows in Postgres.
       clearOfflineCollection(currentUser?.id);
+      // Including the issued photo URLs. The objects behind them are about to
+      // be deleted, which kills them anyway -- this is so nothing is left
+      // pointing at a photo in the window before that finishes.
+      clearSignedUrls(currentUser?.id);
       await clearQueue(currentUser?.id);
       await supabase.auth.signOut();
       // Full reload so every bit of app state (inventory, session, etc.)
