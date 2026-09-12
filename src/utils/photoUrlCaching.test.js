@@ -85,3 +85,63 @@ describe("photo URL lifetimes", () => {
     expect(upload[0]).not.toContain("upsert");
   });
 });
+
+// That the cache is still joined to the signing path at all.
+//
+// The same failure adminChecksWiring.test.js was written for: between #178 and
+// #180 an unrelated change quietly removed a call, every unit test still
+// passed because the module it tested was untouched, and the only symptom was
+// a feature silently not happening. A cache that is imported but never
+// consulted looks exactly like this one working.
+describe("signed URL cache wiring", () => {
+  const source = readFileSync(OWNER, "utf8");
+  const funnel = /async function fetchSignedPhotoUrls\([\s\S]*?\n}/.exec(source);
+
+  it("has a signing funnel to attach to", () => {
+    expect(funnel).not.toBeNull();
+  });
+
+  it("reads the stored URLs before signing", () => {
+    expect(funnel[0]).toContain("readSignedUrls");
+    expect(funnel[0]).toContain("selectCachedUrls");
+  });
+
+  it("signs only what the cache could not answer", () => {
+    // Not the full path list -- passing `paths` here would sign everything on
+    // every load and quietly undo the whole thing while still passing every
+    // test above.
+    expect(funnel[0]).toMatch(/createSignedUrls\(\s*needSigning/);
+  });
+
+  it("writes newly signed URLs back, pruned", () => {
+    expect(funnel[0]).toContain("writeSignedUrls");
+    expect(funnel[0]).toContain("pruneSignedUrls");
+  });
+
+  // Signed URLs are bearer tokens sitting on disk for up to a week. Both exits
+  // have to take them, not just one.
+  it("clears them on sign-out and on account deletion", () => {
+    const clears = source.match(/clearSignedUrls\(/g) || [];
+    expect(clears.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // The recovery path must not be served from the cache. resign() runs
+  // because a photo failed to load, and the stored URL is what failed --
+  // handing it back makes the automatic retry a no-op and leaves the reader's
+  // "Try again" button unable to produce anything different, forever.
+  it("always signs fresh when recovering from a URL that did not work", () => {
+    const batcher = /createSignedUrlBatcher\([\s\S]*?\n\}\);/.exec(source);
+    expect(batcher).not.toBeNull();
+    expect(batcher[0]).toContain("bypassCache: true");
+  });
+
+  it("still offers a way to bypass the cache at all", () => {
+    expect(funnel[0]).toContain("bypassCache");
+  });
+
+  it("clears them everywhere the offline snapshot is cleared", () => {
+    const offline = (source.match(/clearOfflineCollection\(currentUser\?\.id\)/g) || []).length;
+    const signed = (source.match(/clearSignedUrls\(currentUser\?\.id\)/g) || []).length;
+    expect(signed).toEqual(offline);
+  });
+});
