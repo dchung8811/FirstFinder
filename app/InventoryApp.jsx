@@ -371,9 +371,26 @@ async function uploadPhotoList(userId, itemId, photos, kind) {
     const blob = await compressImage(photo.file);
     const safeName = String(photo.name || "photo").replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60);
     const path = `${userId}/${itemId}/${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+    // A year, because the object at this path can never change. `path` carries
+    // a timestamp and a random suffix, upload() is called without `upsert` so
+    // writing over an existing path fails rather than replaces, and replacing a
+    // photo goes through remove() and a fresh name.
+    //
+    // Worth being honest about the reach of this: it sets the object's stored
+    // cache-control, which storage sends on the *authenticated* download path.
+    // The signed path this app renders from does not use it -- a signed
+    // response carries no cache-control at all, only an `Expires` pinned to the
+    // token's own expiry, so SIGNED_URL_TTL_SECONDS is what really decides how
+    // long a browser may reuse a photo. This is here because it is true of the
+    // object and because the authenticated path exists, not because it is
+    // carrying the caching win.
+    //
+    // It does bind us to the naming: anything added later that writes a photo
+    // in place has to mint a new path, or a reader on the authenticated path
+    // holds the old image for a year.
     const { error } = await supabase.storage
       .from(PHOTO_BUCKET)
-      .upload(path, blob, { contentType: blob.type || "image/jpeg" });
+      .upload(path, blob, { contentType: blob.type || "image/jpeg", cacheControl: "31536000" });
 
     if (error) {
       console.error("Photo upload error:", error.message);
@@ -386,12 +403,33 @@ async function uploadPhotoList(userId, itemId, photos, kind) {
   return { uploaded, failures };
 }
 
-// Resolves {path, name} photo records to short-lived, viewable signed URLs.
+// Resolves {path, name} photo records to viewable signed URLs.
 //
-// The hour is the important number here: every URL this hands back stops
-// working an hour after it was signed, whether or not the page is still open.
-// SignedPhoto below is what notices, and asks for a new one.
-export const SIGNED_URL_TTL_SECONDS = 3600;
+// A week, not the hour this used to be. This one constant decides two things,
+// which is why it was worth more than it looks:
+//
+//   1. When SignedPhoto re-signs. It refreshes at 80% of the TTL, so an hour
+//      meant every photo on screen was replaced -- and re-downloaded -- roughly
+//      every 48 minutes for as long as a tab stayed open.
+//   2. How long a browser may reuse the bytes. A signed response carries no
+//      cache-control; storage sends an `Expires` equal to the token's expiry.
+//      An hour-long token was therefore also an hour-long cache entry.
+//
+// A 57MB library was leaving the origin at ~350MB a day.
+//
+// What this does NOT fix: every signing mints a token carrying its own `iat`,
+// so the URL differs each time and a fresh page load is still a cache miss on
+// every photo. Keeping the issued URL and its expiry with the row, and reusing
+// it until it is nearly spent, is the other half -- see the note in the cover
+// strip below.
+//
+// The URL is a bearer token and there is no way to revoke one -- deleting the
+// object is what actually kills access, since the token then points at nothing.
+// A longer life is therefore only defensible where the URL never leaves the
+// person who already owns the photos, which is the case here and is not the
+// case for shared collections: see PHOTO_URL_TTL_SECONDS in
+// src/lib/sharedCollection.js, which stays at an hour on purpose.
+export const SIGNED_URL_TTL_SECONDS = 604800;
 
 // One page of a storage listing. Matches the page size the account-deletion
 // route uses, for the same reason: large enough that one call covers any
@@ -6250,7 +6288,9 @@ function RecentFinds({ inventory, onCollection, onOpenItem }) {
     setSigned({ ready: false, byItem: {} });
 
     // One signed-URL round trip for the whole strip rather than one per
-    // thumbnail: these expire in an hour, so they can't be cached with the row.
+    // thumbnail. These now last a week, so they could in principle be kept with
+    // the row across page loads -- worth doing, and not done here: every load
+    // still signs fresh, so every load is still a cache miss.
     fetchSignedPhotoUrls(photoed.map((entry) => entry.photo)).then((photos) => {
       if (cancelled) return;
       const byItem = {};
@@ -7882,7 +7922,7 @@ function PhotoViewerModal({ entry, kind = "all", onClose }) {
 
     supabase.storage
       .from(PHOTO_BUCKET)
-      .createSignedUrls(savedPaths, 3600)
+      .createSignedUrls(savedPaths, SIGNED_URL_TTL_SECONDS)
       .then(({ data, error }) => {
         if (cancelled) return;
 

@@ -30,6 +30,13 @@ const PHOTO_BUCKET = "item-photos";
 // Long enough that a page cached for the route's revalidate window never
 // serves an expired image, short enough that a URL scraped off a page someone
 // later unshared stops working within the hour.
+//
+// Deliberately NOT the week that SIGNED_URL_TTL_SECONDS uses in
+// app/InventoryApp.jsx, and not an oversight to tidy up. That one hands URLs to
+// the owner of the photos; this one puts them on a public page where a stranger
+// can collect them. Unsharing does not revoke an issued token -- the objects
+// still exist, so the URL still resolves -- which makes this hour the only
+// bound on how long a scraped link outlives the decision to stop sharing.
 const PHOTO_URL_TTL_SECONDS = 3600;
 
 // createSignedUrls takes a list; very large collections get chunked rather
