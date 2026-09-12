@@ -144,7 +144,7 @@ const VALUATION_SCHEMA = {
       isBook: { type: "boolean", description: "False if the photo does not show a book or printed collectible." },
       title: { type: "string", description: "Title as printed. Empty string if not legible." },
       author: { type: "string", description: "The credit on the item: the author for a book or comic, otherwise the maker, brand, or publisher. Empty string if unknown." },
-      category: { type: "string", enum: ["Book", "Comic", "Trading card", "Sports memorabilia", "Record", "Art", "Toy", "Other"] },
+      category: { type: "string", enum: ["Book", "Comic", "Trading card", "Sports memorabilia", "Record", "Art", "Posters & Ephemera", "Toy", "Other"] },
       genre: { type: "string", description: "Genre for books. Empty string if not applicable." },
       edition: { type: "string", enum: ["First", "Second", "Third", "Fourth", "Fifth", "Other", ""] },
       printing: { type: "string", enum: ["First", "Second", "Third", "Fourth", "Fifth", "Other", ""] },
