@@ -80,6 +80,7 @@ import {
 import { readOfflineCollection, writeOfflineCollection, clearOfflineCollection } from "../src/lib/offlineStore";
 import { readSignedUrls, writeSignedUrls, clearSignedUrls } from "../src/lib/signedUrlStore";
 import { withWriteRetry } from "../src/utils/retryWrite";
+import { reconcilePhotoLists } from "../src/utils/photoReconcile";
 import { ownerIdFromPath, groupPathsByOwner, selectCachedUrls, mergeSignedUrls, pruneSignedUrls } from "../src/utils/signedUrlCache";
 import { isQueueAvailable, loadQueue, saveOperation, loadOperationPhotos, removeOperations, clearQueue } from "../src/lib/offlineQueueStore";
 import {
@@ -2311,6 +2312,46 @@ export default function FirstFinderApp() {
   // Deliberately reuses csvUpdateRow so inline edits, CSV bulk edits, and the
   // edit modal all apply the same sold-status rules. Without that, changing
   // status inline would leave sold_price/sold_date/previous_status inconsistent.
+  // Adopts files sitting in an item's folder that the row does not list.
+  //
+  // A photo upload that succeeded followed by a link write that did not leaves
+  // exactly that: the bytes are safe, and the only thing lost is the row's
+  // knowledge of them. The retry in the save paths makes that rare rather than
+  // impossible, and does nothing for rows already stranded before it existed.
+  //
+  // Silent on purpose. This runs when someone opens an item's photos, and the
+  // honest description of what happened -- "four photos you already saved are
+  // now showing" -- is not worth a toast interrupting the thing they opened.
+  // It is a repair, not an action they took.
+  async function recoverItemPhotos(itemId, itemPhotos, receiptPhotos) {
+    if (!currentUser || !online || isPendingId(itemId)) return;
+
+    const { error } = await withWriteRetry(() =>
+      supabase
+        .from("inventory_items")
+        .update({
+          item_photos: itemPhotos,
+          receipt_photos: receiptPhotos,
+          item_photo_count: itemPhotos.length,
+          receipt_photo_count: receiptPhotos.length,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", itemId)
+        .select()
+        .single()
+    );
+
+    if (error) {
+      // The photos are still shown; only the record of them failed to stick,
+      // which is the state this started in. It will be retried the next time
+      // the item is opened.
+      console.error("Photo recovery write error:", error.message);
+      return;
+    }
+
+    setInventory((items) => items.map((entry) => (entry.id === itemId ? { ...entry, itemPhotos, receiptPhotos } : entry)));
+  }
+
   async function updateItemFields(itemId, fields) {
     const existing = inventory.find((entry) => entry.id === itemId);
     if (!existing || !currentUser) return;
@@ -6062,7 +6103,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
         </div>
       )}
 
-      {photoViewer && <PhotoViewerModal entry={photoViewer.entry} kind={photoViewer.kind} onClose={() => setPhotoViewer(null)} />}
+      {photoViewer && <PhotoViewerModal entry={photoViewer.entry} kind={photoViewer.kind} userId={currentUser?.id} onRecovered={recoverItemPhotos} onClose={() => setPhotoViewer(null)} />}
 
       {pendingDelete && (
         <DeleteConfirmDialog
@@ -8010,7 +8051,7 @@ function EditPhotoSection({ title, icon, existingPhotos, newPhotos, onUpload, on
 // kind "receipt" opens straight to the proof of purchase, which is its own
 // errand: someone checking what they paid, for insurance or before a sale, is
 // not browsing the book. Anything else shows the lot.
-function PhotoViewerModal({ entry, kind = "all", onClose }) {
+function PhotoViewerModal({ entry, kind = "all", userId = null, onRecovered = null, onClose }) {
   const [allPhotos, setAllPhotos] = useState(null);
   const [loadError, setLoadError] = useState("");
   const receiptsOnly = kind === "receipt";
@@ -8065,6 +8106,76 @@ function PhotoViewerModal({ entry, kind = "all", onClose }) {
       cancelled = true;
     };
   }, [entry, receiptsOnly]);
+
+  // Looks in the folder for anything the row does not know about.
+  //
+  // Deliberately a second pass rather than part of the load above: the photos
+  // the row does list are the overwhelmingly common case and they should
+  // appear at the speed they always did. This costs one listing, only when
+  // someone actually opens an item's photos, and usually finds nothing.
+  //
+  // Runs at most once per item opened, and that bound is load-bearing rather
+  // than tidiness. `entry` is the object captured when the viewer opened, so
+  // it does not gain the photos this recovers; without the guard, the write's
+  // own re-render would re-enter with the same stale entry, find the same
+  // files unaccounted for, and write again, forever.
+  const recoveredItemRef = useRef(null);
+  // Held in a ref rather than listed as a dependency for the same reason: the
+  // parent rebuilds this callback every render, and depending on its identity
+  // would re-run the effect on renders that changed nothing here.
+  const onRecoveredRef = useRef(onRecovered);
+  useEffect(() => {
+    onRecoveredRef.current = onRecovered;
+  }, [onRecovered]);
+
+  const entryId = entry?.id || null;
+  useEffect(() => {
+    if (!userId || !entryId) return;
+    if (recoveredItemRef.current === entryId) return;
+    recoveredItemRef.current = entryId;
+
+    let cancelled = false;
+
+    (async () => {
+      const folderPaths = await listItemPhotoPaths(userId, entryId);
+      // null means the listing itself failed, which is different from an empty
+      // folder -- acting on it would "discover" that every photo is missing.
+      if (cancelled || folderPaths === null) return;
+
+      const reconciled = reconcilePhotoLists(folderPaths, entry.itemPhotos, entry.receiptPhotos);
+      if (reconciled.adopted === 0) return;
+
+      console.warn(`Recovered ${reconciled.adopted} photo(s) present in storage but missing from item ${entryId}.`);
+
+      // Labelled the way the load pass labels them, and filtered to what this
+      // viewer is showing -- opening the receipts should not surface item
+      // photos just because they were the ones recovered.
+      const recovered = [
+        ...(receiptsOnly ? [] : reconciled.itemPhotos.map((photo) => ({ ...photo, label: "Item photo" }))),
+        ...reconciled.receiptPhotos.map((photo) => ({ ...photo, label: "Receipt proof" }))
+      ];
+
+      // Signed before they go on screen. Handed a path and no URL, SignedPhoto
+      // opens in its failed state and makes the reader press Try again to see
+      // a photo that was there all along.
+      const signed = await fetchSignedPhotoUrls(recovered);
+      if (cancelled) return;
+
+      setAllPhotos((shown) => {
+        const already = new Set((shown || []).map((photo) => photo.path).filter(Boolean));
+        const added = signed.filter((photo) => photo.path && !already.has(photo.path));
+        return added.length > 0 ? [...(shown || []), ...added] : shown;
+      });
+
+      const recover = onRecoveredRef.current;
+      if (recover) await recover(entryId, reconciled.itemPhotos, reconciled.receiptPhotos);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entryId, userId]);
 
   return (
     <ModalShell onClose={onClose} contentClassName="max-h-[85vh] max-w-4xl">
