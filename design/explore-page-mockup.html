@@ -1,0 +1,536 @@
+<title>FirstFinder Explore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  /* FirstFinder's own system. Every value here is lifted from the app --
+     #123f38 green, the cream card stack, #d8c7ad borders, Fraunces display,
+     IBM Plex Mono for figures. Deliberately single-theme: the product is a
+     warm paper ledger with no dark mode, and rendering this proposal in dark
+     would misrepresent what ships. Every colour is painted explicitly so the
+     page holds on either host ground. */
+  :root {
+    --ground: #ece4d9;
+    --card: #fff9f0;
+    --card-alt: #fff7ea;
+    --inset: #f7efe3;
+    --tan: #f0e2cf;
+    --shim: #e7d7bd;
+    --border: #d8c7ad;
+    --border-strong: #cdbb9d;
+    --green: #123f38;
+    --green-dark: #0f332d;
+    --pill: #edf4f2;
+    --ink: #201a14;
+    --body: #665746;
+    --muted: #7d6c5a;
+    --label: #8a7a64;
+
+    --display: "Fraunces", Georgia, "Times New Roman", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--body);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px 72px; }
+
+  /* ---- app chrome, so the page is situated rather than floating ---- */
+  .chrome {
+    border-bottom: 1px solid var(--border);
+    background: var(--card-alt);
+  }
+  .chrome-inner {
+    max-width: 1120px; margin: 0 auto; padding: 14px 24px;
+    display: flex; align-items: center; gap: 28px; flex-wrap: wrap;
+  }
+  .brand {
+    font-family: var(--display); font-weight: 700; font-size: 19px;
+    color: var(--ink); letter-spacing: -0.01em;
+  }
+  .nav { display: flex; gap: 4px; flex-wrap: wrap; }
+  .nav a {
+    font-size: 14px; color: var(--body); text-decoration: none;
+    padding: 6px 12px; border-radius: 999px;
+  }
+  .nav a:hover { background: var(--tan); }
+  .nav a.on {
+    background: var(--green); color: var(--card-alt); font-weight: 500;
+  }
+  .nav a.on::before {
+    content: ""; display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; background: #8fd4a8; margin-right: 7px;
+    vertical-align: 1px;
+  }
+
+  /* ---- page head ---- */
+  .head { padding: 44px 0 8px; }
+  h1 {
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(34px, 5.4vw, 52px); line-height: 1.04;
+    color: var(--ink); margin: 0; letter-spacing: -0.02em; text-wrap: balance;
+  }
+  .lede { margin: 14px 0 0; max-width: 58ch; font-size: 16px; color: var(--body); }
+
+  .counts {
+    display: flex; gap: 10px; flex-wrap: wrap; margin: 22px 0 0;
+    font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums;
+  }
+  .count {
+    background: var(--pill); color: var(--green);
+    padding: 5px 12px; border-radius: 999px;
+  }
+
+  /* ---- filters ---- */
+  .filters {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    margin: 30px 0 4px; padding-bottom: 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chip {
+    font: inherit; font-size: 13.5px; cursor: pointer;
+    background: var(--card); color: var(--body);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 7px 15px;
+  }
+  .chip:hover { background: #fff; border-color: var(--border-strong); }
+  .chip.on { background: var(--green); border-color: var(--green); color: var(--card-alt); }
+  .sortby {
+    margin-left: auto; font-size: 13px; color: var(--muted);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sortby strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- a shelf: one public collection ---- */
+  .shelf { padding: 34px 0; border-bottom: 1px solid var(--border); }
+  .shelf:last-of-type { border-bottom: 0; }
+
+  .shelf-head {
+    display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px;
+  }
+  .mono-badge {
+    flex: none; width: 46px; height: 46px; border-radius: 14px;
+    background: var(--green); color: var(--card-alt);
+    display: grid; place-items: center;
+    font-family: var(--display); font-weight: 600; font-size: 18px;
+  }
+  .shelf-id { min-width: 0; flex: 1; }
+  .shelf-title {
+    font-family: var(--display); font-weight: 600; font-size: 22px;
+    color: var(--ink); margin: 0; line-height: 1.2; letter-spacing: -0.01em;
+  }
+  .shelf-title a { color: inherit; text-decoration: none; }
+  .shelf-title a:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .shelf-meta {
+    margin: 3px 0 0; font-size: 13.5px; color: var(--muted);
+  }
+  .shelf-meta .num {
+    font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--body);
+  }
+  .shelf-meta .dot { margin: 0 7px; opacity: .5; }
+  .firsts {
+    display: inline-block; margin-left: 8px; vertical-align: 1px;
+    background: var(--pill); color: var(--green);
+    font-size: 11.5px; font-weight: 500; padding: 2px 9px; border-radius: 999px;
+  }
+  .view {
+    flex: none; align-self: center; text-decoration: none;
+    font-size: 14px; font-weight: 500; color: var(--green);
+    border: 1px solid var(--border-strong); background: var(--card);
+    padding: 8px 16px; border-radius: 999px; white-space: nowrap;
+  }
+  .view:hover { background: var(--green); border-color: var(--green); color: var(--card-alt); }
+
+  /* ---- the scrolling strip, same shape as Recent finds ---- */
+  .strip {
+    display: flex; gap: 16px; overflow-x: auto; padding: 4px 2px 10px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+  }
+  .strip::-webkit-scrollbar { height: 8px; }
+  .strip::-webkit-scrollbar-thumb {
+    background: var(--border-strong); border-radius: 999px;
+  }
+  .strip::-webkit-scrollbar-track { background: transparent; }
+
+  .tile {
+    flex: none; width: 128px; scroll-snap-align: start;
+    text-decoration: none; color: inherit; display: block;
+    border-radius: 16px;
+  }
+  .tile:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+
+  .frame {
+    aspect-ratio: 3 / 4; border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--tan);
+    position: relative;
+  }
+  .tile:hover .frame { border-color: var(--border-strong); }
+
+  /* A drawn jacket rather than a photograph: this is a proposal, and inventing
+     photographs of books nobody owns would make it read as a screenshot of
+     something that exists. */
+  .jacket {
+    position: absolute; inset: 0; padding: 13px 11px;
+    display: flex; flex-direction: column;
+    font-family: var(--display);
+    transition: transform .18s ease;
+  }
+  .tile:hover .jacket { transform: scale(1.03); }
+  .jacket::after {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 9px;
+    background: linear-gradient(to right, rgba(0,0,0,.22), rgba(0,0,0,0));
+  }
+  .jacket .jt {
+    font-size: 13px; font-weight: 700; line-height: 1.16; letter-spacing: -0.01em;
+  }
+  .jacket .ja {
+    margin-top: auto; font-size: 9.5px; font-weight: 400;
+    text-transform: uppercase; letter-spacing: .09em; opacity: .82;
+  }
+
+  .cap { margin-top: 9px; }
+  .cap .ct {
+    font-size: 13px; font-weight: 500; color: var(--ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cap .cs {
+    font-size: 11.5px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* the +N tile that ends every strip */
+  .more {
+    flex: none; width: 128px; scroll-snap-align: start; text-decoration: none;
+  }
+  .more .frame {
+    display: grid; place-items: center; background: var(--inset);
+    border-style: dashed;
+  }
+  .more b {
+    font-family: var(--mono); font-size: 15px; color: var(--green); font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .more span { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; text-align: center; }
+  .more:hover .frame { background: var(--tan); border-color: var(--border-strong); }
+
+  /* jacket palettes -- book boards, not UI colours */
+  .j1  { background: #1f4a55; color: #f2e8d5; }
+  .j2  { background: #8c3b26; color: #f7ead6; }
+  .j3  { background: #d9c7a3; color: #2c2418; }
+  .j4  { background: #2d3b22; color: #e9e2cb; }
+  .j5  { background: #6d2233; color: #f3e2dd; }
+  .j6  { background: #16323f; color: #dfe7e6; }
+  .j7  { background: #c9a227; color: #221c0d; }
+  .j8  { background: #3a2f4a; color: #e8e0f0; }
+  .j9  { background: #b4552d; color: #fbeede; }
+  .j10 { background: #274b3a; color: #e4eddf; }
+  .j11 { background: #ab9a78; color: #241f14; }
+  .j12 { background: #402a20; color: #f0dfc9; }
+
+  .foot {
+    margin-top: 40px; padding: 20px 22px; border-radius: 20px;
+    background: var(--card); border: 1px solid var(--border);
+    font-size: 13.5px; color: var(--muted);
+  }
+  .foot strong { color: var(--ink); font-weight: 600; }
+
+  .note {
+    margin-top: 18px; font-size: 12.5px; color: var(--label);
+    font-family: var(--mono);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 16px 56px; }
+    .shelf-head { flex-wrap: wrap; }
+    .view { order: 3; width: 100%; text-align: center; }
+  }
+</style>
+
+<header class="chrome">
+  <div class="chrome-inner">
+    <div class="brand">FirstFinder</div>
+    <nav class="nav">
+      <a href="#">Dashboard</a>
+      <a href="#">My Collection</a>
+      <a href="#">Wishlist</a>
+      <a class="on" href="#">Explore</a>
+      <a href="#">Add Items</a>
+      <a href="#">Feedback</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="head">
+    <h1>Shelves worth a look</h1>
+    <p class="lede">
+      Collections other collectors have chosen to make public. Browse the covers,
+      then open a shelf to see conditions, editions and what they paid attention to.
+    </p>
+    <div class="counts">
+      <span class="count">12 public collections</span>
+      <span class="count">1,840 items shared</span>
+      <span class="count">absolutely no prices</span>
+    </div>
+  </section>
+
+  <div class="filters">
+    <button class="chip on" type="button">Everything</button>
+    <button class="chip" type="button">Books</button>
+    <button class="chip" type="button">Vinyl</button>
+    <button class="chip" type="button">Cameras</button>
+    <button class="chip" type="button">Comics</button>
+    <button class="chip" type="button">Posters &amp; Ephemera</button>
+    <div class="sortby">Sorted by <strong>Recently updated</strong></div>
+  </div>
+
+  <!-- ============ shelf 1 ============ -->
+  <section class="shelf">
+    <div class="shelf-head">
+      <div class="mono-badge">MR</div>
+      <div class="shelf-id">
+        <h2 class="shelf-title"><a href="/c/modern-firsts">Modern first editions, mostly American</a></h2>
+        <p class="shelf-meta">
+          by Maya R.<span class="dot">·</span><span class="num">197</span> items<span class="dot">·</span>updated <span class="num">2</span>d ago
+          <span class="firsts">127 first editions</span>
+        </p>
+      </div>
+      <a class="view" href="/c/modern-firsts">View shelf →</a>
+    </div>
+    <div class="strip">
+      <a class="tile" href="/c/modern-firsts">
+        <div class="frame"><div class="jacket j1"><div class="jt">The Inner Game of Tennis</div><div class="ja">W. Timothy Gallwey</div></div></div>
+        <div class="cap"><div class="ct">The Inner Game of Tennis</div><div class="cs">Random House, 1974</div></div>
+      </a>
+      <a class="tile" href="/c/modern-firsts">
+        <div class="frame"><div class="jacket j2"><div class="jt">East of Eden</div><div class="ja">John Steinbeck</div></div></div>
+        <div class="cap"><div class="ct">East of Eden</div><div class="cs">Viking, 1952</div></div>
+      </a>
+      <a class="tile" href="/c/modern-firsts">
+        <div class="frame"><div class="jacket j3"><div class="jt">The Great Gatsby</div><div class="ja">F. Scott Fitzgerald</div></div></div>
+        <div class="cap"><div class="ct">The Great Gatsby</div><div class="cs">Scribner, 1925</div></div>
+      </a>
+      <a class="tile" href="/c/modern-firsts">
+        <div class="frame"><div class="jacket j4"><div class="jt">Gone with the Wind</div><div class="ja">Margaret Mitchell</div></div></div>
+        <div class="cap"><div class="ct">Gone with the Wind</div><div class="cs">Macmillan, 1936</div></div>
+      </a>
+      <a class="tile" href="/c/modern-firsts">
+        <div class="frame"><div class="jacket j5"><div class="jt">Rage</div><div class="ja">Richard Bachman</div></div></div>
+        <div class="cap"><div class="ct">Rage</div><div class="cs">Signet, 1977</div></div>
+      </a>
+      <a class="tile" href="/c/modern-firsts">
+        <div class="frame"><div class="jacket j6"><div class="jt">The Way of Kings</div><div class="ja">Brandon Sanderson</div></div></div>
+        <div class="cap"><div class="ct">The Way of Kings</div><div class="cs">Tor, 2010</div></div>
+      </a>
+      <a class="tile" href="/c/modern-firsts">
+        <div class="frame"><div class="jacket j7"><div class="jt">The Stand</div><div class="ja">Stephen King</div></div></div>
+        <div class="cap"><div class="ct">The Stand</div><div class="cs">Doubleday, 1978</div></div>
+      </a>
+      <a class="tile" href="/c/modern-firsts">
+        <div class="frame"><div class="jacket j8"><div class="jt">Pet Sematary</div><div class="ja">Stephen King</div></div></div>
+        <div class="cap"><div class="ct">Pet Sematary</div><div class="cs">Doubleday, 1983</div></div>
+      </a>
+      <a class="more" href="/c/modern-firsts">
+        <div class="frame"><div><b>+189</b><span>more</span></div></div>
+      </a>
+    </div>
+  </section>
+
+  <!-- ============ shelf 2 ============ -->
+  <section class="shelf">
+    <div class="shelf-head">
+      <div class="mono-badge">TO</div>
+      <div class="shelf-id">
+        <h2 class="shelf-title"><a href="/c/horror-weird">Horror and the weird, 1974–1991</a></h2>
+        <p class="shelf-meta">
+          by Tomás O.<span class="dot">·</span><span class="num">64</span> items<span class="dot">·</span>updated <span class="num">6</span>d ago
+          <span class="firsts">41 first editions</span>
+        </p>
+      </div>
+      <a class="view" href="/c/horror-weird">View shelf →</a>
+    </div>
+    <div class="strip">
+      <a class="tile" href="/c/horror-weird">
+        <div class="frame"><div class="jacket j12"><div class="jt">The Gunslinger</div><div class="ja">Stephen King</div></div></div>
+        <div class="cap"><div class="ct">The Gunslinger</div><div class="cs">Grant, 1982</div></div>
+      </a>
+      <a class="tile" href="/c/horror-weird">
+        <div class="frame"><div class="jacket j5"><div class="jt">It</div><div class="ja">Stephen King</div></div></div>
+        <div class="cap"><div class="ct">It</div><div class="cs">Viking, 1986</div></div>
+      </a>
+      <a class="tile" href="/c/horror-weird">
+        <div class="frame"><div class="jacket j4"><div class="jt">The Books of Blood</div><div class="ja">Clive Barker</div></div></div>
+        <div class="cap"><div class="ct">The Books of Blood</div><div class="cs">Sphere, 1984</div></div>
+      </a>
+      <a class="tile" href="/c/horror-weird">
+        <div class="frame"><div class="jacket j1"><div class="jt">The Haunting of Hill House</div><div class="ja">Shirley Jackson</div></div></div>
+        <div class="cap"><div class="ct">The Haunting of Hill House</div><div class="cs">Viking, 1959</div></div>
+      </a>
+      <a class="tile" href="/c/horror-weird">
+        <div class="frame"><div class="jacket j9"><div class="jt">Ghost Story</div><div class="ja">Peter Straub</div></div></div>
+        <div class="cap"><div class="ct">Ghost Story</div><div class="cs">Coward, 1979</div></div>
+      </a>
+      <a class="tile" href="/c/horror-weird">
+        <div class="frame"><div class="jacket j8"><div class="jt">The Dark Tower VII</div><div class="ja">Stephen King</div></div></div>
+        <div class="cap"><div class="ct">The Dark Tower VII</div><div class="cs">Grant, 2004</div></div>
+      </a>
+      <a class="tile" href="/c/horror-weird">
+        <div class="frame"><div class="jacket j6"><div class="jt">Song of Kali</div><div class="ja">Dan Simmons</div></div></div>
+        <div class="cap"><div class="ct">Song of Kali</div><div class="cs">Bluejay, 1985</div></div>
+      </a>
+      <a class="more" href="/c/horror-weird">
+        <div class="frame"><div><b>+57</b><span>more</span></div></div>
+      </a>
+    </div>
+  </section>
+
+  <!-- ============ shelf 3 ============ -->
+  <section class="shelf">
+    <div class="shelf-head">
+      <div class="mono-badge">JW</div>
+      <div class="shelf-id">
+        <h2 class="shelf-title"><a href="/c/paperback-sf">Paperback science fiction, spinner-rack era</a></h2>
+        <p class="shelf-meta">
+          by Joan W.<span class="dot">·</span><span class="num">312</span> items<span class="dot">·</span>updated <span class="num">11</span>d ago
+          <span class="firsts">18 first editions</span>
+        </p>
+      </div>
+      <a class="view" href="/c/paperback-sf">View shelf →</a>
+    </div>
+    <div class="strip">
+      <a class="tile" href="/c/paperback-sf">
+        <div class="frame"><div class="jacket j7"><div class="jt">Dune</div><div class="ja">Frank Herbert</div></div></div>
+        <div class="cap"><div class="ct">Dune</div><div class="cs">Chilton, 1965</div></div>
+      </a>
+      <a class="tile" href="/c/paperback-sf">
+        <div class="frame"><div class="jacket j10"><div class="jt">The Left Hand of Darkness</div><div class="ja">Ursula K. Le Guin</div></div></div>
+        <div class="cap"><div class="ct">The Left Hand of Darkness</div><div class="cs">Ace, 1969</div></div>
+      </a>
+      <a class="tile" href="/c/paperback-sf">
+        <div class="frame"><div class="jacket j2"><div class="jt">Stand on Zanzibar</div><div class="ja">John Brunner</div></div></div>
+        <div class="cap"><div class="ct">Stand on Zanzibar</div><div class="cs">Doubleday, 1968</div></div>
+      </a>
+      <a class="tile" href="/c/paperback-sf">
+        <div class="frame"><div class="jacket j11"><div class="jt">Roadside Picnic</div><div class="ja">A. &amp; B. Strugatsky</div></div></div>
+        <div class="cap"><div class="ct">Roadside Picnic</div><div class="cs">Macmillan, 1977</div></div>
+      </a>
+      <a class="tile" href="/c/paperback-sf">
+        <div class="frame"><div class="jacket j3"><div class="jt">The Dispossessed</div><div class="ja">Ursula K. Le Guin</div></div></div>
+        <div class="cap"><div class="ct">The Dispossessed</div><div class="cs">Harper, 1974</div></div>
+      </a>
+      <a class="tile" href="/c/paperback-sf">
+        <div class="frame"><div class="jacket j1"><div class="jt">Rendezvous with Rama</div><div class="ja">Arthur C. Clarke</div></div></div>
+        <div class="cap"><div class="ct">Rendezvous with Rama</div><div class="cs">Gollancz, 1973</div></div>
+      </a>
+      <a class="tile" href="/c/paperback-sf">
+        <div class="frame"><div class="jacket j9"><div class="jt">A Canticle for Leibowitz</div><div class="ja">Walter M. Miller Jr.</div></div></div>
+        <div class="cap"><div class="ct">A Canticle for Leibowitz</div><div class="cs">Lippincott, 1960</div></div>
+      </a>
+      <a class="more" href="/c/paperback-sf">
+        <div class="frame"><div><b>+305</b><span>more</span></div></div>
+      </a>
+    </div>
+  </section>
+
+  <!-- ============ shelf 4 ============ -->
+  <section class="shelf">
+    <div class="shelf-head">
+      <div class="mono-badge">DC</div>
+      <div class="shelf-id">
+        <h2 class="shelf-title"><a href="/c/signed-inscribed">Signed, inscribed, association copies</a></h2>
+        <p class="shelf-meta">
+          by Devon C.<span class="dot">·</span><span class="num">28</span> items<span class="dot">·</span>updated <span class="num">3</span>w ago
+          <span class="firsts">26 first editions</span>
+        </p>
+      </div>
+      <a class="view" href="/c/signed-inscribed">View shelf →</a>
+    </div>
+    <div class="strip">
+      <a class="tile" href="/c/signed-inscribed">
+        <div class="frame"><div class="jacket j12"><div class="jt">Slaughterhouse-Five</div><div class="ja">Kurt Vonnegut</div></div></div>
+        <div class="cap"><div class="ct">Slaughterhouse-Five</div><div class="cs">Inscribed to his editor</div></div>
+      </a>
+      <a class="tile" href="/c/signed-inscribed">
+        <div class="frame"><div class="jacket j10"><div class="jt">Beloved</div><div class="ja">Toni Morrison</div></div></div>
+        <div class="cap"><div class="ct">Beloved</div><div class="cs">Signed, Knopf 1987</div></div>
+      </a>
+      <a class="tile" href="/c/signed-inscribed">
+        <div class="frame"><div class="jacket j5"><div class="jt">The Bell Jar</div><div class="ja">Victoria Lucas</div></div></div>
+        <div class="cap"><div class="ct">The Bell Jar</div><div class="cs">Heinemann, 1963</div></div>
+      </a>
+      <a class="tile" href="/c/signed-inscribed">
+        <div class="frame"><div class="jacket j11"><div class="jt">A Moveable Feast</div><div class="ja">Ernest Hemingway</div></div></div>
+        <div class="cap"><div class="ct">A Moveable Feast</div><div class="cs">Scribner, 1964</div></div>
+      </a>
+      <a class="tile" href="/c/signed-inscribed">
+        <div class="frame"><div class="jacket j6"><div class="jt">Housekeeping</div><div class="ja">Marilynne Robinson</div></div></div>
+        <div class="cap"><div class="ct">Housekeeping</div><div class="cs">Signed, FSG 1980</div></div>
+      </a>
+      <a class="more" href="/c/signed-inscribed">
+        <div class="frame"><div><b>+23</b><span>more</span></div></div>
+      </a>
+    </div>
+  </section>
+
+  <div class="foot">
+    <strong>Only collections set to “Listed” appear here.</strong>
+    Unlisted shelves stay reachable by their link and out of this page, and
+    “Off” stays private — the same three settings the share dialog already has.
+    Nothing on this page reveals what anyone paid.
+  </div>
+
+  <p class="note">Design proposal for issue #138 · example collections, not real accounts</p>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<style>
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 14px);
+    background: var(--green); color: var(--card-alt);
+    font-family: var(--mono); font-size: 13px;
+    padding: 11px 18px; border-radius: 999px;
+    box-shadow: 0 10px 30px rgba(32, 26, 20, .28);
+    opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease;
+    max-width: calc(100vw - 32px); text-align: center;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+</style>
+
+<script>
+  /* The mockup's links point at the real route shape a shelf would use. Nothing
+     is mounted at those paths here, so a click reports where it would go
+     instead of navigating into a 404 -- which is the half of the proposal a
+     still image cannot show. */
+  (function () {
+    var toast = document.getElementById("toast");
+    var timer = null;
+
+    document.addEventListener("click", function (event) {
+      var link = event.target.closest("a[href^='/c/']");
+      if (!link) return;
+      event.preventDefault();
+
+      toast.textContent = "→ firstfinder.app" + link.getAttribute("href");
+      toast.classList.add("show");
+      clearTimeout(timer);
+      timer = setTimeout(function () { toast.classList.remove("show"); }, 1900);
+    });
+  })();
+</script>
