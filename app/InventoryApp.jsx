@@ -79,6 +79,7 @@ import {
 } from "../src/utils/offlineQueue";
 import { readOfflineCollection, writeOfflineCollection, clearOfflineCollection } from "../src/lib/offlineStore";
 import { readSignedUrls, writeSignedUrls, clearSignedUrls } from "../src/lib/signedUrlStore";
+import { withWriteRetry } from "../src/utils/retryWrite";
 import { ownerIdFromPath, groupPathsByOwner, selectCachedUrls, mergeSignedUrls, pruneSignedUrls } from "../src/utils/signedUrlCache";
 import { isQueueAvailable, loadQueue, saveOperation, loadOperationPhotos, removeOperations, clearQueue } from "../src/lib/offlineQueueStore";
 import {
@@ -1605,30 +1606,44 @@ export default function FirstFinderApp() {
       }
 
       let finalRow = data;
-      const failures = [];
+      // Two different failures, kept apart because they call for opposite
+      // actions from the reader. A photo that did not upload has to be added
+      // again; a photo that uploaded but did not get linked must NOT be, since
+      // re-adding uploads a second copy and strands the first in the bucket.
+      // Telling both stories with one sentence about the storage bucket is
+      // what produced exactly that.
+      const uploadFailures = [];
+      let photoLinkFailed = false;
 
       if (itemPhotoList.length > 0 || receiptPhotoList.length > 0) {
         const itemResult = await uploadPhotoList(currentUser.id, data.id, itemPhotoList, "item");
         const receiptResult = await uploadPhotoList(currentUser.id, data.id, receiptPhotoList, "receipt");
-        failures.push(...itemResult.failures, ...receiptResult.failures);
+        uploadFailures.push(...itemResult.failures, ...receiptResult.failures);
 
-        const { data: updated, error: updateError } = await supabase
-          .from("inventory_items")
-          .update({
-            item_photos: itemResult.uploaded,
-            receipt_photos: receiptResult.uploaded,
-            item_photo_count: itemResult.uploaded.length,
-            receipt_photo_count: receiptResult.uploaded.length,
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", data.id)
-          .select()
-          .single();
+        // Retried, because the files are already in storage and their paths
+        // are still in hand -- the same update can just be sent again. This is
+        // the write that came back 504 while every upload beside it returned
+        // 200.
+        const { data: updated, error: updateError, attempts } = await withWriteRetry(() =>
+          supabase
+            .from("inventory_items")
+            .update({
+              item_photos: itemResult.uploaded,
+              receipt_photos: receiptResult.uploaded,
+              item_photo_count: itemResult.uploaded.length,
+              receipt_photo_count: receiptResult.uploaded.length,
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", data.id)
+            .select()
+            .single()
+        );
 
         if (updateError) {
-          console.error("Photo record update error:", updateError.message);
-          failures.push("(photo records could not be saved)");
+          console.error(`Photo record update error after ${attempts} attempt(s):`, updateError.message);
+          photoLinkFailed = true;
         } else {
+          if (attempts > 1) console.warn(`Photo records saved on attempt ${attempts}.`);
           finalRow = updated;
         }
       }
@@ -1645,8 +1660,17 @@ export default function FirstFinderApp() {
 
       setInventory((items) => [fromDbItem(finalRow), ...items]);
 
-      if (failures.length > 0) {
-        pushToast(`Item saved, but some photos failed to upload: ${failures.join(", ")}. Make sure the item-photos storage bucket is set up, then re-add the photos.`, "warning");
+      if (photoLinkFailed) {
+        // Deliberately tells them NOT to re-add. The photos are in storage and
+        // saving the item again attaches them; re-adding uploads duplicates.
+        pushToast(
+          uploadFailures.length > 0
+            ? `Item saved. Some photos failed to upload (${uploadFailures.join(", ")}), and the ones that did upload could not be linked to the item. Open the item and save again to attach them -- don't re-add them or you'll upload duplicates.`
+            : "Item saved and your photos uploaded, but linking them to the item didn't save. They're safe in storage -- open the item and save again to attach them. Don't re-add them or you'll upload duplicates.",
+          "warning"
+        );
+      } else if (uploadFailures.length > 0) {
+        pushToast(`Item saved, but some photos failed to upload: ${uploadFailures.join(", ")}. Make sure the item-photos storage bucket is set up, then re-add those photos.`, "warning");
       } else {
         pushToast("Saved to your collection.", "success");
       }
@@ -1966,7 +1990,11 @@ export default function FirstFinderApp() {
         if (removeError) console.error("Photo removal error:", removeError.message);
       }
 
-      const { data, error } = await supabase
+      // Retried for the same reason the create path is: any new photos have
+      // already landed in storage by this point, so an update lost to a
+      // gateway timeout strands them exactly as it did there.
+      const { data, error, attempts } = await withWriteRetry(() =>
+        supabase
         .from("inventory_items")
         .update({
           name: draft.name || "",
@@ -1996,20 +2024,27 @@ export default function FirstFinderApp() {
         })
         .eq("id", draft.id)
         .select()
-        .single();
+        .single()
+      );
 
       if (error) {
-        console.error("Update item error:", error.message);
-        pushToast(error.message, "error");
+        console.error(`Update item error after ${attempts} attempt(s):`, error.message);
+        pushToast(
+          uploadedItemPhotos.length > 0 || uploadedReceiptPhotos.length > 0
+            ? "Your changes didn't save. Any photos you added are already in storage -- open the item and save again rather than re-adding them, which would upload duplicates."
+            : error.message,
+          "error"
+        );
         return;
       }
+      if (attempts > 1) console.warn(`Item update saved on attempt ${attempts}.`);
 
       trackEvent("item_updated", { category: draft.category || "Other", status: draft.status || "Owned" });
       setInventory((items) => items.map((entry) => (entry.id === draft.id ? fromDbItem(data) : entry)));
       setEditingItem(null);
 
       if (failures.length > 0) {
-        pushToast(`Changes saved, but some new photos failed to upload: ${failures.join(", ")}. Re-add them from Edit.`, "warning");
+        pushToast(`Changes saved, but some new photos failed to upload: ${failures.join(", ")}. Re-add those photos from Edit.`, "warning");
       } else {
         pushToast("Changes saved.", "success");
       }
