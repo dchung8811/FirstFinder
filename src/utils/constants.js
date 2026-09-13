@@ -75,7 +75,7 @@ export const receiptPhotoPrompts = ["Receipt", "Invoice", "Order confirmation", 
 // Rows in a fork that still carry the old status keep working as ordinary
 // items; the value simply stops being offered as a choice.
 export const statuses = ["Owned", "Researching", "For sale", "Sold"];
-export const quickCategories = ["Book", "Sports memorabilia", "Trading card", "Comic", "Record", "Art", "Posters & ephemera", "Toy", "Other"];
+export const quickCategories = ["Book", "Sports memorabilia", "Trading card", "Comic", "Magazine & periodical", "Record", "Art", "Posters & ephemera", "Toy", "Other"];
 // Categories where the credit on the cover is a person who wrote the thing,
 // not a company that manufactured it. These are the categories that show the
 // Author field; everything else records only a maker/brand. Kept next to
