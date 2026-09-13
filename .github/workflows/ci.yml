@@ -34,6 +34,31 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # Only the undefined-variable rule, because only that one is clean. The
+      # rest of `npm run lint` still reports a pre-existing backlog in
+      # InventoryApp.jsx and the books pages; gating on the whole thing today
+      # would fail every PR. This gates the one rule that catches a crash
+      # neither the build nor the tests above can see -- see the note in
+      # eslint.config.mjs for the two that reached production.
+      #
+      # `--quiet` drops warnings, so a `<img>` advisory cannot fail the build.
+      - name: Undefined variables
+        run: npx eslint . --quiet -f json --output-file eslint.json || true
+
+      - name: Fail on any undefined variable
+        run: |
+          node -e '
+            const found = require("./eslint.json").flatMap((file) =>
+              file.messages
+                .filter((message) => message.ruleId === "no-undef")
+                .map((message) => `${file.filePath}:${message.line}  ${message.message}`)
+            );
+            if (found.length === 0) process.exit(0);
+            console.error("Undefined variables -- these throw at runtime:");
+            found.forEach((line) => console.error("  " + line));
+            process.exit(1);
+          '
+
   build:
     name: Build
     runs-on: ubuntu-latest
