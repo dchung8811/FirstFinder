@@ -30,7 +30,6 @@ export const sampleItems = [
     category: "Book",
     author: "Stephen King",
     maker: "Donald M. Grant",
-    edition: "First edition candidate",
     status: "Owned",
     purchaseDate: "2026-05-12",
     source: "Used bookstore",
@@ -43,7 +42,6 @@ export const sampleItems = [
     category: "Book",
     author: "Toni Morrison",
     maker: "Alfred A. Knopf",
-    edition: "Signed copy candidate",
     status: "Researching",
     purchaseDate: "2026-05-08",
     source: "Estate sale",
@@ -91,7 +89,7 @@ export const bookPrintingOptions = ["First", "Second", "Third", "Fourth", "Fifth
 export const csvItemFields = ["name", "category", "author", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "condition", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"];
 export const csvHeaders = ["ref", ...csvItemFields, "delete"];
 export const csvTemplateRows = [
-  ["", "The Gunslinger", "Book", "Stephen King", "Donald M. Grant", "First edition candidate", "Fantasy", "First", "First", "Owned", "Near Fine/Fine", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state", ""],
+  ["", "The Gunslinger", "Book", "Stephen King", "Donald M. Grant", "", "Fantasy", "First", "First", "Owned", "Near Fine/Fine", "2026-05-12", "Used bookstore", "45", "850", "", "", "Need to confirm jacket state", ""],
   ["", "Vintage Phillies Program", "Sports memorabilia", "", "Philadelphia Phillies", "1970s program", "", "", "", "Sold", "Very Good/Good", "2026-04-28", "Flea market", "12", "", "40", "2026-06-01", "Minor corner wear. Sold at a local card show.", ""]
 ];
 // Values accepted in the "delete" column. Deliberately generous, since people

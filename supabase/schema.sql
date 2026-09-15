@@ -37,6 +37,9 @@ create table if not exists public.inventory_items (
   -- deletes it. See author-field.sql for the split, which was one column.
   author text not null default '',
   maker text not null default '',
+  -- Free-text "Edition / Variant / Details" for every category except Book,
+  -- which uses book_edition / book_printing below and stores this blank. See
+  -- book-edition-backfill.sql.
   edition text not null default '',
 
   -- Book-specific detail fields. Blank for every other category.

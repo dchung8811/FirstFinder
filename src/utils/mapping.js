@@ -24,6 +24,14 @@ export const csvFieldToColumn = {
   notes: "notes"
 };
 
+// The free-text edition column, as it should be stored. Books record their
+// edition in book_edition / book_printing and never show this field, so a book
+// row always stores it blank -- otherwise text from a CSV column or a category
+// switch lands somewhere no screen will ever display it. Issue #169.
+export function storedEdition(item) {
+  return item.category === "Book" ? "" : item.edition || "";
+}
+
 // Builds the row sent for a CSV-driven update. Only touches columns whose
 // header was present in the uploaded file, and deliberately never includes the
 // photo columns, so a bulk edit can't wipe someone's uploaded images.
@@ -34,6 +42,8 @@ export function csvUpdateRow(existing, fields, userId) {
   Object.entries(csvFieldToColumn).forEach(([field, column]) => {
     if (field in fields) row[column] = fields[field] || "";
   });
+
+  if ("edition" in fields || "category" in fields) row.edition = storedEdition(merged);
 
   if ("purchaseDate" in fields) row.purchase_date = fields.purchaseDate || null;
   if ("purchasePrice" in fields) row.purchase_price = toNumber(fields.purchasePrice);
@@ -60,7 +70,7 @@ export function toDbItem(item, userId, itemPhotoCount = 0, receiptPhotoCount = 0
     category: item.category || "Other",
     author: item.author || "",
     maker: item.maker || "",
-    edition: item.edition || "",
+    edition: storedEdition(item),
     book_genre: item.bookGenre || "",
     book_edition: item.bookEdition || "",
     book_printing: item.bookPrinting || "",

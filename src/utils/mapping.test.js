@@ -46,6 +46,16 @@ describe("toDbItem", () => {
     expect(row.sold_date).toBe(null);
   });
 
+  // Books keep their edition in the dropdowns and never display this field, so
+  // text stored here would be invisible. Issue #169.
+  it("stores a blank free-text edition for a book", () => {
+    expect(toDbItem({ category: "Book", edition: "Book Club Edition" }, USER).edition).toBe("");
+  });
+
+  it("keeps the free-text edition for everything else", () => {
+    expect(toDbItem({ category: "Comic", edition: "Newsstand variant" }, USER).edition).toBe("Newsstand variant");
+  });
+
   it("records the photo counts it was handed", () => {
     const row = toDbItem({}, USER, 3, 1);
     expect(row.item_photo_count).toBe(3);
@@ -146,6 +156,20 @@ describe("csvUpdateRow", () => {
 
   it("updates the author column from a CSV", () => {
     expect(csvUpdateRow(existing, { author: "Toni Morrison" }, USER).author).toBe("Toni Morrison");
+  });
+
+  it("ignores an edition column on a book row", () => {
+    const book = { ...existing, category: "Book" };
+    expect(csvUpdateRow(book, { edition: "First edition candidate" }, USER).edition).toBe("");
+  });
+
+  it("clears the edition when a CSV moves an item into Book", () => {
+    const comic = { ...existing, category: "Comic", edition: "Variant cover" };
+    expect(csvUpdateRow(comic, { category: "Book" }, USER).edition).toBe("");
+  });
+
+  it("leaves the edition alone when the file carried neither column", () => {
+    expect(csvUpdateRow({ ...existing, category: "Book" }, { name: "Dune" }, USER)).not.toHaveProperty("edition");
   });
 
   it("stores a blanked estimate as null", () => {
