@@ -60,7 +60,7 @@ import {
   getActiveInventory,
   toValueRange
 } from "../src/utils/items";
-import { csvUpdateRow, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
+import { csvUpdateRow, storedEdition, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
 import { createSignedUrlBatcher } from "../src/utils/signedUrlBatch";
 import {
@@ -2002,7 +2002,7 @@ export default function FirstFinderApp() {
           category: draft.category || "Other",
           author: draft.author || "",
           maker: draft.maker || "",
-          edition: draft.edition || "",
+          edition: storedEdition(draft),
           book_genre: draft.bookGenre || "",
           book_edition: draft.bookEdition || "",
           book_printing: draft.bookPrinting || "",
