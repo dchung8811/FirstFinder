@@ -4,6 +4,8 @@ node_modules
 .env
 .DS_Store
 *.bak
-.claude
+# Shared agent config (.claude/settings.json, .claude/hooks/) is committed on
+# purpose so every session gets it. Only personal overrides stay local.
+.claude/settings.local.json
 .vercel
 eslint.json
