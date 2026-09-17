@@ -102,6 +102,7 @@ app/
 src/lib/
   supabaseClient.js         Browser client (anon key)
   supabaseAdmin.js          Server-only client (service role key) — never import in a client file
+src/utils/                  Pure functions — no DOM, no network, no Supabase. The tested layer.
 supabase/                   schema.sql plus the incremental patches behind it
 ```
 
@@ -114,8 +115,9 @@ say so in the PR.
 
 ## Code style
 
-There's no formatter or linter configured, so the rule is: **match the code
-around you.**
+There's no formatter, so the rule is: **match the code around you.** ESLint is
+configured (`eslint.config.mjs`), but only its `no-undef` rule is a CI gate --
+the rest still reports a pre-existing backlog.
 
 - Two-space indentation, double-quoted strings, semicolons.
 - Comments explain *why*, not *what*. The existing comments are the model — if a
@@ -130,16 +132,19 @@ around you.**
 
 ## Before you open a pull request
 
-There's no automated test suite yet, so verification is manual — and CI only
-checks that the app builds.
+`npm test` runs a Vitest suite over the pure logic in `src/utils` (plus the seed
+script's filters) in about three seconds. Nothing automated covers components,
+route handlers, or Supabase, so the suite passing does not mean the app works —
+verification is still partly manual.
 
-1. `npm run build` passes.
-2. The flows your change touches still work in `npm run dev`. At minimum, for
+1. `npm test` passes, and new logic in `src/utils` comes with tests.
+2. `npm run build` passes.
+3. The flows your change touches still work in `npm run dev`. At minimum, for
    anything touching inventory: add an item, edit it, mark it sold, restore it,
    delete it.
-3. Check it at a phone width — the layout is responsive and the mobile nav is
+4. Check it at a phone width — the layout is responsive and the mobile nav is
    easy to break.
-4. No secrets, no `.env.local`, no personal collection data in the diff.
+5. No secrets, no `.env.local`, no personal collection data in the diff.
 
 Then:
 

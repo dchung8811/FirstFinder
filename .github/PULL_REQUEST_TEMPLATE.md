@@ -15,8 +15,11 @@ Closes #
 
 ## How I tested it
 
-<!-- There's no automated suite, so say what you actually clicked. -->
+<!-- `npm test` covers the pure logic in src/utils only. Nothing automated
+     touches components, route handlers, or Supabase -- so say what you
+     actually clicked as well. -->
 
+- [ ] `npm test` passes
 - [ ] `npm run build` passes
 - [ ] Verified in `npm run dev`
 - [ ] Checked at a phone width
