@@ -63,6 +63,11 @@ may only be imported from `app/api/*/route.js` handlers. Never from a
 `NEXT_PUBLIC_`. Browser code uses `src/lib/supabaseClient.js` (anon key) and is
 governed by RLS.
 
+The one exception is `src/lib/sharedCollection.js`, which serves the public
+`/c/<slug>` pages and the sitemap from the server. It is deliberate, not a leak
+to tidy up: its header comment explains why it reads with the service role
+rather than through a public RLS policy. It must stay out of `"use client"` files too.
+
 **Database changes go in two places:** `supabase/schema.sql` (the source of
 truth a fresh project runs) *and* a new patch file alongside it (what production
 runs). Existing patches are history — don't edit them.
