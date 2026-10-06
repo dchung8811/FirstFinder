@@ -43,9 +43,10 @@ export const FREE_PLAN = {
   monthlyActiveUsers: 50000
 };
 
-// Free projects are paused after a week without activity. For a project this
-// quiet that is a likelier outage than any quota: the app starts returning
-// errors, and it takes a manual restore in the dashboard to come back.
+// Supabase may pause a free project that shows low database activity over a
+// 7-day window. For a project this quiet that is a likelier outage than any
+// quota: the app starts returning errors, and it takes a manual restore in the
+// dashboard to come back.
 export const PAUSE_AFTER_IDLE_DAYS = 7;
 
 // GitHub's own limits, which the API reports rather than us assuming them.
@@ -168,8 +169,14 @@ export function buildPlatformChecks({ capacity = {}, plan = "free", now = new Da
   }
 
   // The inactivity check, which is the one most likely to actually fire here.
-  // Not a quota -- it counts up toward a deadline that any real visit resets --
-  // so its ratio is idle time against the pause window.
+  // Not a quota, so its ratio is idle time against the pause window.
+  //
+  // It is a proxy, and a lopsided one. Supabase judges activity by database
+  // requests, reads included, but last_activity_at only sees edits and fresh
+  // sign-ins -- a collector who stays signed in and browses never moves it.
+  // So the card can read "8 days" while the project is busy, and the wording
+  // says what it measured rather than claiming the project is idle. Supabase's
+  // own warning email, a week ahead of any pause, is the authoritative signal.
   if (onFreePlan && capacity.last_activity_at) {
     const idleDays = daysBetween(now, capacity.last_activity_at);
     if (idleDays !== null) {
@@ -183,12 +190,12 @@ export function buildPlatformChecks({ capacity = {}, plan = "free", now = new Da
         value:
           idleDays < 1
             ? "Active today"
-            : `Idle ${Math.floor(idleDays)} of ${PAUSE_AFTER_IDLE_DAYS} days`,
-        detail: "Free projects pause after a week with no activity, and the app returns errors until it is restored by hand.",
+            : `No edits or sign-ins in ${Math.floor(idleDays)} days`,
+        detail: `Supabase may pause a free project after ${PAUSE_AFTER_IDLE_DAYS} days of low database activity, and the app returns errors until it is restored by hand. This only counts edits and new sign-ins; browsing also counts for Supabase but not here, so the project can be busier than this looks.`,
         action:
           status === STATUS.OK
             ? null
-            : "Any signed-in visit resets this -- opening the app is enough. If it does pause, restore it from the Supabase dashboard."
+            : "Supabase emails a warning about a week before it pauses anything -- that email is the real signal. To be safe, browse or edit your collection; any database request counts. If it does pause, restore it from the Supabase dashboard within 90 days."
       });
     }
   }
