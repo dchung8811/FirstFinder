@@ -35,7 +35,7 @@ source, the setup guide, and the issues that are ready for someone to pick up.
 
 ## Quick start
 
-Requires Node.js 20.9+ and a free Supabase project.
+Requires Node.js 22.12+ and a free Supabase project.
 
 ```bash
 git clone https://github.com/dchung8811/FirstFinder.git

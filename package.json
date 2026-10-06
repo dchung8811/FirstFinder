@@ -1,5 +1,8 @@
 {
   "name": "firstfinder",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
