@@ -37,6 +37,9 @@ export default async function sitemap() {
     // The hub. Listed even with nothing published under it yet -- it is a real
     // page, and it is what the footer links to.
     { url: `${SITE_URL}/books`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.9 },
+    // Only ever lists collections that are already listed (and so already
+    // below), so it gives a crawler nothing the sitemap didn't.
+    { url: `${SITE_URL}/explore`, lastModified: new Date(), changeFrequency: "daily", priority: 0.6 },
     ...books,
     ...collections
   ];

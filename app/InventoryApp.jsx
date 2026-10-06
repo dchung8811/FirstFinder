@@ -105,6 +105,7 @@ import {
   applyPreset,
   matchingPresetId,
   isItemShared,
+  canShowOnExplore,
   buildPublicItem,
   shareSettingsChanged,
   generateShareSlug,
@@ -1128,6 +1129,10 @@ export default function FirstFinderApp() {
           // no number until the fetch has actually landed.
           { view: "wishlist", label: `Wishlist${wishlistCountKnown ? ` (${openWishlist.length})` : ""}` },
           { view: "addItems", label: "Add Items" },
+          // A real route rather than a view: /explore is server-rendered,
+          // because it reads other people's shelves through the service role,
+          // which this client component must never hold.
+          { view: "explore", label: "Explore", href: "/explore" },
           // Feedback sits where Roadmap used to, because the nav row only has
           // space for the first few and this is the one worth spending it on:
           // a collector who wants to tell us something should not have to find
@@ -1140,6 +1145,7 @@ export default function FirstFinderApp() {
         ]
       : [
           { view: "home", label: "Get Started" },
+          { view: "explore", label: "Explore", href: "/explore" },
           { view: "roadmap", label: "Roadmap" },
           { view: "about", label: "About" }
         ]
@@ -2781,7 +2787,7 @@ export default function FirstFinderApp() {
         <NavTabs
           items={navItems}
           activeView={activeView}
-          onSelect={go}
+          onSelect={(navItem) => (navItem.href ? goToHref(navItem.href) : go(navItem.view))}
           containerRef={navSlotRef}
           measureRef={navMeasureRef}
           visibleCount={visibleNavCount}
@@ -7731,6 +7737,29 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
             </div>
           </fieldset>
 
+          {/* Its own consent, not implied by "listed": being indexed by a
+              search engine and appearing on a page of strangers' shelves are
+              different exposures. Shown only while listed, because Explore
+              links to the page and so would undo what "unlisted" promises.
+              toDbShareRow clears it on save if the page moves off listed. */}
+          {canShowOnExplore(draft.visibility) && (
+            <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-3 transition hover:bg-white">
+              <input
+                type="checkbox"
+                checked={Boolean(draft.showOnExplore)}
+                onChange={(event) => set("showOnExplore", event.target.checked)}
+                className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Show on Explore</span>
+                <span className="block text-xs leading-5 text-[#7d6c5a]">
+                  Add your shelf to FirstFinder&apos;s Explore page, where other collectors browse. It shows your newest
+                  covers and item counts, never prices.
+                </span>
+              </span>
+            </label>
+          )}
+
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <Field label="Page title" value={draft.title} onChange={(value) => set("title", value)} />
             <Field label="One line about it" value={draft.blurb} onChange={(value) => set("blurb", value)} />
@@ -8288,7 +8317,7 @@ function NavTabs({ items, activeView, onSelect, containerRef, measureRef, visibl
       {visibleCount > 0 && (
         <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-hidden rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
           {items.slice(0, visibleCount).map((navItem) => (
-            <TabButton key={navItem.view} active={activeView === navItem.view} onClick={() => onSelect(navItem.view)}>{navItem.label}</TabButton>
+            <TabButton key={navItem.view} active={activeView === navItem.view} onClick={() => onSelect(navItem)}>{navItem.label}</TabButton>
           ))}
         </div>
       )}

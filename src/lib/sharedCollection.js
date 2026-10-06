@@ -23,7 +23,7 @@
 // not a disclosure.
 
 import { createSupabaseAdminClient } from "./supabaseAdmin";
-import { isValidShareSlug } from "../utils/publicCollection";
+import { isValidShareSlug, buildExploreShelf, sortExploreShelves, EXPLORE_COVER_LIMIT } from "../utils/publicCollection";
 
 const PHOTO_BUCKET = "item-photos";
 
@@ -372,6 +372,150 @@ export async function listListedCollectionSlugs() {
     // a full .env.local). A sitemap missing the shared pages is better than a
     // build that fails.
     console.error("Listed collections unavailable:", error.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// /explore
+// ---------------------------------------------------------------------------
+
+// Upper bound on shelves read per request. Each shelf is two small queries, so
+// this caps the page's database work rather than its length. It is far above
+// today's count. Paging is the follow-up once it is ever reached.
+const EXPLORE_MAX_SHELVES = 48;
+
+// Only what a cover tile renders, plus the two columns that decide whether the
+// row may appear at all. Narrower than BASE_COLUMNS on purpose: Explore shows
+// less than a collection page, so it reads less.
+const EXPLORE_COVER_COLUMNS = [
+  "id",
+  "name",
+  "category",
+  "author",
+  "maker",
+  "book_edition",
+  "book_printing",
+  "status",
+  "item_photos",
+  "hidden_from_share",
+  "created_at"
+];
+
+function toExploreItem(row) {
+  return {
+    id: row.id,
+    name: row.name || "",
+    category: row.category || "Other",
+    author: row.author || "",
+    maker: row.maker || "",
+    bookEdition: row.book_edition || "",
+    bookPrinting: row.book_printing || "",
+    status: row.status || "Owned",
+    hiddenFromShare: Boolean(row.hidden_from_share),
+    itemPhotos: Array.isArray(row.item_photos) ? row.item_photos.filter((photo) => photo && photo.path) : [],
+    createdAt: row.created_at || ""
+  };
+}
+
+// One shelf's items query, with the same SQL-side exclusions loadSharedCollection
+// applies, so nothing leaves Postgres that the owner's own page would hide.
+function sharedItemsQuery(admin, shareRow, columns) {
+  let query = admin
+    .from("inventory_items")
+    .select(columns)
+    .eq("user_id", shareRow.user_id)
+    .eq("hidden_from_share", false);
+
+  const excludedStatuses = [...(shareRow.show_sold ? [] : ["Sold"]), ...(shareRow.show_wishlist ? [] : ["Wishlist"])];
+  if (excludedStatuses.length > 0) {
+    query = query.not("status", "in", `(${excludedStatuses.join(",")})`);
+  }
+  return query;
+}
+
+async function loadExploreShelf(admin, shareRow) {
+  const settings = {
+    title: shareRow.title || "",
+    blurb: shareRow.blurb || "",
+    showSold: Boolean(shareRow.show_sold),
+    showWishlist: Boolean(shareRow.show_wishlist)
+  };
+
+  const [recent, editions, ownerName] = await Promise.all([
+    // A few rows past the cover limit, in case the second filter in
+    // buildExploreShelf drops some.
+    sharedItemsQuery(admin, shareRow, EXPLORE_COVER_COLUMNS.join(", "))
+      .order("created_at", { ascending: false })
+      .limit(EXPLORE_COVER_LIMIT + 4),
+    // Every shared item, but only three short columns plus the hidden flag:
+    // enough to count items and first editions without reading the rest of
+    // the shelf.
+    sharedItemsQuery(admin, shareRow, "book_edition, book_printing, status, hidden_from_share"),
+    settings.title.trim() ? Promise.resolve("") : fetchOwnerName(admin, shareRow.user_id).catch(() => "")
+  ]);
+
+  if (recent.error || editions.error) {
+    // A shelf that cannot be read is left off the page rather than failing
+    // the whole page. Explore with one shelf missing is still Explore.
+    console.error("Explore shelf error:", (recent.error || editions.error).message);
+    return null;
+  }
+
+  return buildExploreShelf({
+    settings,
+    slug: shareRow.slug,
+    ownerName,
+    recentItems: (recent.data || []).map(toExploreItem),
+    editions: (editions.data || []).map((row) => ({
+      bookEdition: row.book_edition || "",
+      bookPrinting: row.book_printing || "",
+      status: row.status || "Owned",
+      hiddenFromShare: Boolean(row.hidden_from_share)
+    }))
+  });
+}
+
+// Every collection whose owner opted in to Explore, newest activity first, with
+// cover URLs signed. Returns [] on failure: an empty Explore beats a 500.
+//
+// Both conditions are checked here, not only show_on_explore. The database
+// constraint already makes one imply the other, but this file is the gate
+// between a private row and a public page, and it should not rely on a
+// constraint that a later patch could drop.
+export async function listExploreShelves() {
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data, error } = await admin
+      .from("shared_collections")
+      .select("user_id, slug, title, blurb, show_sold, show_wishlist, updated_at")
+      .eq("visibility", "listed")
+      .eq("show_on_explore", true)
+      .order("updated_at", { ascending: false })
+      .limit(EXPLORE_MAX_SHELVES);
+
+    if (error) {
+      console.error("Explore lookup error:", error.message);
+      return [];
+    }
+
+    const shelves = (await Promise.all((data || []).map((row) => loadExploreShelf(admin, row).catch(() => null)))).filter(Boolean);
+
+    // Covers only. Every other photo stays unsigned until a visitor opens
+    // the collection itself.
+    const coverPaths = shelves.flatMap((shelf) => shelf.covers.map((item) => item.photos[0]?.path)).filter(Boolean);
+    const urls = await signPhotoPaths(admin, coverPaths);
+
+    // Paths are replaced by URLs here, so no storage path reaches the page.
+    // Paths reveal user ids and folder layout and are useless to a visitor.
+    return sortExploreShelves(shelves).map((shelf) => ({
+      ...shelf,
+      covers: shelf.covers.map(({ photos, ...item }) => ({ ...item, photoUrl: urls.get(photos[0]?.path) || null }))
+    }));
+  } catch (error) {
+    // Same reasoning as listListedCollectionSlugs: a build without the
+    // service-role key should render an empty page, not fail.
+    console.error("Explore unavailable:", error.message);
     return [];
   }
 }

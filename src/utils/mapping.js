@@ -5,6 +5,7 @@
 // load-bearing: null means "no estimate yet", 0 means "estimated at nothing".
 
 import { toNumber, hasValue } from "./format";
+import { canShowOnExplore } from "./publicCollection";
 
 // Plain text columns that map straight across for a CSV-driven update.
 // Dates, numbers, and the sold-status fields need extra handling and are
@@ -158,7 +159,8 @@ export function fromDbShareSettings(row) {
     showProvenance: Boolean(row.show_provenance),
     showNotes: Boolean(row.show_notes),
     showSold: Boolean(row.show_sold),
-    showWishlist: Boolean(row.show_wishlist)
+    showWishlist: Boolean(row.show_wishlist),
+    showOnExplore: Boolean(row.show_on_explore)
   };
 }
 
@@ -175,6 +177,11 @@ export function toDbShareRow(settings, userId, slug) {
     show_notes: Boolean(settings.showNotes),
     show_sold: Boolean(settings.showSold),
     show_wishlist: Boolean(settings.showWishlist),
+    // Cleared whenever the page is not listed, rather than only hidden in
+    // the dialog. If it were kept, a collector who switched to unlisted and
+    // later back to listed would reappear on Explore without having opted
+    // in again. A database constraint rejects the combination too.
+    show_on_explore: canShowOnExplore(settings.visibility) && Boolean(settings.showOnExplore),
     updated_at: new Date().toISOString()
   };
 }

@@ -220,16 +220,26 @@ create table if not exists public.shared_collections (
   show_sold boolean not null default false,
   show_wishlist boolean not null default false,
 
+  -- Appear on the in-app /explore page. A separate consent from "listed" --
+  -- see supabase/explore.sql -- and only possible while listed.
+  show_on_explore boolean not null default false,
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
   constraint shared_collections_visibility_check
-    check (visibility in ('off', 'unlisted', 'listed'))
+    check (visibility in ('off', 'unlisted', 'listed')),
+  constraint shared_collections_explore_requires_listed
+    check (not show_on_explore or visibility = 'listed')
 );
 
 create index if not exists shared_collections_visibility_idx
   on public.shared_collections (visibility)
   where visibility <> 'off';
+
+create index if not exists shared_collections_explore_idx
+  on public.shared_collections (updated_at desc)
+  where show_on_explore;
 
 alter table public.shared_collections enable row level security;
 

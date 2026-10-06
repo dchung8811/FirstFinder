@@ -36,8 +36,19 @@ export const defaultShareSettings = {
   showProvenance: false,
   showNotes: false,
   showSold: false,
-  showWishlist: false
+  showWishlist: false,
+  // Appear on /explore. Not one of shareFieldGroups: it decides where the
+  // page is advertised, not what the page shows. See canShowOnExplore.
+  showOnExplore: false
 };
+
+// Explore requires "listed". Explore is a public index that links to the page.
+// "Unlisted" promises the page is reachable only by people sent the link.
+// Putting an unlisted page on a public list would break that promise without
+// telling anyone. The database has a check constraint for the same rule.
+export function canShowOnExplore(visibility) {
+  return visibility === "listed";
+}
 
 // The fields that make up "the shelf" -- what a collection page is for. These
 // are not switchable; a page without them would have nothing on it.
@@ -374,6 +385,66 @@ export function buildPublicCollection(items, settings = defaultShareSettings, { 
   };
 }
 
+// ---------------------------------------------------------------------------
+// The Explore page
+// ---------------------------------------------------------------------------
+
+// How many covers one shelf on /explore shows before its "+N more" tile.
+// Explore puts many collections on one page, and every cover is a signed-URL
+// fetch from storage on the free tier. Eight covers is enough for a reader to
+// get a sense of a shelf. The full shelf is one tap away on /c/<slug>.
+export const EXPLORE_COVER_LIMIT = 8;
+
+// One row on /explore, built from the owner's settings, the newest few shared
+// items, and the edition, status and hidden flag of every item (used for the
+// counts).
+//
+// The items go through buildPublicItem like every other public render, with
+// one difference: the field flags are forced off. Explore never shows prices,
+// notes or provenance, even if the owner's own page does. It is a
+// browse page, and showing values would turn it into a leaderboard. The flags
+// that decide which items appear (sold, wishlist) still come from the owner's
+// settings, so Explore never shows an item their own page would hide.
+export function buildExploreShelf({ settings, recentItems = [], editions = [], ownerName = "", slug }) {
+  const membership = { ...defaultShareSettings, showSold: Boolean(settings?.showSold), showWishlist: Boolean(settings?.showWishlist) };
+
+  const shared = recentItems.filter((item) => isItemShared(item, membership));
+  const covers = shared.slice(0, EXPLORE_COVER_LIMIT).map((item) => buildPublicItem(item, membership));
+
+  // Counted from the edition columns alone, through the same helper the
+  // collection page uses for its header, so a shelf's numbers on Explore can
+  // never disagree with the numbers on the page it links to.
+  // Filtered here as well as in SQL, the same doubled guard the collection
+  // page uses. Each row carries status and the hidden flag for that reason.
+  const summary = summarizeCollection(
+    editions
+      .filter((row) => isItemShared(row, membership))
+      .map((row) => ({ bookEdition: row.bookEdition || "", bookPrinting: row.bookPrinting || "", condition: "" }))
+  );
+  const { title, blurb } = buildPublicCollection([], settings, { ownerName });
+
+  return {
+    slug,
+    title,
+    blurb,
+    itemCount: summary.itemCount,
+    firstEditionCount: summary.firstEditionCount,
+    covers,
+    moreCount: Math.max(0, summary.itemCount - covers.length),
+    // For sorting only. Expects recentItems newest first, which is how the
+    // server reads them.
+    lastAddedAt: shared[0]?.createdAt || ""
+  };
+}
+
+// Most recently active first. An active collector is more interesting
+// than a large dormant one. "Active" is the newest item added. Saving share
+// settings doesn't count, because changing a page title is not collecting.
+// A shelf with no items sorts last.
+export function sortExploreShelves(shelves) {
+  return [...shelves].sort((a, b) => String(b.lastAddedAt || "").localeCompare(String(a.lastAddedAt || "")));
+}
+
 // Share slugs are random rather than derived from a name or a row id: an
 // unlisted page's only protection is that its URL cannot be guessed or walked
 // (/c/aaa, /c/aab...), and a sequential or name-based slug would hand away
@@ -405,7 +476,7 @@ export function isValidShareSlug(value) {
 // updated_at coming back from the database doesn't register as an unsaved
 // edit and leave the Save button lit forever.
 export function shareSettingsChanged(saved, draft) {
-  const fields = ["visibility", "title", "blurb", ...shareFieldGroups.map((group) => group.key)];
+  const fields = ["visibility", "title", "blurb", "showOnExplore", ...shareFieldGroups.map((group) => group.key)];
   return fields.some((field) => {
     const savedValue = saved?.[field];
     const draftValue = draft?.[field];
