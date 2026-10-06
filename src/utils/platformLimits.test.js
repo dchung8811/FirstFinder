@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   STATUS,
   FREE_PLAN,
-  PAUSE_AFTER_IDLE_DAYS,
   statusFromRatio,
   worstStatus,
   formatBytes,
@@ -139,8 +138,8 @@ describe("buildPlatformChecks: free-project pause", () => {
     // Five days idle out of seven is 71% -- just past the watch threshold.
     const check = checkFor("pause", { capacity: { last_activity_at: "2026-09-03T12:00:00Z" } });
     expect(check.status).toBe(STATUS.WATCH);
-    expect(check.value).toBe(`Idle 5 of ${PAUSE_AFTER_IDLE_DAYS} days`);
-    expect(check.action).toMatch(/signed-in visit resets this/);
+    expect(check.value).toBe("No visits or edits in 5 days");
+    expect(check.action).toMatch(/Open the app while signed in/);
   });
 
   it("caps the bar at full rather than overflowing once the window has passed", () => {
