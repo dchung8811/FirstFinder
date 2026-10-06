@@ -138,16 +138,8 @@ describe("buildPlatformChecks: free-project pause", () => {
     // Five days idle out of seven is 71% -- just past the watch threshold.
     const check = checkFor("pause", { capacity: { last_activity_at: "2026-09-03T12:00:00Z" } });
     expect(check.status).toBe(STATUS.WATCH);
-    expect(check.value).toBe("No edits or sign-ins in 5 days");
-    expect(check.action).toMatch(/warning/);
-  });
-
-  it("says what it measured instead of claiming the project is idle", () => {
-    // The gauge only sees edits and new sign-ins, while Supabase counts reads
-    // too, so "Idle 8 of 7 days" on a busy project was a false alarm.
-    const check = checkFor("pause", { capacity: { last_activity_at: "2026-08-31T12:00:00Z" } });
-    expect(check.value).not.toMatch(/idle/i);
-    expect(check.action).not.toMatch(/opening the app is enough/);
+    expect(check.value).toBe("No visits or edits in 5 days");
+    expect(check.action).toMatch(/Open the app while signed in/);
   });
 
   it("caps the bar at full rather than overflowing once the window has passed", () => {

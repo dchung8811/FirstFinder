@@ -171,12 +171,10 @@ export function buildPlatformChecks({ capacity = {}, plan = "free", now = new Da
   // The inactivity check, which is the one most likely to actually fire here.
   // Not a quota, so its ratio is idle time against the pause window.
   //
-  // It is a proxy, and a lopsided one. Supabase judges activity by database
-  // requests, reads included, but last_activity_at only sees edits and fresh
-  // sign-ins -- a collector who stays signed in and browses never moves it.
-  // So the card can read "8 days" while the project is busy, and the wording
-  // says what it measured rather than claiming the project is idle. Supabase's
-  // own warning email, a week ahead of any pause, is the authoritative signal.
+  // last_activity_at is a proxy: Supabase judges activity by database requests,
+  // which Postgres cannot see. It counts item edits, sign-ins, and session token
+  // refreshes -- the last being what catches a collector who stays signed in
+  // and only browses (supabase/pause-activity-sessions.sql has the story).
   if (onFreePlan && capacity.last_activity_at) {
     const idleDays = daysBetween(now, capacity.last_activity_at);
     if (idleDays !== null) {
@@ -190,12 +188,12 @@ export function buildPlatformChecks({ capacity = {}, plan = "free", now = new Da
         value:
           idleDays < 1
             ? "Active today"
-            : `No edits or sign-ins in ${Math.floor(idleDays)} days`,
-        detail: `Supabase may pause a free project after ${PAUSE_AFTER_IDLE_DAYS} days of low database activity, and the app returns errors until it is restored by hand. This only counts edits and new sign-ins; browsing also counts for Supabase but not here, so the project can be busier than this looks.`,
+            : `No visits or edits in ${Math.floor(idleDays)} days`,
+        detail: `Supabase may pause a free project after ${PAUSE_AFTER_IDLE_DAYS} days of low database activity, and the app returns errors until it is restored by hand. Signed-in visits, sign-ins and item edits all count.`,
         action:
           status === STATUS.OK
             ? null
-            : "Supabase emails a warning about a week before it pauses anything -- that email is the real signal. To be safe, browse or edit your collection; any database request counts. If it does pause, restore it from the Supabase dashboard within 90 days."
+            : "Open the app while signed in, or add or edit an item. Supabase also emails a warning about a week before it pauses anything. If it does pause, restore it from the Supabase dashboard within 90 days."
       });
     }
   }
