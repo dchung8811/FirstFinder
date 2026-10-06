@@ -62,6 +62,7 @@ import {
 } from "../src/utils/items";
 import { csvUpdateRow, storedEdition, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
+import { EXPLORE_STRIP_LIMIT, toggleExplorePick } from "../src/utils/explore";
 import { createSignedUrlBatcher } from "../src/utils/signedUrlBatch";
 import {
   createOperation,
@@ -1128,6 +1129,9 @@ export default function FirstFinderApp() {
           // no number until the fetch has actually landed.
           { view: "wishlist", label: `Wishlist${wishlistCountKnown ? ` (${openWishlist.length})` : ""}` },
           { view: "addItems", label: "Add Items" },
+          // A real route (/explore), not a view: it is a server-rendered
+          // public page, so it carries an href and navigates out of this shell.
+          { view: "explore", label: "Explore", href: "/explore" },
           // Feedback sits where Roadmap used to, because the nav row only has
           // space for the first few and this is the one worth spending it on:
           // a collector who wants to tell us something should not have to find
@@ -1140,6 +1144,7 @@ export default function FirstFinderApp() {
         ]
       : [
           { view: "home", label: "Get Started" },
+          { view: "explore", label: "Explore", href: "/explore" },
           { view: "roadmap", label: "Roadmap" },
           { view: "about", label: "About" }
         ]
@@ -2781,7 +2786,11 @@ export default function FirstFinderApp() {
         <NavTabs
           items={navItems}
           activeView={activeView}
-          onSelect={go}
+          onSelect={(view) => {
+            const target = navItems.find((navItem) => navItem.view === view);
+            if (target?.href) goToHref(target.href);
+            else go(view);
+          }}
           containerRef={navSlotRef}
           measureRef={navMeasureRef}
           visibleCount={visibleNavCount}
@@ -7428,6 +7437,118 @@ function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkUploading, bulkM
   );
 }
 
+// The share dialog's Explore section: the opt-in, and which items lead the
+// strip.
+//
+// The checkbox is disabled rather than hidden for pages that aren't listed, so
+// a collector looking for Explore finds it and is told what it needs. The
+// picker lists only items the page would actually show under the draft
+// settings: picking something the page itself hides would be a pick that can
+// never appear.
+function ExploreSettings({ draft, sharedItems, onChange }) {
+  const [filter, setFilter] = useState("");
+  const listed = draft.visibility === "listed";
+  const on = listed && Boolean(draft.showOnExplore);
+
+  // Picks of items that have since been hidden, sold or deleted are dropped
+  // here, so they neither count toward the eight nor survive the next save.
+  const sharedIds = useMemo(() => new Set(sharedItems.map((entry) => entry.id)), [sharedItems]);
+  const picks = (draft.exploreItemIds || []).filter((id) => sharedIds.has(id));
+  const full = picks.length >= EXPLORE_STRIP_LIMIT;
+
+  // Chosen first, in strip order, so the list doubles as a preview of the
+  // strip; the rest follow in collection order.
+  const byId = new Map(sharedItems.map((entry) => [entry.id, entry]));
+  const needle = filter.trim().toLowerCase();
+  const matches = (entry) => !needle || `${entry.name || ""} ${itemCredit(entry)}`.toLowerCase().includes(needle);
+  const ordered = [
+    ...picks.map((id) => byId.get(id)),
+    ...sharedItems.filter((entry) => !picks.includes(entry.id) && matches(entry))
+  ];
+
+  return (
+    <div className="mt-5">
+      <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Explore</div>
+      <label
+        className={`mt-2 flex items-start gap-3 rounded-2xl border p-3 transition ${
+          listed ? "cursor-pointer border-[#e0d2bc] bg-[#fffdf8] hover:bg-white" : "cursor-not-allowed border-[#e0d2bc] bg-[#f3ece1]"
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={!listed}
+          onChange={(event) => onChange("showOnExplore", event.target.checked)}
+          className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+        />
+        <span className="min-w-0">
+          <span className={`block text-sm font-medium ${listed ? "" : "text-[#a2957f]"}`}>Show on Explore</span>
+          <span className="block text-xs leading-5 text-[#7d6c5a]">
+            {listed
+              ? `Your shelf appears on FirstFinder's public Explore page: its title, item count, and ${EXPLORE_STRIP_LIMIT} covers. Never prices, values or notes, whatever you switch on below.`
+              : "Explore only includes pages listed on search engines. Choose \u201cListed on search engines\u201d above to turn this on."}
+          </span>
+        </span>
+      </label>
+
+      {on && (
+        <div className="mt-3 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="text-sm font-medium">Lead with these</div>
+            <div className="text-xs text-[#7d6c5a]">
+              {picks.length === 0 ? `None chosen — your ${EXPLORE_STRIP_LIMIT} most recent show` : `${picks.length} of ${EXPLORE_STRIP_LIMIT} chosen`}
+            </div>
+          </div>
+          {sharedItems.length > 12 && (
+            <input
+              type="search"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Find an item"
+              aria-label="Find an item to feature on Explore"
+              className="mt-2 h-10 w-full rounded-xl border border-[#d8c7ad] bg-white px-3 text-base sm:text-sm"
+            />
+          )}
+          {sharedItems.length === 0 ? (
+            <p className="mt-2 text-xs leading-5 text-[#7d6c5a]">Nothing would appear on your page with these settings.</p>
+          ) : (
+            <ul className="mt-2 max-h-64 overflow-y-auto pr-1">
+              {ordered.map((entry) => {
+                const position = picks.indexOf(entry.id);
+                const chosen = position !== -1;
+                const blocked = !chosen && full;
+                return (
+                  <li key={entry.id}>
+                    <label className={`flex items-center gap-3 rounded-xl px-2 py-2 ${blocked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-[#f7efe3]"}`}>
+                      <input
+                        type="checkbox"
+                        checked={chosen}
+                        disabled={blocked}
+                        onChange={() => onChange("exploreItemIds", toggleExplorePick(picks, entry.id))}
+                        className="h-4 w-4 shrink-0 accent-[#123f38]"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm">{entry.name || "Untitled item"}</span>
+                        <span className="block truncate text-xs text-[#7d6c5a]">{itemCredit(entry) || "Unknown maker"}</span>
+                      </span>
+                      {chosen && (
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#123f38] text-xs font-semibold text-[#fff7ea]">
+                          {position + 1}
+                        </span>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {full && <p className="mt-2 text-xs leading-5 text-[#7d6c5a]">That&apos;s {EXPLORE_STRIP_LIMIT}. Untick one to choose another.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ShareToggle({ group, checked, onChange }) {
   return (
     <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-3 transition hover:bg-white">
@@ -7771,6 +7892,8 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
               ))}
             </div>
           </div>
+
+          <ExploreSettings draft={draft} sharedItems={sharedItems} onChange={set} />
         </div>
 
         <aside className="md:sticky md:top-0 md:self-start">

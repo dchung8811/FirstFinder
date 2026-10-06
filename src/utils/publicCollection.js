@@ -36,7 +36,11 @@ export const defaultShareSettings = {
   showProvenance: false,
   showNotes: false,
   showSold: false,
-  showWishlist: false
+  showWishlist: false,
+  // Explore is its own consent, separate from "listed" -- see
+  // supabase/explore-opt-in.sql. Empty picks mean "my most recent".
+  showOnExplore: false,
+  exploreItemIds: []
 };
 
 // The fields that make up "the shelf" -- what a collection page is for. These
@@ -405,7 +409,11 @@ export function isValidShareSlug(value) {
 // updated_at coming back from the database doesn't register as an unsaved
 // edit and leave the Save button lit forever.
 export function shareSettingsChanged(saved, draft) {
-  const fields = ["visibility", "title", "blurb", ...shareFieldGroups.map((group) => group.key)];
+  const fields = ["visibility", "title", "blurb", "showOnExplore", ...shareFieldGroups.map((group) => group.key)];
+  // The picks are an ordered list, so reordering them is an edit too.
+  const savedPicks = (saved?.exploreItemIds || []).join(",");
+  const draftPicks = (draft?.exploreItemIds || []).join(",");
+  if (savedPicks !== draftPicks) return true;
   return fields.some((field) => {
     const savedValue = saved?.[field];
     const draftValue = draft?.[field];

@@ -24,6 +24,7 @@
 
 import { createSupabaseAdminClient } from "./supabaseAdmin";
 import { isValidShareSlug } from "../utils/publicCollection";
+import { buildExploreCollection, normalizeExplorePicks, sortExploreCollections } from "../utils/explore";
 
 const PHOTO_BUCKET = "item-photos";
 
@@ -84,7 +85,9 @@ function settingsFromRow(row) {
     showProvenance: Boolean(row.show_provenance),
     showNotes: Boolean(row.show_notes),
     showSold: Boolean(row.show_sold),
-    showWishlist: Boolean(row.show_wishlist)
+    showWishlist: Boolean(row.show_wishlist),
+    showOnExplore: Boolean(row.show_on_explore),
+    exploreItemIds: normalizeExplorePicks(row.explore_item_ids)
   };
 }
 
@@ -372,6 +375,133 @@ export async function listListedCollectionSlugs() {
     // a full .env.local). A sitemap missing the shared pages is better than a
     // build that fails.
     console.error("Listed collections unavailable:", error.message);
+    return [];
+  }
+}
+
+// How many collections Explore reads at most. Not pagination -- there is one
+// page -- but a ceiling on what one request can cost: each collection is an
+// items query and up to EXPLORE_STRIP_LIMIT signed covers. Raise it, or add
+// paging, when Explore actually has this many shelves on it.
+const EXPLORE_COLLECTION_LIMIT = 24;
+
+// The shelf columns Explore needs to build a row and count it. A subset of
+// BASE_COLUMNS: no condition, no receipt count, nothing optional -- Explore
+// shows no field groups at all, whatever the owner's page shows.
+const EXPLORE_ITEM_COLUMNS = [
+  "id",
+  "name",
+  "category",
+  "author",
+  "maker",
+  "book_edition",
+  "book_printing",
+  "status",
+  "item_photos",
+  "hidden_from_share",
+  "created_at"
+];
+
+// Everything /explore shows: one row per collection whose owner has both
+// listed their page and separately opted in to Explore.
+//
+// Both conditions are checked here, in SQL, rather than trusting
+// show_on_explore alone. The app never saves it as on for an unlisted page,
+// but a row that says otherwise -- edited by hand, or written by an older
+// client -- must still not put an unlisted page on a public browse page.
+//
+// Returns [] on any failure, like listListedCollectionSlugs: an Explore page
+// with nothing on it is better than a 500.
+export async function loadExploreCollections() {
+  try {
+    const admin = createSupabaseAdminClient();
+
+    const { data: shareRows, error: shareError } = await admin
+      .from("shared_collections")
+      .select("user_id, slug, visibility, title, blurb, show_sold, show_wishlist, show_on_explore, explore_item_ids, updated_at")
+      .eq("visibility", "listed")
+      .eq("show_on_explore", true)
+      .order("updated_at", { ascending: false })
+      .limit(EXPLORE_COLLECTION_LIMIT);
+
+    if (shareError) {
+      console.error("Explore lookup error:", shareError.message);
+      return [];
+    }
+
+    const rows = await Promise.all(
+      (shareRows || []).map(async (shareRow) => {
+        // Only the shelf flags matter to which items appear; every money and
+        // notes flag is forced off so no optional group can leak onto Explore
+        // even if buildExploreCollection's allowlist were ever loosened.
+        const settings = {
+          ...settingsFromRow(shareRow),
+          showEstimatedValue: false,
+          showPrices: false,
+          showProvenance: false,
+          showNotes: false
+        };
+
+        let query = admin
+          .from("inventory_items")
+          .select(EXPLORE_ITEM_COLUMNS.join(", "))
+          .eq("user_id", shareRow.user_id)
+          .eq("hidden_from_share", false);
+
+        // Same exclusion loadSharedCollection does, so unshared rows never
+        // leave Postgres; isItemShared applies it again in the builder.
+        const excludedStatuses = [
+          ...(settings.showSold ? [] : ["Sold"]),
+          ...(settings.showWishlist ? [] : ["Wishlist"])
+        ];
+        if (excludedStatuses.length > 0) {
+          query = query.not("status", "in", `(${excludedStatuses.join(",")})`);
+        }
+
+        const ownerNamePromise = settings.title.trim()
+          ? Promise.resolve("")
+          : fetchOwnerName(admin, shareRow.user_id).catch(() => "");
+
+        const { data: itemRows, error: itemsError } = await query.order("created_at", { ascending: false });
+        if (itemsError) {
+          console.error("Explore items error:", itemsError.message);
+          await ownerNamePromise;
+          return null;
+        }
+
+        const items = (itemRows || []).map(toSharedItem);
+        const createdAtById = Object.fromEntries((itemRows || []).map((row) => [row.id, row.created_at]));
+
+        return buildExploreCollection({
+          slug: shareRow.slug,
+          settings,
+          items,
+          ownerName: await ownerNamePromise,
+          updatedAt: shareRow.updated_at,
+          createdAtById
+        });
+      })
+    );
+
+    const collections = sortExploreCollections(rows.filter(Boolean));
+
+    // Signed last, and only for the covers that will actually be on screen --
+    // at most EXPLORE_STRIP_LIMIT per row. Same one-hour TTL as the collection
+    // page, for the same reason: these URLs are handed to strangers.
+    const paths = collections.flatMap((collection) => collection.covers.map((cover) => cover.photoPath)).filter(Boolean);
+    const urlByPath = await signPhotoPaths(admin, paths);
+
+    // The path is swapped for its URL rather than sent alongside it: storage
+    // paths contain the owner's user id, and the browser has no use for one.
+    return collections.map((collection) => ({
+      ...collection,
+      covers: collection.covers.map(({ photoPath, ...cover }) => ({
+        ...cover,
+        photoUrl: photoPath ? urlByPath.get(photoPath) || null : null
+      }))
+    }));
+  } catch (error) {
+    console.error("Explore unavailable:", error.message);
     return [];
   }
 }
