@@ -37,7 +37,7 @@ conversation beforehand beats a big PR that has to be reworked.
 
 ### Prerequisites
 
-- **Node.js 20.9 or newer** and npm (`node -v` to check)
+- **Node.js 22.12 or newer** and npm (`node -v` to check; `nvm use` picks it up from `.nvmrc`)
 - A **Supabase** account — the free tier is plenty
 
 ### 1. Clone and install
