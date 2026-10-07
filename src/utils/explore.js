@@ -15,6 +15,11 @@ import { buildPublicCollection } from "./publicCollection";
 // check constraint in supabase/explore-opt-in.sql.
 export const EXPLORE_STRIP_LIMIT = 8;
 
+// Room for a few sentences on why the collection is worth a look, without
+// letting one description swallow the Explore page. The page clamps it to
+// three lines anyway; this keeps the full text readable on /c/<slug>.
+export const SHARE_BLURB_MAX = 280;
+
 // The owner's picks, cleaned: strings only, no repeats, at most the limit, in
 // the order given. Used on the way into the database and on the way out of it,
 // so a hand-edited row can't make the strip misbehave.
@@ -47,7 +52,9 @@ export function toggleExplorePick(ids, id, limit = EXPLORE_STRIP_LIMIT) {
 // collection: an item hidden, sold or deleted since it was picked is simply
 // not in `publicItems` any more, and drops out here without anyone having to
 // tidy the stored ids. With no surviving picks the strip falls back to the
-// newest items, which is what every collector who never opens the picker gets.
+// newest items, which is what every collector who never opens the picker gets
+// -- photographed ones first, since a cover is the reason anyone clicks a
+// shelf, and a strip of title cards reads as a shelf with nothing on it.
 //
 // When some picks survive, the strip is just those -- not topped up with recent
 // items. Three chosen books is a statement about which three; padding it with
@@ -57,8 +64,10 @@ export function selectExploreItems(publicItems, picks, limit = EXPLORE_STRIP_LIM
   const byId = new Map(items.map((item) => [item.id, item]));
   const chosen = normalizeExplorePicks(picks, limit).map((id) => byId.get(id)).filter(Boolean);
   if (chosen.length > 0) return chosen;
-  // publicItems arrive newest first, the order the server queries them in.
-  return items.slice(0, limit);
+  // publicItems arrive newest first, the order the server queries them in;
+  // the partition keeps that order within each half.
+  const hasPhoto = (item) => Array.isArray(item.photos) && item.photos.length > 0;
+  return [...items.filter(hasPhoto), ...items.filter((item) => !hasPhoto(item))].slice(0, limit);
 }
 
 function newestDate(values) {

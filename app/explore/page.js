@@ -14,6 +14,17 @@ export const metadata = {
   alternates: { canonical: "/explore" }
 };
 
+// Jacket colours for covers nobody has photographed, all drawn from the
+// existing palette. Chosen by item id so a book keeps its colour between
+// visits instead of reshuffling on every render.
+const JACKET_TONES = ["bg-[#123f38]", "bg-[#3f352a]", "bg-[#6d5526]", "bg-[#8f3524]"];
+
+function jacketTone(id) {
+  let hash = 0;
+  for (const char of String(id)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return JACKET_TONES[hash % JACKET_TONES.length];
+}
+
 function Cover({ cover, href }) {
   const label = cover.name || "Untitled item";
   const credit = itemCredit(cover);
@@ -23,9 +34,14 @@ function Cover({ cover, href }) {
         {cover.photoUrl ? (
           <img src={cover.photoUrl} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:opacity-90" />
         ) : (
-          /* A book nobody has photographed keeps its place, the same as on the
-             dashboard's Recent finds strip. */
-          <div className="flex h-full w-full items-center justify-center p-3 text-center text-xs leading-5 text-[#8a7a64]">{label}</div>
+          /* A book nobody has photographed keeps its place -- the owner may
+             have picked it -- but drawn as a jacket rather than an empty
+             frame. A blank box with a title in it reads as an image that
+             failed to load, which is exactly what this isn't. */
+          <div className={`flex h-full w-full flex-col justify-between p-3 text-[#fff7ea] ${jacketTone(cover.id)}`}>
+            <div className="font-display line-clamp-5 text-sm font-semibold leading-snug">{label}</div>
+            {credit && <div className="line-clamp-2 text-[10px] uppercase tracking-[0.14em] text-[#fff7ea]/75">{credit}</div>}
+          </div>
         )}
       </div>
       <div className="mt-2 truncate text-sm font-medium" title={label}>{label}</div>
@@ -49,7 +65,10 @@ function Shelf({ collection }) {
           <h2 className="text-xl font-semibold leading-tight sm:text-2xl">
             <Link href={href} className="hover:underline hover:underline-offset-4">{collection.title}</Link>
           </h2>
-          {collection.blurb && <p className="mt-1 line-clamp-2 text-sm leading-6 text-[#665746]">{collection.blurb}</p>}
+          {/* The owner's own words on why this shelf is worth a look. Clamped so
+              one long description can't push every shelf below it off screen;
+              the full text is on their page. */}
+          {collection.blurb && <p className="mt-1 line-clamp-3 max-w-2xl text-sm leading-6 text-[#665746]">{collection.blurb}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[#7d6c5a]">
             <span>
               {collection.itemCount} {collection.itemCount === 1 ? "item" : "items"}
@@ -124,14 +143,19 @@ export default async function ExplorePage() {
       <section className={`${collections.length > 0 ? "mt-4" : ""} rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-8 text-center shadow-sm`}>
         <h2 className="text-2xl font-semibold">{collections.length === 0 ? "No shelves here yet" : "Put your shelf here"}</h2>
         <p className="mx-auto mt-3 max-w-lg leading-7 text-[#665746]">
-          In FirstFinder, open My Collection → Share, list your page, and switch on “Show on Explore”. You choose the
+          List your collection page, switch on “Show on Explore”, and say what makes your shelf unique. You choose the
           eight items people see first.
         </p>
+        {/* Straight to the Explore section of the share dialog rather than
+            the app's front door: someone who read "put your shelf here" and
+            pressed the button should not then have to find Share themselves.
+            InventoryApp reads ?share=explore, asking a signed-out visitor to
+            log in first. */}
         <Link
-          href="/"
+          href="/?share=explore"
           className="mt-6 inline-flex h-11 items-center rounded-full bg-[#123f38] px-6 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
         >
-          Open FirstFinder
+          Add your shelf
         </Link>
       </section>
     </main>

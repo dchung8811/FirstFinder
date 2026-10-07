@@ -62,6 +62,16 @@ describe("selectExploreItems", () => {
     expect(ids(selectExploreItems(publicItems, []))).toEqual(["n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8"]);
   });
 
+  it("prefers photographed items when falling back, keeping newest-first within each", () => {
+    const mixed = [{ id: "bare1" }, { id: "pic1", photos: [{ path: "p" }] }, { id: "bare2" }, { id: "pic2", photos: [{ path: "q" }] }];
+    expect(ids(selectExploreItems(mixed, [], 3))).toEqual(["pic1", "pic2", "bare1"]);
+  });
+
+  it("keeps a photoless pick where the owner put it", () => {
+    const mixed = [{ id: "bare1" }, { id: "pic1", photos: [{ path: "p" }] }];
+    expect(ids(selectExploreItems(mixed, ["bare1", "pic1"]))).toEqual(["bare1", "pic1"]);
+  });
+
   it("shows exactly the picks, in the owner's order, without topping up", () => {
     expect(ids(selectExploreItems(publicItems, ["n9", "n2", "n5"]))).toEqual(["n9", "n2", "n5"]);
   });
