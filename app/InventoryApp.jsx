@@ -699,7 +699,11 @@ function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
     }
 
     document.addEventListener("keydown", handleKeyDown);
-    containerRef.current?.focus();
+    // preventScroll because React runs a child's effects before this one: a
+    // dialog that scrolls itself to a section on mount (the share dialog,
+    // opened from Explore) has already started that scroll, and a plain
+    // focus() cancels it and leaves the dialog at the top.
+    containerRef.current?.focus({ preventScroll: true });
 
     return () => {
       document.body.style.overflow = previousOverflow;
