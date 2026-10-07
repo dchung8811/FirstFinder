@@ -7,6 +7,9 @@
 // Only things a collector can see or use belong here. Fixes, refactors, and
 // infrastructure are real work, but a list of them reads as a changelog, not
 // as a reason to try something. When a feature ships, add it at the top.
+//
+// `guide` names a step-by-step page in src/content/featureGuides.js, linked
+// from the entry as "See how it works".
 
 export const features = [
   {
@@ -24,6 +27,7 @@ export const features = [
   {
     date: "2026-09-09",
     title: "Works with no signal",
+    guide: "works-offline",
     description: "Install FirstFinder to your home screen and your collection opens even in a basement with no signal. Finds, edits, and sales made offline wait on your phone and go up when the connection comes back, photos included.",
     prs: [148, 149]
   },
@@ -42,12 +46,14 @@ export const features = [
   {
     date: "2026-09-08",
     title: "A wishlist of its own",
+    guide: "wishlist",
     description: "Keep what you're hunting for in its own tab, with the most you'd pay. Share it on your public page without sharing that ceiling. When you find a copy, photograph it right there and it moves into your collection.",
     prs: [125, 126, 130]
   },
   {
     date: "2026-09-08",
     title: "A shareable collection page",
+    guide: "share-your-collection",
     description: "Publish a read-only page of your collection at a link you control: choose what it shows, keep it unlisted or let search engines find it. Visitors can search, filter, switch layouts, and open the photos.",
     prs: [116, 123, 130]
   },
@@ -84,6 +90,7 @@ export const features = [
   {
     date: "2026-08-07",
     title: "Identify an item from a photo",
+    guide: "identify-from-a-photo",
     description: "Take a picture of the cover and FirstFinder fills in the details, with an estimated value, for you to check before saving. Two a day, free.",
     prs: [66]
   },
@@ -96,6 +103,7 @@ export const features = [
   {
     date: "2026-08-04",
     title: "Edit everything at once",
+    guide: "bulk-edit",
     description: "Export your collection to CSV, change it in a spreadsheet, and upload it back to update or remove items in bulk. Or edit right in the table, one cell at a time.",
     prs: [64]
   },
@@ -108,6 +116,7 @@ export const features = [
   {
     date: "2026-08-01",
     title: "Collection reports for insurance",
+    guide: "insurance-report",
     description: "Print or save a PDF of your collection and what it's worth, ready for an insurer, or download it as a CSV.",
     prs: [11, 40]
   },
