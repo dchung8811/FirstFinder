@@ -81,6 +81,7 @@ import {
 import { readOfflineCollection, writeOfflineCollection, clearOfflineCollection } from "../src/lib/offlineStore";
 import { readSignedUrls, writeSignedUrls, clearSignedUrls } from "../src/lib/signedUrlStore";
 import { withWriteRetry } from "../src/utils/retryWrite";
+import { describeWriteError, SIGNED_OUT_WRITE_MESSAGE } from "../src/utils/writeErrors";
 import { reconcilePhotoLists } from "../src/utils/photoReconcile";
 import { ownerIdFromPath, groupPathsByOwner, selectCachedUrls, mergeSignedUrls, pruneSignedUrls } from "../src/utils/signedUrlCache";
 import { isQueueAvailable, loadQueue, saveOperation, loadOperationPhotos, removeOperations, clearQueue } from "../src/lib/offlineQueueStore";
@@ -1271,6 +1272,21 @@ export default function FirstFinderApp() {
     return false;
   }
 
+  // The other gate, for a session that died while the app stayed open. The
+  // server can end a session -- the refresh token is gone, every renewal comes
+  // back 400 -- and the page keeps showing the form it had. Saving from there
+  // uploaded two photos on a token with a second left to live, then sent the
+  // UPDATE as anon and stranded them. getSession renews an expired token on
+  // the way, so a null here means renewal failed, and refusing before any
+  // upload means nothing is left behind in storage.
+  async function requireSession() {
+    const { data, error } = await supabase.auth.getSession();
+    if (!error && data?.session) return true;
+    if (error) console.error("Session check before write:", error.message);
+    pushToast(SIGNED_OUT_WRITE_MESSAGE, "error");
+    return false;
+  }
+
   // True when a write should be queued rather than sent. Deliberately not the
   // same question as "are we offline": a browser that cannot hold a queue --
   // private mode, storage blocked, no IndexedDB -- falls back to refusing the
@@ -1614,6 +1630,8 @@ export default function FirstFinderApp() {
       return { id: operation.itemId, queued: true };
     }
 
+    if (!(await requireSession())) return null;
+
     setSaving(true);
 
     try {
@@ -1631,7 +1649,7 @@ export default function FirstFinderApp() {
 
       if (error) {
         console.error("Save item error:", error.message);
-        pushToast(error.message, "error");
+        pushToast(describeWriteError(error), "error");
         return null;
       }
 
@@ -1869,7 +1887,7 @@ export default function FirstFinderApp() {
 
     if (error) {
       console.error("Mark sold error:", error.message);
-      pushToast(error.message, "error");
+      pushToast(describeWriteError(error), "error");
       return;
     }
 
@@ -1913,7 +1931,7 @@ export default function FirstFinderApp() {
 
     if (error) {
       console.error("Restore item error:", error.message);
-      pushToast(error.message, "error");
+      pushToast(describeWriteError(error), "error");
       return;
     }
 
@@ -1976,6 +1994,8 @@ export default function FirstFinderApp() {
       if (queued) setEditingItem(null);
       return;
     }
+
+    if (!(await requireSession())) return;
 
     setSaving(true);
 
@@ -2062,7 +2082,7 @@ export default function FirstFinderApp() {
         pushToast(
           uploadedItemPhotos.length > 0 || uploadedReceiptPhotos.length > 0
             ? "Your changes didn't save. Any photos you added are already in storage -- open the item and save again rather than re-adding them, which would upload duplicates."
-            : error.message,
+            : describeWriteError(error),
           "error"
         );
         return;
@@ -2128,7 +2148,7 @@ export default function FirstFinderApp() {
 
       if (error) {
         console.error("Save want error:", error.message);
-        pushToast(error.message, "error");
+        pushToast(describeWriteError(error), "error");
         return;
       }
 
@@ -2273,7 +2293,7 @@ export default function FirstFinderApp() {
 
       if (error) {
         console.error("Save share settings error:", error.message);
-        pushToast(error.message, "error");
+        pushToast(describeWriteError(error), "error");
         return;
       }
 
@@ -2315,7 +2335,7 @@ export default function FirstFinderApp() {
 
       if (error) {
         console.error("Reset share link error:", error.message);
-        pushToast(error.message, "error");
+        pushToast(describeWriteError(error), "error");
         return;
       }
 
@@ -2431,7 +2451,7 @@ export default function FirstFinderApp() {
 
     if (error) {
       console.error("Inline edit error:", error.message);
-      pushToast(error.message, "error");
+      pushToast(describeWriteError(error), "error");
       setInventory((items) => items.map((entry) => (entry.id === itemId ? existing : entry)));
       return;
     }
@@ -5074,7 +5094,7 @@ function FeedbackPage({ currentUser, pushToast }) {
 
       if (error) {
         console.error("Feedback submit error:", error.message);
-        pushToast(error.message, "error");
+        pushToast(describeWriteError(error), "error");
         return;
       }
 
