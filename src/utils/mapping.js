@@ -5,6 +5,7 @@
 // load-bearing: null means "no estimate yet", 0 means "estimated at nothing".
 
 import { toNumber, hasValue } from "./format";
+import { normalizeExplorePicks } from "./explore";
 
 // Plain text columns that map straight across for a CSV-driven update.
 // Dates, numbers, and the sold-status fields need extra handling and are
@@ -158,7 +159,9 @@ export function fromDbShareSettings(row) {
     showProvenance: Boolean(row.show_provenance),
     showNotes: Boolean(row.show_notes),
     showSold: Boolean(row.show_sold),
-    showWishlist: Boolean(row.show_wishlist)
+    showWishlist: Boolean(row.show_wishlist),
+    showOnExplore: Boolean(row.show_on_explore),
+    exploreItemIds: normalizeExplorePicks(row.explore_item_ids)
   };
 }
 
@@ -175,6 +178,11 @@ export function toDbShareRow(settings, userId, slug) {
     show_notes: Boolean(settings.showNotes),
     show_sold: Boolean(settings.showSold),
     show_wishlist: Boolean(settings.showWishlist),
+    // Never stored as on for a page that isn't listed. The Explore query
+    // checks visibility as well, but a row that says "on Explore" while
+    // unlisted would turn back on by itself the day the owner lists the page.
+    show_on_explore: settings.visibility === "listed" && Boolean(settings.showOnExplore),
+    explore_item_ids: normalizeExplorePicks(settings.exploreItemIds),
     updated_at: new Date().toISOString()
   };
 }

@@ -220,16 +220,28 @@ create table if not exists public.shared_collections (
   show_sold boolean not null default false,
   show_wishlist boolean not null default false,
 
+  -- Explore (/explore) is its own consent, not implied by 'listed', and only
+  -- honoured for listed pages. explore_item_ids is the owner's chosen strip,
+  -- empty meaning "most recent". See supabase/explore-opt-in.sql.
+  show_on_explore boolean not null default false,
+  explore_item_ids uuid[] not null default '{}',
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
   constraint shared_collections_visibility_check
-    check (visibility in ('off', 'unlisted', 'listed'))
+    check (visibility in ('off', 'unlisted', 'listed')),
+  constraint shared_collections_explore_item_ids_check
+    check (coalesce(array_length(explore_item_ids, 1), 0) <= 8)
 );
 
 create index if not exists shared_collections_visibility_idx
   on public.shared_collections (visibility)
   where visibility <> 'off';
+
+create index if not exists shared_collections_explore_idx
+  on public.shared_collections (updated_at desc)
+  where visibility = 'listed' and show_on_explore;
 
 alter table public.shared_collections enable row level security;
 

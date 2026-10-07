@@ -62,6 +62,7 @@ import {
 } from "../src/utils/items";
 import { csvUpdateRow, storedEdition, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
+import { EXPLORE_STRIP_LIMIT, SHARE_BLURB_MAX, toggleExplorePick } from "../src/utils/explore";
 import { createSignedUrlBatcher } from "../src/utils/signedUrlBatch";
 import {
   createOperation,
@@ -829,6 +830,13 @@ export default function FirstFinderApp() {
   // stand in until then (visibility "off", so nothing is public either way).
   const [shareSettings, setShareSettings] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  // Which part of the share dialog to scroll to when it opens. Set only by the
+  // /?share=explore link from the Explore page; a normal open starts at the top.
+  const [shareFocus, setShareFocus] = useState(null);
+  // A ?share=explore that arrived with the page and hasn't been honoured yet.
+  // A ref, not state: it has to survive the sign-in round trip without
+  // re-rendering anything, and it is consumed exactly once.
+  const shareIntentRef = useRef(null);
   const [savingShare, setSavingShare] = useState(false);
 
   // The wishlist. Kept in its own state rather than merged into `inventory`,
@@ -982,6 +990,19 @@ export default function FirstFinderApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, fromSnapshot, currentUser, sendableCount]);
 
+  // Declared before the session effect on purpose: effects run in order, so
+  // the intent is recorded before getSession can resolve and decide where a
+  // signed-out visitor lands. The param is stripped straight away so a reload
+  // or a shared URL doesn't reopen the dialog.
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("share") !== "explore") return;
+    shareIntentRef.current = "explore";
+    query.delete("share");
+    const rest = query.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -1001,6 +1022,10 @@ export default function FirstFinderApp() {
           loadedUserIdRef.current = data.session.user.id;
           loadInventory(data.session.user.id);
         }
+      } else if (shareIntentRef.current) {
+        // Sharing needs an account. Sign-in lands on the dashboard as usual,
+        // and the effect below takes it from there once settings arrive.
+        setActiveView("login");
       }
     });
 
@@ -1128,6 +1153,9 @@ export default function FirstFinderApp() {
           // no number until the fetch has actually landed.
           { view: "wishlist", label: `Wishlist${wishlistCountKnown ? ` (${openWishlist.length})` : ""}` },
           { view: "addItems", label: "Add Items" },
+          // A real route (/explore), not a view: it is a server-rendered
+          // public page, so it carries an href and navigates out of this shell.
+          { view: "explore", label: "Explore", href: "/explore" },
           // Feedback sits where Roadmap used to, because the nav row only has
           // space for the first few and this is the one worth spending it on:
           // a collector who wants to tell us something should not have to find
@@ -1140,6 +1168,7 @@ export default function FirstFinderApp() {
         ]
       : [
           { view: "home", label: "Get Started" },
+          { view: "explore", label: "Explore", href: "/explore" },
           { view: "roadmap", label: "Roadmap" },
           { view: "about", label: "About" }
         ]
@@ -2298,12 +2327,25 @@ export default function FirstFinderApp() {
     }
   }
 
+  // Honours ?share=explore once there is something to open: a signed-in user
+  // and their share settings. Lands on My Collection, where the Share button
+  // lives, so closing the dialog leaves them somewhere that makes sense.
+  useEffect(() => {
+    if (!isLoggedIn || !shareSettings || shareIntentRef.current !== "explore") return;
+    shareIntentRef.current = null;
+    setActiveView("inventory");
+    setShareFocus("explore");
+    setShareDialogOpen(true);
+    trackEvent("share_dialog_opened", { visibility: shareSettings.visibility, from: "explore" });
+  }, [isLoggedIn, shareSettings]);
+
   function openShareDialog() {
     if (!shareSettings) {
       pushToast("Still loading your sharing settings — try again in a moment.", "warning");
       return;
     }
     trackEvent("share_dialog_opened", { visibility: shareSettings.visibility });
+    setShareFocus(null);
     setShareDialogOpen(true);
   }
 
@@ -2781,7 +2823,11 @@ export default function FirstFinderApp() {
         <NavTabs
           items={navItems}
           activeView={activeView}
-          onSelect={go}
+          onSelect={(view) => {
+            const target = navItems.find((navItem) => navItem.view === view);
+            if (target?.href) goToHref(target.href);
+            else go(view);
+          }}
           containerRef={navSlotRef}
           measureRef={navMeasureRef}
           visibleCount={visibleNavCount}
@@ -2947,6 +2993,7 @@ export default function FirstFinderApp() {
           onResetLink={resetShareLink}
           onClose={() => setShareDialogOpen(false)}
           pushToast={pushToast}
+          focus={shareFocus}
         />
       )}
 
@@ -7428,6 +7475,145 @@ function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkUploading, bulkM
   );
 }
 
+// The share dialog's Explore section: the opt-in, and which items lead the
+// strip.
+//
+// The checkbox is disabled rather than hidden for pages that aren't listed, so
+// a collector looking for Explore finds it and is told what it needs. The
+// picker lists only items the page would actually show under the draft
+// settings: picking something the page itself hides would be a pick that can
+// never appear.
+function ExploreSettings({ draft, sharedItems, onChange, scrollIntoView = false }) {
+  const [filter, setFilter] = useState("");
+  const sectionRef = useRef(null);
+
+  // Arriving from the Explore page's "Add your shelf" means this section is
+  // the reason the dialog is open, so it shouldn't be four screens down.
+  useEffect(() => {
+    if (scrollIntoView) sectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [scrollIntoView]);
+  const listed = draft.visibility === "listed";
+  const on = listed && Boolean(draft.showOnExplore);
+
+  // Picks of items that have since been hidden, sold or deleted are dropped
+  // here, so they neither count toward the eight nor survive the next save.
+  const sharedIds = useMemo(() => new Set(sharedItems.map((entry) => entry.id)), [sharedItems]);
+  const picks = (draft.exploreItemIds || []).filter((id) => sharedIds.has(id));
+  const full = picks.length >= EXPLORE_STRIP_LIMIT;
+
+  // Chosen first, in strip order, so the list doubles as a preview of the
+  // strip; the rest follow in collection order.
+  const byId = new Map(sharedItems.map((entry) => [entry.id, entry]));
+  const needle = filter.trim().toLowerCase();
+  const matches = (entry) => !needle || `${entry.name || ""} ${itemCredit(entry)}`.toLowerCase().includes(needle);
+  const ordered = [
+    ...picks.map((id) => byId.get(id)),
+    ...sharedItems.filter((entry) => !picks.includes(entry.id) && matches(entry))
+  ];
+
+  return (
+    <div ref={sectionRef} className="mt-5 scroll-mt-4">
+      <div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">Explore</div>
+      <label className="mt-2 block">
+        <span className="block text-sm font-medium">About this collection</span>
+        <span className="block text-xs leading-5 text-[#7d6c5a]">
+          What you collect and what makes it unique. Shown beside your shelf on Explore and at the top of your page.
+        </span>
+        <textarea
+          value={draft.blurb || ""}
+          onChange={(event) => onChange("blurb", event.target.value)}
+          maxLength={SHARE_BLURB_MAX}
+          rows={3}
+          placeholder="Modern American firsts, mostly bought at estate sales — every one in its original jacket."
+          className="mt-2 w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 text-base outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15 sm:text-sm"
+        />
+        <span className="block text-right text-xs text-[#a2957f]">{(draft.blurb || "").length}/{SHARE_BLURB_MAX}</span>
+      </label>
+      <label
+        className={`mt-2 flex items-start gap-3 rounded-2xl border p-3 transition ${
+          listed ? "cursor-pointer border-[#e0d2bc] bg-[#fffdf8] hover:bg-white" : "cursor-not-allowed border-[#e0d2bc] bg-[#f3ece1]"
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={!listed}
+          onChange={(event) => onChange("showOnExplore", event.target.checked)}
+          className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+        />
+        <span className="min-w-0">
+          <span className={`block text-sm font-medium ${listed ? "" : "text-[#a2957f]"}`}>Show on Explore</span>
+          <span className="block text-xs leading-5 text-[#7d6c5a]">
+            {listed
+              ? `Your shelf appears on FirstFinder's public Explore page: its title, item count, and ${EXPLORE_STRIP_LIMIT} covers. Never prices, values or notes, whatever you switch on below.`
+              : "Explore only includes pages listed on search engines. Choose \u201cListed on search engines\u201d above to turn this on."}
+          </span>
+        </span>
+      </label>
+
+      {on && (
+        <div className="mt-3 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="text-sm font-medium">Lead with these</div>
+            <div className="text-xs text-[#7d6c5a]">
+              {picks.length === 0 ? `None chosen — your ${EXPLORE_STRIP_LIMIT} most recent show` : `${picks.length} of ${EXPLORE_STRIP_LIMIT} chosen`}
+            </div>
+          </div>
+          {sharedItems.length > 12 && (
+            <input
+              type="search"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Find an item"
+              aria-label="Find an item to feature on Explore"
+              className="mt-2 h-10 w-full rounded-xl border border-[#d8c7ad] bg-white px-3 text-base sm:text-sm"
+            />
+          )}
+          {sharedItems.length === 0 ? (
+            <p className="mt-2 text-xs leading-5 text-[#7d6c5a]">Nothing would appear on your page with these settings.</p>
+          ) : (
+            <ul className="mt-2 max-h-64 overflow-y-auto pr-1">
+              {ordered.map((entry) => {
+                const position = picks.indexOf(entry.id);
+                const chosen = position !== -1;
+                const blocked = !chosen && full;
+                return (
+                  <li key={entry.id}>
+                    <label className={`flex items-center gap-3 rounded-xl px-2 py-2 ${blocked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-[#f7efe3]"}`}>
+                      <input
+                        type="checkbox"
+                        checked={chosen}
+                        disabled={blocked}
+                        onChange={() => onChange("exploreItemIds", toggleExplorePick(picks, entry.id))}
+                        className="h-4 w-4 shrink-0 accent-[#123f38]"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm">{entry.name || "Untitled item"}</span>
+                        <span className="block truncate text-xs text-[#7d6c5a]">{itemCredit(entry) || "Unknown maker"}</span>
+                      </span>
+                      {/* Worth knowing before choosing it: on Explore a photoless
+                          item is a plain title card among photographed covers. */}
+                      {!(entry.itemPhotos || []).some((photo) => photo?.path) && (
+                        <span className="shrink-0 rounded-full bg-[#f0e2cf] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em] text-[#7d6c5a]">No photo</span>
+                      )}
+                      {chosen && (
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#123f38] text-xs font-semibold text-[#fff7ea]">
+                          {position + 1}
+                        </span>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {full && <p className="mt-2 text-xs leading-5 text-[#7d6c5a]">That&apos;s {EXPLORE_STRIP_LIMIT}. Untick one to choose another.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ShareToggle({ group, checked, onChange }) {
   return (
     <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0d2bc] bg-[#fffdf8] p-3 transition hover:bg-white">
@@ -7526,7 +7712,7 @@ const visibilityChoices = [
   }
 ];
 
-function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLink, onClose, pushToast }) {
+function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLink, onClose, pushToast, focus = null }) {
   const [draft, setDraft] = useState(settings);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState("");
   // Read during render rather than in an effect. Safe here specifically
@@ -7731,9 +7917,12 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
             </div>
           </fieldset>
 
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          {/* The description lives in the Explore section below, not here:
+              it's the first thing anyone reads beside a shelf on Explore, and
+              that is where a collector deciding what to say is looking. It
+              still heads the collection page too. */}
+          <div className="mt-5">
             <Field label="Page title" value={draft.title} onChange={(value) => set("title", value)} />
-            <Field label="One line about it" value={draft.blurb} onChange={(value) => set("blurb", value)} />
           </div>
 
           <div className="mt-5">
@@ -7771,6 +7960,8 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
               ))}
             </div>
           </div>
+
+          <ExploreSettings draft={draft} sharedItems={sharedItems} onChange={set} scrollIntoView={focus === "explore"} />
         </div>
 
         <aside className="md:sticky md:top-0 md:self-start">
