@@ -114,6 +114,8 @@ import {
 } from "../src/utils/publicCollection";
 import { buildCsvTemplate, buildCsvExport, parseCsvBatch } from "../src/utils/csv";
 import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters, recentFinds } from "../src/utils/dashboard";
+import { emailUpdatesMetadata, isSubscribedToEmailUpdates } from "../src/utils/emailUpdates";
+import { setPendingEmailUpdates, takePendingEmailUpdates } from "../src/lib/pendingEmailUpdates";
 
 function Icon({ name, size = 20, className = "" }) {
   const icons = {
@@ -1066,6 +1068,26 @@ export default function FirstFinderApp() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // The other half of the sign-up checkbox for Google and Apple: a ticked box
+  // was parked in browser storage before the redirect, and is spent here on
+  // the account that comes back. Already-subscribed accounts skip the write
+  // so a returning collector's consent timestamp isn't moved.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    if (!takePendingEmailUpdates()) return;
+    if (isSubscribedToEmailUpdates(currentUser)) return;
+    supabase.auth.updateUser({ data: emailUpdatesMetadata(true) }).then(({ error }) => {
+      if (error) {
+        console.error("Email updates opt-in not saved:", error.message);
+        return;
+      }
+      trackEvent("email_updates_changed", { subscribed: true, source: "oauth_signup" });
+    });
+    // Keyed on the account, not the user object: metadata updates replace the
+    // object, and this must run once per arrival, not once per change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
 
   // Asks the server whether this account may open /admin, once per signed-in
   // user. Silent on failure: an Admin tab that fails to appear is a maintainer
@@ -3986,7 +4008,7 @@ function TermsPage({ onViewPrivacy }) {
 // Everything below has to describe what the code actually does. When a service
 // provider changes, a column is added that holds something personal, or a
 // retention rule moves, this file is part of that change -- not a follow-up.
-const privacyLastUpdated = "September 9, 2026";
+const privacyLastUpdated = "October 6, 2026";
 
 const privacySummary = [
   "We collect what running a catalog needs: your email, what you record about your items, and your photos.",
@@ -4014,6 +4036,7 @@ const privacySections = [
     ],
     list: [
       "Account information — your email address, and a password you set (stored only as a hash by our authentication provider, never as text we can read). If you sign in with Google or Apple instead, we receive the email address and account identifier that sign-in hands us, and no password at all.",
+      "Your email preference — whether you've opted in to update emails, and when you last changed that choice, so there is a record of what you agreed to.",
       "Collection records — everything you enter about an item: name, maker, edition, printing, category, condition, status, notes, and its reference number.",
       "Purchase and sale information — purchase date, source, price paid, your estimated value, and, if you mark an item sold, the sale price and date. We never see or handle a payment: FirstFinder charges nothing, and these are numbers you type about deals you made elsewhere.",
       "Photos — item photos and receipt photos you upload. Receipts often carry a name, an address, or the last digits of a card, which is why the photo store is private and served only through short-lived signed links.",
@@ -4038,6 +4061,7 @@ const privacySections = [
       "To answer feedback and support requests, and to fix what you tell us is broken.",
       "To enforce the daily cap on photo identification and to protect FirstFinder from abuse, fraud, and attempts to reach other people's accounts.",
       "To understand, in aggregate, which parts of FirstFinder people actually use, so the effort goes where it helps.",
+      "Only if you opt in, to email you now and then about new features. It is off unless you turn it on, at sign-up or in My account, and you can turn it off there at any time.",
       "To meet a legal obligation, including the reporting duties described in section 6 of the Terms."
     ],
     closing: "We do not sell your personal information, we do not share it with data brokers, and we do not use it to target advertising. There is no advertising on FirstFinder."
@@ -4073,7 +4097,8 @@ const privacySections = [
     paragraphs: [
       "FirstFinder uses browser storage for two things.",
       "The first is your session. Signing in stores a token in your browser so you stay signed in; without it there is no way to keep you logged in, and clearing it signs you out.",
-      "The second is Google Analytics, which sets its own cookies to count visits and recognize a returning browser. You can block it with a browser setting, an extension, or Google's own opt-out — FirstFinder works exactly the same either way. We don't run advertising cookies, and nothing here follows you around other sites."
+      "The second is Google Analytics, which sets its own cookies to count visits and recognize a returning browser. You can block it with a browser setting, an extension, or Google's own opt-out — FirstFinder works exactly the same either way. We don't run advertising cookies, and nothing here follows you around other sites.",
+      "One brief exception: if you tick \"Email me\" on the sign-up form and then continue with Google or Apple, that choice is held in your browser for up to 15 minutes so it survives the trip to their sign-in page. It is removed as soon as you're back."
     ]
   },
   {
@@ -4718,6 +4743,9 @@ function AuthTermsNotice({ onViewTerms, onViewPrivacy, action }) {
 function LoginPage({ onViewTerms, onViewPrivacy }) {
   const [mode, setMode] = useState("signin");
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "" });
+  // Unticked by default, and never pre-ticked: consent to marketing email has
+  // to be an action the collector takes, not one they forget to undo.
+  const [emailUpdates, setEmailUpdates] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -4754,6 +4782,9 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
   // the redirect target can't drift apart between the two.
   async function handleOAuthLogin(provider, label) {
     trackEvent(`${provider}_login_clicked`, { source_page: "login" });
+    // The box is only on the sign-up form, so only a click from there carries
+    // it. Anything else clears a flag a cancelled earlier attempt left behind.
+    setPendingEmailUpdates(mode === "signup" && emailUpdates);
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
@@ -4816,7 +4847,10 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
       email: form.email.trim(),
       password: form.password,
       options: {
-        emailRedirectTo: window.location.origin
+        emailRedirectTo: window.location.origin,
+        // Only written when ticked, so an account that said nothing carries no
+        // record of having said no either.
+        data: emailUpdates ? emailUpdatesMetadata(true) : undefined
       }
     });
 
@@ -4827,7 +4861,7 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
       return;
     }
 
-    trackEvent("signup_submitted", { method: "password" });
+    trackEvent("signup_submitted", { method: "password", email_updates: emailUpdates });
 
     // Supabase returns a user with no identities when the email is already registered.
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
@@ -4892,6 +4926,21 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
               )}
               {mode === "signup" && (
                 <Field label="Confirm password" type="password" value={form.confirmPassword} onChange={(value) => setForm({ ...form, confirmPassword: value })} />
+              )}
+              {/* Covers the Google and Apple buttons below as well as this
+                  form: the choice rides through their redirect in browser
+                  storage (src/lib/pendingEmailUpdates.js). Everyone can change
+                  it later in My account. */}
+              {mode === "signup" && (
+                <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-[#665746]">
+                  <input
+                    type="checkbox"
+                    checked={emailUpdates}
+                    onChange={(event) => setEmailUpdates(event.target.checked)}
+                    className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+                  />
+                  <span>Email me now and then about new FirstFinder features. Optional, and you can turn it off anytime in My account.</span>
+                </label>
               )}
             </div>
             <Button type="submit" disabled={loading} className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
@@ -5329,6 +5378,8 @@ function OfflineBanner({ online, syncedAt, refreshing, onRefresh, queueNote }) {
 function MyAccountPage({ currentUser, inventory, pushToast }) {
   const [name, setName] = useState(currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || "");
   const [savingName, setSavingName] = useState(false);
+  const [emailUpdates, setEmailUpdates] = useState(() => isSubscribedToEmailUpdates(currentUser));
+  const [savingEmailUpdates, setSavingEmailUpdates] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
@@ -5352,6 +5403,26 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
 
     trackEvent("account_name_updated");
     pushToast("Name updated.", "success");
+  }
+
+  // Saves on the click, like a switch, rather than waiting for a submit:
+  // turning this off has to be at least as easy as turning it on was.
+  async function handleToggleEmailUpdates(next) {
+    setEmailUpdates(next);
+    setSavingEmailUpdates(true);
+
+    const { error } = await supabase.auth.updateUser({ data: emailUpdatesMetadata(next) });
+
+    setSavingEmailUpdates(false);
+
+    if (error) {
+      setEmailUpdates(!next);
+      pushToast(error.message, "error");
+      return;
+    }
+
+    trackEvent("email_updates_changed", { subscribed: next });
+    pushToast(next ? "You'll get the occasional update email." : "No more update emails.", "success");
   }
 
   async function handleDeleteAccount() {
@@ -5437,6 +5508,22 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
               {savingName ? "Saving..." : "Save name"}
             </Button>
           </form>
+
+          <label className="mt-6 flex cursor-pointer items-start gap-3 border-t border-[#e0d2bc] pt-6">
+            <input
+              type="checkbox"
+              checked={emailUpdates}
+              disabled={savingEmailUpdates}
+              onChange={(event) => handleToggleEmailUpdates(event.target.checked)}
+              className="mt-1 h-4 w-4 shrink-0 accent-[#123f38]"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium">Email me about new features</span>
+              <span className="block text-sm leading-6 text-[#665746]">
+                Occasional updates about what's new in FirstFinder. Emails about your account itself, like password resets, come either way.
+              </span>
+            </span>
+          </label>
         </CardContent>
       </Card>
 
