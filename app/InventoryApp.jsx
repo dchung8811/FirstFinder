@@ -2953,7 +2953,7 @@ export default function FirstFinderApp() {
         />
       )}
 
-      {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "login")} />}
+      {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "signup")} />}
       {activeView === "roadmap" && <RoadmapPage />}
       {activeView === "wishlist" && isLoggedIn && (
         <WishlistPage
@@ -2992,7 +2992,17 @@ export default function FirstFinderApp() {
       {activeView === "contribute" && <ContributePage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
       {activeView === "terms" && <TermsPage onViewPrivacy={() => setActiveView("privacy")} />}
       {activeView === "privacy" && <PrivacyPage onViewTerms={() => setActiveView("terms")} />}
-      {activeView === "login" && <LoginPage onViewTerms={() => setActiveView("terms")} onViewPrivacy={() => setActiveView("privacy")} />}
+      {/* One page, two doors: "Get Started" is someone new, so it opens on
+          the sign-up form; the header's "Log in" opens on log-in. Keyed on
+          the view so going from one door to the other resets the form. */}
+      {(activeView === "login" || activeView === "signup") && (
+        <LoginPage
+          key={activeView}
+          initialMode={activeView === "signup" ? "signup" : "signin"}
+          onViewTerms={() => setActiveView("terms")}
+          onViewPrivacy={() => setActiveView("privacy")}
+        />
+      )}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} loading={inventoryLoading} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} onOpenItem={showItemInCollection} />}
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
@@ -4695,11 +4705,49 @@ const authModeCopy = {
   }
 };
 
-function AuthMessage({ message }) {
+// A message can carry one next step as a button -- "create an account",
+// "log in instead" -- for the errors where the likely fix is the other form.
+function AuthMessage({ message, onAction }) {
   if (!message) return null;
   return (
     <div className={`mt-5 rounded-2xl p-4 text-sm leading-6 ${message.type === "error" ? "bg-[#fbe9e2] text-[#8a3b22]" : "bg-[#edf4f2] text-[#123f38]"}`}>
       {message.text}
+      {message.action && (
+        <button
+          type="button"
+          onClick={() => onAction(message.action.mode)}
+          className="mt-2 block font-semibold text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]"
+        >
+          {message.action.label} →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Log in and Create account as two tabs on one card, so someone new sees the
+// way in without hunting for a link under the form.
+function AuthModeTabs({ mode, onChange }) {
+  const tabs = [
+    { mode: "signin", label: "Log in" },
+    { mode: "signup", label: "Create account" }
+  ];
+  return (
+    <div role="tablist" aria-label="Log in or create an account" className="mb-6 grid grid-cols-2 gap-1 rounded-full border border-[#e0d2bc] bg-[#f3ece1] p-1">
+      {tabs.map((tab) => (
+        <button
+          key={tab.mode}
+          type="button"
+          role="tab"
+          aria-selected={mode === tab.mode}
+          onClick={() => onChange(tab.mode)}
+          className={`h-10 rounded-full text-sm font-semibold transition ${
+            mode === tab.mode ? "bg-[#123f38] text-[#fff7ea] shadow-sm" : "text-[#665746] hover:bg-[#fffdf8]"
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -4748,8 +4796,8 @@ function AuthTermsNotice({ onViewTerms, onViewPrivacy, action }) {
   );
 }
 
-function LoginPage({ onViewTerms, onViewPrivacy }) {
-  const [mode, setMode] = useState("signin");
+function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
+  const [mode, setMode] = useState(initialMode);
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "" });
   // Unticked by default, and never pre-ticked: consent to marketing email has
   // to be an action the collector takes, not one they forget to undo.
@@ -4780,9 +4828,14 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
     window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
+  // Keeps the email across the switch -- the point of offering it after an
+  // error is not making someone type it again -- but drops the passwords,
+  // which belong to one form or the other.
   function switchMode(nextMode) {
+    if (nextMode === mode) return;
     setMode(nextMode);
     setMessage(null);
+    setForm((current) => ({ ...current, password: "", confirmPassword: "" }));
   }
 
   // One handler for both social buttons -- Google and Apple differ only in the
@@ -4825,10 +4878,20 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
     setLoading(false);
 
     if (error) {
-      const text = /invalid login credentials/i.test(error.message)
-        ? "Incorrect email or password. If you just signed up, confirm your email first."
-        : error.message;
-      setMessage({ type: "error", text });
+      // Supabase answers a wrong password and an unknown email with the same
+      // error, on purpose: telling them apart would let anyone check whether
+      // an address has a FirstFinder account. So this can't know which one
+      // happened -- it offers sign-up as a next step and leaves the call to
+      // the collector, who does know.
+      if (/invalid login credentials/i.test(error.message)) {
+        setMessage({
+          type: "error",
+          text: "Incorrect email or password. If you just signed up, confirm your email first.",
+          action: { label: "New to FirstFinder? Create an account with this email", mode: "signup" }
+        });
+        return;
+      }
+      setMessage({ type: "error", text: error.message });
       return;
     }
 
@@ -4873,7 +4936,11 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
 
     // Supabase returns a user with no identities when the email is already registered.
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      setMessage({ type: "error", text: "An account with this email already exists. Try logging in instead." });
+      setMessage({
+        type: "error",
+        text: "An account with this email already exists.",
+        action: { label: "Log in instead", mode: "signin" }
+      });
       return;
     }
 
@@ -4923,10 +4990,11 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
 
       <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
         <CardContent className="p-7">
+          {mode !== "forgot" && <AuthModeTabs mode={mode} onChange={switchMode} />}
           <form onSubmit={submitHandler}>
             <h2 className="text-2xl font-semibold">{copy.formTitle}</h2>
             <p className="mt-3 leading-7 text-[#665746]">{copy.formSub}</p>
-            <AuthMessage message={message} />
+            <AuthMessage message={message} onAction={switchMode} />
             <div className="mt-6 grid gap-4">
               <Field label="Email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
               {mode !== "forgot" && (
@@ -4982,13 +5050,7 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
 
           <div className="mt-6 flex flex-col gap-2 text-sm text-[#665746]">
             {mode === "signin" && (
-              <>
-                <div>New to FirstFinder? <AuthLink onClick={() => switchMode("signup")}>Create an account</AuthLink></div>
-                <div><AuthLink onClick={() => switchMode("forgot")}>Forgot your password?</AuthLink></div>
-              </>
-            )}
-            {mode === "signup" && (
-              <div>Already have an account? <AuthLink onClick={() => switchMode("signin")}>Log in</AuthLink></div>
+              <div><AuthLink onClick={() => switchMode("forgot")}>Forgot your password?</AuthLink></div>
             )}
             {mode === "forgot" && (
               <div>Remembered it? <AuthLink onClick={() => switchMode("signin")}>Back to log in</AuthLink></div>
