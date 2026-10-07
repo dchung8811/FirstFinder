@@ -4093,13 +4093,21 @@ const privacySections = [
   },
   {
     id: "cookies",
-    heading: "6. Cookies and analytics",
+    heading: "6. Cookies, analytics, and what stays on your device",
     paragraphs: [
-      "FirstFinder uses browser storage for two things.",
-      "The first is your session. Signing in stores a token in your browser so you stay signed in; without it there is no way to keep you logged in, and clearing it signs you out.",
-      "The second is Google Analytics, which sets its own cookies to count visits and recognize a returning browser. You can block it with a browser setting, an extension, or Google's own opt-out — FirstFinder works exactly the same either way. We don't run advertising cookies, and nothing here follows you around other sites.",
-      "One brief exception: if you tick \"Email me\" on the sign-up form and then continue with Google or Apple, that choice is held in your browser for up to 15 minutes so it survives the trip to their sign-in page. It is removed as soon as you're back."
-    ]
+      "FirstFinder keeps some things in your browser so it can sign you in, work without a signal, and load quickly. All of it stays on that device; none of it is sent anywhere it isn't already going. Here is everything:"
+    ],
+    list: [
+      "Your session — a sign-in token, so you stay logged in. Clearing it signs you out.",
+      "A copy of your collection — so the app opens with your items when you have no connection, say in a shop. It includes what you've recorded about each item, prices and values included, but not the photos themselves.",
+      "Temporary photo links — so photos don't have to be fetched fresh on every visit. Each lasts up to a week, and anyone who has one can open that photo without logging in, so treat a shared computer accordingly.",
+      "Saves made while offline — items and their photos waiting to upload, removed once they do.",
+      "Your sign-up email choice — only if you tick \"Email me\" and then continue with Google or Apple, held for up to 15 minutes so it survives the trip to their sign-in page and removed as soon as you're back.",
+      "The app itself — FirstFinder's own code and icons, so it can start offline. No personal information.",
+      "Your layout choice on shared collection pages — grid or list. No personal information.",
+      "Google Analytics cookies — to count visits and recognize a returning browser. You can block them with a browser setting, an extension, or Google's own opt-out, and FirstFinder works exactly the same either way."
+    ],
+    closing: "Logging out or deleting your account clears your session, the collection copy, the photo links, and any saves still waiting from that browser. We don't run advertising cookies, and nothing here follows you around other sites."
   },
   {
     id: "retention",
