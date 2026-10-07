@@ -534,3 +534,28 @@ $$;
 
 revoke all on function public.queue_book_suggestion(text, text) from public, anon;
 grant execute on function public.queue_book_suggestion(text, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Site banner (patch: site-banner.sql)
+--
+-- One row (id = 1) holding the announcement set from /admin. Readable by
+-- anyone while enabled; writable only by the service role, which only
+-- /api/admin/banner holds. See site-banner.sql for the reasoning. A fresh
+-- project starts with no row, which reads as no banner.
+-- ---------------------------------------------------------------------------
+create table if not exists public.site_banner (
+  id smallint primary key default 1 check (id = 1),
+  enabled boolean not null default false,
+  message text not null default '' check (char_length(message) <= 160),
+  link_label text check (char_length(link_label) <= 40),
+  link_view text,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.site_banner enable row level security;
+
+drop policy if exists "Anyone can read the banner while it is on" on public.site_banner;
+create policy "Anyone can read the banner while it is on"
+  on public.site_banner for select
+  to anon, authenticated
+  using (enabled);

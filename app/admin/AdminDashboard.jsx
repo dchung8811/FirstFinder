@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../../src/lib/supabaseClient";
 import { STATUS, formatPercent } from "../../src/utils/platformLimits";
+import {
+  BANNER_DESTINATIONS,
+  BANNER_LINK_LABEL_MAX,
+  BANNER_MESSAGE_MAX,
+  emptyBanner,
+  validateBanner
+} from "../../src/utils/siteBanner";
 
 // How often the page re-reads while you are looking at it.
 //
@@ -140,6 +147,178 @@ function Section({ title, note, children }) {
   );
 }
 
+async function adminFetch(path, options = {}) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  if (!accessToken) throw new Error("Sign in to the app first, then reload this page.");
+
+  const response = await fetch(path, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    cache: "no-store"
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
+  return body;
+}
+
+// The site-wide banner. Loaded once rather than on the dashboard's poll: this
+// is a form, and a refresh landing mid-edit would throw away what you typed.
+// Saved explicitly with a button, not on each keystroke, because every save
+// re-shows the banner to everyone who dismissed it.
+function BannerPanel() {
+  const [draft, setDraft] = useState(emptyBanner);
+  const [saved, setSaved] = useState(emptyBanner);
+  const [status, setStatus] = useState({ type: "loading", text: "" });
+
+  useEffect(() => {
+    let cancelled = false;
+    adminFetch("/api/admin/banner")
+      .then(({ banner }) => {
+        if (cancelled) return;
+        setDraft(banner);
+        setSaved(banner);
+        setStatus({ type: "idle", text: "" });
+      })
+      .catch((loadError) => {
+        if (!cancelled) setStatus({ type: "error", text: loadError.message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const dirty =
+    draft.enabled !== saved.enabled ||
+    draft.message !== saved.message ||
+    draft.linkLabel !== saved.linkLabel ||
+    draft.linkView !== saved.linkView;
+
+  function update(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+    if (status.type === "saved" || status.type === "error") setStatus({ type: "idle", text: "" });
+  }
+
+  async function save(event) {
+    event.preventDefault();
+    // Checked here first so a mistake is named before the round trip; the
+    // route runs the same check and is the one that counts.
+    const check = validateBanner(draft);
+    if (!check.ok) {
+      setStatus({ type: "error", text: check.error });
+      return;
+    }
+
+    setStatus({ type: "saving", text: "" });
+    try {
+      const { banner } = await adminFetch("/api/admin/banner", { method: "PUT", body: JSON.stringify(draft) });
+      setDraft(banner);
+      setSaved(banner);
+      setStatus({ type: "saved", text: banner.enabled ? "Saved. The banner is live." : "Saved. The banner is off." });
+    } catch (saveError) {
+      setStatus({ type: "error", text: saveError.message });
+    }
+  }
+
+  if (status.type === "loading") {
+    return <p className="mt-3 text-sm text-[#665746]">Loading the banner…</p>;
+  }
+
+  const inputClass = "mt-1 w-full rounded-xl border border-[#d8c7ad] bg-white px-3 py-2 text-sm text-[#201a14] focus:border-[#123f38] focus:outline-none";
+
+  return (
+    <form onSubmit={save} className="mt-4 rounded-2xl border border-[#e6d9c4] bg-[#fffdf8] p-4 sm:p-5">
+      <label className="flex cursor-pointer items-center justify-between gap-4">
+        <span>
+          <span className="block font-medium text-[#201a14]">Show the banner</span>
+          <span className="block text-xs leading-5 text-[#8a7a64]">To everyone, signed in or not, at the top of every page in the app.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={draft.enabled}
+          onChange={(event) => update("enabled", event.target.checked)}
+          className="h-5 w-5 shrink-0 accent-[#123f38]"
+        />
+      </label>
+
+      <label className="mt-4 block">
+        <span className="text-sm font-medium text-[#201a14]">Message</span>
+        <textarea
+          value={draft.message}
+          onChange={(event) => update("message", event.target.value)}
+          maxLength={BANNER_MESSAGE_MAX}
+          rows={2}
+          className={inputClass}
+        />
+        <span className="block text-right text-xs text-[#a2957f]">{draft.message.length}/{BANNER_MESSAGE_MAX}</span>
+      </label>
+
+      <div className="mt-2 grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-sm font-medium text-[#201a14]">Link text</span>
+          <input
+            type="text"
+            value={draft.linkLabel}
+            onChange={(event) => update("linkLabel", event.target.value)}
+            maxLength={BANNER_LINK_LABEL_MAX}
+            placeholder="Optional"
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-[#201a14]">Link goes to</span>
+          <select value={draft.linkView} onChange={(event) => update("linkView", event.target.value)} className={inputClass}>
+            <option value="">No link</option>
+            {BANNER_DESTINATIONS.map((destination) => (
+              <option key={destination.view} value={destination.view}>
+                {destination.label}{destination.signedIn ? " (signed-in only)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {draft.message.trim() && (
+        <div className="mt-5">
+          <div className="text-xs font-medium uppercase tracking-[0.14em] text-[#8a7a64]">Preview</div>
+          <div className="mt-2">
+            <SiteBannerPreview message={draft.message} linkLabel={draft.linkView ? draft.linkLabel : ""} />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          disabled={!dirty || status.type === "saving"}
+          className="rounded-full bg-[#123f38] px-5 py-2 text-sm font-medium text-[#fff7ea] hover:bg-[#0f332d] disabled:opacity-50"
+        >
+          {status.type === "saving" ? "Saving…" : "Save banner"}
+        </button>
+        {status.text && (
+          <span className={`text-sm ${status.type === "error" ? "text-[#8f3524]" : "text-[#1c5c4a]"}`}>{status.text}</span>
+        )}
+      </div>
+      <p className="mt-3 text-xs leading-5 text-[#8a7a64]">
+        Saving shows the banner again to anyone who closed the previous one.
+        {saved.updatedAt && <> Last saved {relativeTime(saved.updatedAt)}.</>}
+      </p>
+    </form>
+  );
+}
+
+// The same look as the app's banner, for the preview. Kept visually in step
+// with SiteBanner in app/InventoryApp.jsx by hand -- the two files share no
+// components, and pulling one out for a preview isn't worth the coupling.
+function SiteBannerPreview({ message, linkLabel }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-[#123f38] px-4 py-2.5 text-sm text-[#fff7ea]">
+      <span>{message}</span>
+      {linkLabel && <span className="font-semibold underline underline-offset-4">{linkLabel} →</span>}
+    </div>
+  );
+}
+
 function CheckRow({ check }) {
   const style = statusStyles[check.status] || statusStyles[STATUS.OK];
   return (
@@ -268,6 +447,12 @@ export default function AdminDashboard() {
       {error && data && (
         <p className="mt-3 text-sm text-[#8f3524]">Last refresh failed: {error}. Showing the previous numbers.</p>
       )}
+
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold text-[#201a14]">Site banner</h2>
+        <p className="mt-1 text-sm leading-6 text-[#665746]">An announcement across the top of the app, with an optional link to one of its pages.</p>
+        <BannerPanel />
+      </section>
 
       <Section
         title="The platform, without you"
