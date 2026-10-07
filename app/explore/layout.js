@@ -4,7 +4,10 @@ import Link from "next/link";
 // reason -- the app's own nav lives inside the one "use client" InventoryApp
 // component and can't be imported here. The button says "Open FirstFinder"
 // rather than "Start your collection" because, unlike a shared link, Explore
-// is reached from the app's own nav by people who already have one.
+// is reached from the app's own nav by people who already have one -- and it
+// opens the share dialog's Explore section (/?share=explore, the same link as
+// the page's "Add your shelf"), since the likeliest reason to leave a page of
+// other people's shelves is to put your own on it.
 
 export default function ExploreLayout({ children }) {
   return (
@@ -18,7 +21,7 @@ export default function ExploreLayout({ children }) {
           </span>
         </Link>
         <Link
-          href="/"
+          href="/?share=explore"
           className="shrink-0 rounded-full bg-[#123f38] px-5 py-2.5 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
         >
           Open FirstFinder
