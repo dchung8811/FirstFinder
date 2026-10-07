@@ -11,7 +11,11 @@ import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 // InventoryApp.jsx and the books pages. Fix those, then add `npm run lint` to
 // the workflow.
 const config = [
-  { ignores: [".next/**", "node_modules/**", "out/**"] },
+  // .claude/worktrees holds local agent checkouts, each with its own .next
+  // build output that ".next/**" (root only) doesn't reach. Linting those
+  // bundles reports ~200 no-undef hits for Deno, Bun and the like, which
+  // buries a real one in `npx eslint . --quiet`. CI never has these folders.
+  { ignores: [".next/**", "node_modules/**", "out/**", ".claude/worktrees/**"] },
   ...nextCoreWebVitals,
 
   // A name the file never defines is a crash, and it is a crash the two things
