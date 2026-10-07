@@ -314,6 +314,23 @@ describe("firstCollectible", () => {
     expect(firstCollectible(rows).name).toBe("Book 9");
   });
 
+  it("ignores leading [tags] when breaking a tie", () => {
+    const rows = [
+      { id: "1", name: "[LIMITED] The Way of Kings [SIGNED]", ...at(imported) },
+      { id: "2", name: "[Paperback] [SIGNED] Dune", ...at(imported) },
+      { id: "3", name: "Emma", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).name).toBe("[Paperback] [SIGNED] Dune");
+  });
+
+  it("keeps a name made only of tags as a name, not untitled", () => {
+    const rows = [
+      { id: "1", name: "", ...at(imported) },
+      { id: "2", name: "[SIGNED]", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).name).toBe("[SIGNED]");
+  });
+
   it("puts untitled items after named ones in a tie", () => {
     const rows = [
       { id: "1", name: "", ...at(imported) },

@@ -169,14 +169,23 @@ export function getActiveInventory(inventory) {
 // A fixed locale, so the same collection sorts the same way on every device.
 const nameCollator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
 
+// Collectors prefix titles with tags like "[LIMITED]" or "[Paperback]", and a
+// bracket sorts before every letter and digit -- left in, any tagged title
+// would win every tie. The tags are dropped for sorting only; a name that is
+// nothing but tags keeps them rather than sorting as untitled.
+function sortableName(name) {
+  const trimmed = (name || "").trim();
+  return trimmed.replace(/^(\[[^\]]*\]\s*)+/, "").trim() || trimmed;
+}
+
 // The item My account calls "First collectible loaded". A CSV import inserts
 // every row in one statement, and Postgres stamps them all with the same
 // created_at -- one account has 170 items sharing a timestamp to the
 // microsecond. Earliest-time alone then returns whichever tied row the
 // database happened to send first, which changes between loads. Ties are
-// broken by name instead (untitled items last), then by id, so the answer is
-// at least the same one every time. The import kept no row order, so there
-// is no truer "first" to recover.
+// broken by name instead (leading [tags] ignored, untitled items last), then
+// by id, so the answer is at least the same one every time. The import kept
+// no row order, so there is no truer "first" to recover.
 export function firstCollectible(inventory) {
   if (!Array.isArray(inventory) || inventory.length === 0) return null;
 
@@ -189,8 +198,8 @@ export function firstCollectible(inventory) {
     const byTime = time(a) - time(b);
     if (byTime !== 0 && !Number.isNaN(byTime)) return byTime;
 
-    const nameA = (a.name || "").trim();
-    const nameB = (b.name || "").trim();
+    const nameA = sortableName(a.name);
+    const nameB = sortableName(b.name);
     if (nameA && !nameB) return -1;
     if (!nameA && nameB) return 1;
     const byName = nameCollator.compare(nameA, nameB);
