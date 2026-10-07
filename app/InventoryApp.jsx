@@ -58,7 +58,8 @@ import {
   formatEstimatedValue,
   formatGain,
   getActiveInventory,
-  toValueRange
+  toValueRange,
+  firstCollectible
 } from "../src/utils/items";
 import { csvUpdateRow, storedEdition, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
@@ -5453,10 +5454,7 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  const firstItem =
-    inventory.length > 0
-      ? [...inventory].sort((a, b) => new Date(a.savedAt) - new Date(b.savedAt))[0]
-      : null;
+  const firstItem = firstCollectible(inventory);
 
   async function handleSaveName(event) {
     event.preventDefault();

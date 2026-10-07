@@ -166,6 +166,40 @@ export function getActiveInventory(inventory) {
   return inventory.filter((entry) => entry.status !== "Sold");
 }
 
+// A fixed locale, so the same collection sorts the same way on every device.
+const nameCollator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+
+// The item My account calls "First collectible loaded". A CSV import inserts
+// every row in one statement, and Postgres stamps them all with the same
+// created_at -- one account has 170 items sharing a timestamp to the
+// microsecond. Earliest-time alone then returns whichever tied row the
+// database happened to send first, which changes between loads. Ties are
+// broken by name instead (untitled items last), then by id, so the answer is
+// at least the same one every time. The import kept no row order, so there
+// is no truer "first" to recover.
+export function firstCollectible(inventory) {
+  if (!Array.isArray(inventory) || inventory.length === 0) return null;
+
+  const time = (item) => {
+    const ms = new Date(item.savedAt).getTime();
+    return Number.isNaN(ms) ? Infinity : ms;
+  };
+
+  return [...inventory].sort((a, b) => {
+    const byTime = time(a) - time(b);
+    if (byTime !== 0 && !Number.isNaN(byTime)) return byTime;
+
+    const nameA = (a.name || "").trim();
+    const nameB = (b.name || "").trim();
+    if (nameA && !nameB) return -1;
+    if (!nameA && nameB) return 1;
+    const byName = nameCollator.compare(nameA, nameB);
+    if (byName !== 0) return byName;
+
+    return String(a.id ?? "").localeCompare(String(b.id ?? ""), "en");
+  })[0];
+}
+
 // A model can return low > high, or one side missing, if search evidence
 // was thin -- clamp rather than show a nonsensical range in the UI.
 export function toValueRange(result, lowKey, highKey) {
