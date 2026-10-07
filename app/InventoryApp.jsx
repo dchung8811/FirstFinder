@@ -8105,7 +8105,11 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
         </button>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_16rem]">
+      {/* grid-cols-1 on phones, not the implicit column: an implicit track
+          is sized to its widest content, and the Explore picker's truncated
+          titles report their full length, which pushed the whole dialog
+          past the right edge of the screen. */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_16rem]">
         <div>
           {/* Green means live, and only live.
 
