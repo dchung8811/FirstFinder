@@ -1,4 +1,5 @@
 import { getVerifiedWorks, workPath } from "../src/content/books";
+import { featureGuides, guidePath } from "../src/content/featureGuides";
 import { listListedCollectionSlugs } from "../src/lib/sharedCollection";
 
 const SITE_URL = "https://firstfinder.app";
@@ -39,6 +40,12 @@ export default async function sitemap() {
     { url: `${SITE_URL}/books`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.9 },
     { url: `${SITE_URL}/explore`, lastModified: new Date(), changeFrequency: "daily", priority: 0.7 },
     ...books,
+    ...featureGuides.map((guide) => ({
+      url: `${SITE_URL}${guidePath(guide)}`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.6
+    })),
     ...collections
   ];
 }

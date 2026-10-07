@@ -3291,6 +3291,18 @@ function FeaturesPage() {
                     <time dateTime={entry.date} className="font-ledger text-xs text-[#8a7a64]">{formatFeatureDate(entry.date)}</time>
                   </div>
                   <p className="mt-2 leading-7 text-[#665746]">{entry.description}</p>
+                  {/* A real link, not a view change: the guides are static
+                      pages outside this shell, so they can be shared and
+                      found by search. */}
+                  {entry.guide && (
+                    <a
+                      href={`/features/${entry.guide}`}
+                      onClick={() => trackEvent("feature_guide_opened", { guide: entry.guide })}
+                      className="mt-3 inline-block text-sm font-semibold text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]"
+                    >
+                      See how it works →
+                    </a>
+                  )}
                 </li>
               ))}
             </ol>
