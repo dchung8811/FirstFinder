@@ -27,7 +27,7 @@ export default function AdminPage() {
         </Link>
         <h1 className="mt-4 text-2xl font-semibold tracking-tight text-[#201a14] sm:text-3xl">Admin</h1>
         <p className="mt-2 text-sm leading-6 text-[#665746]">
-          Platform totals and the limits worth watching. Aggregates only — this page never reads anyone&apos;s items,
+          Platform totals, the limits worth watching, and the site banner. Aggregates only — this page never reads anyone&apos;s items,
           names, or email addresses.
         </p>
       </header>

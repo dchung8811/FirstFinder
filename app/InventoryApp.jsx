@@ -117,6 +117,10 @@ import { buildCsvTemplate, buildCsvExport, parseCsvBatch } from "../src/utils/cs
 import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters, recentFinds } from "../src/utils/dashboard";
 import { emailUpdatesMetadata, isSubscribedToEmailUpdates } from "../src/utils/emailUpdates";
 import { setPendingEmailUpdates, takePendingEmailUpdates } from "../src/lib/pendingEmailUpdates";
+import { bannerDestination, bannerDismissalId, fromDbBanner, shouldShowBanner } from "../src/utils/siteBanner";
+import { readDismissedBanner, writeDismissedBanner } from "../src/lib/bannerDismissal";
+import { features } from "../src/content/features";
+import { formatFeatureDate, groupFeaturesByMonth } from "../src/utils/features";
 
 function Icon({ name, size = 20, className = "" }) {
   const icons = {
@@ -879,6 +883,50 @@ export default function FirstFinderApp() {
   function go(view) {
     setActiveView(view);
     setMobileMenuOpen(false);
+  }
+
+  // The site banner, set from /admin. Read with the anon key: RLS only returns
+  // the row while it is switched on, so "no row" and "turned off" look the
+  // same here, and both mean draw nothing. Read once per load -- an admin
+  // turning it off reaches people on their next visit, which is soon enough
+  // for an announcement. A failed read is silent for the same reason.
+  const [siteBanner, setSiteBanner] = useState(null);
+  // Read at first render rather than in the effect. The server has no storage
+  // and renders "", but nothing it draws depends on this: the banner itself
+  // only exists after the fetch below, so there is no mismatch to hydrate.
+  const [dismissedBannerId, setDismissedBannerId] = useState(() => readDismissedBanner());
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("site_banner")
+      .select("enabled, message, link_label, link_view, updated_at")
+      .eq("id", 1)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return;
+        setSiteBanner(fromDbBanner(data));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function dismissSiteBanner() {
+    const id = bannerDismissalId(siteBanner);
+    setDismissedBannerId(id);
+    writeDismissedBanner(id);
+    trackEvent("site_banner_dismissed");
+  }
+
+  // The link follows the footer's rule: a signed-in page sends a signed-out
+  // visitor to log in rather than to a view that renders nothing.
+  function followSiteBanner() {
+    const destination = bannerDestination(siteBanner?.linkView);
+    if (!destination) return;
+    trackEvent("site_banner_clicked", { destination: destination.view });
+    if (destination.href) goToHref(destination.href);
+    else go(destination.signedIn && !isLoggedIn ? "login" : destination.view);
   }
 
   // For menu entries that are real routes rather than views of this component.
@@ -2928,6 +2976,14 @@ export default function FirstFinderApp() {
         </div>
       </nav>
 
+      {shouldShowBanner(siteBanner, dismissedBannerId) && (
+        <SiteBanner
+          banner={siteBanner}
+          onFollow={bannerDestination(siteBanner.linkView) ? followSiteBanner : undefined}
+          onDismiss={dismissSiteBanner}
+        />
+      )}
+
       {isLoggedIn && (!online || fromSnapshot) && (
         <OfflineBanner
           online={online}
@@ -2956,6 +3012,7 @@ export default function FirstFinderApp() {
 
       {activeView === "home" && <HomePage onGetStarted={() => setActiveView(isLoggedIn ? "addItems" : "signup")} />}
       {activeView === "roadmap" && <RoadmapPage />}
+      {activeView === "features" && <FeaturesPage />}
       {activeView === "wishlist" && isLoggedIn && (
         <WishlistPage
           wishlist={wishlist}
@@ -3176,6 +3233,73 @@ const roadmapNonGoals = [
   "Becoming a marketplace or facilitating sales",
   "Anything that competes with the graders and marketplaces this roadmap links out to"
 ];
+
+// The announcement strip from /admin. Same deep green as the footer so it reads
+// as the site speaking, not as an error or a warning.
+function SiteBanner({ banner, onFollow, onDismiss }) {
+  return (
+    <div className="bg-[#123f38] text-[#fff7ea] print:hidden" role="region" aria-label="Announcement">
+      <div className="mx-auto flex max-w-6xl items-start gap-3 px-6 py-3 text-sm leading-6">
+        <p className="min-w-0 flex-1">
+          {banner.message}
+          {onFollow && banner.linkLabel && (
+            <>
+              {" "}
+              <button type="button" onClick={onFollow} className="whitespace-nowrap font-semibold underline underline-offset-4 hover:text-white">
+                {banner.linkLabel} →
+              </button>
+            </>
+          )}
+        </p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss announcement"
+          className="-mr-2 shrink-0 rounded-full p-1.5 text-[#fff7ea]/70 hover:bg-white/10 hover:text-[#fff7ea]"
+        >
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Reached only from the footer (and the banner, when it points here): it is a
+// look back for the curious, not somewhere the nav should spend space on.
+// Content lives in src/content/features.js.
+function FeaturesPage() {
+  const groups = useMemo(() => groupFeaturesByMonth(features), []);
+  return (
+    <section className="mx-auto max-w-3xl px-6 py-16 md:py-20">
+      <div className="font-ledger inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#655644]">
+        Features
+      </div>
+      <h1 className="font-display mt-5 text-4xl font-semibold tracking-tight md:text-6xl">Everything FirstFinder does.</h1>
+      <p className="mt-5 text-lg leading-8 text-[#665746]">
+        Newest first, dated by the day each one went live. For what's coming next, see the Roadmap.
+      </p>
+
+      <div className="mt-12 grid gap-12">
+        {groups.map((group) => (
+          <div key={group.key}>
+            <h2 className="font-ledger text-xs uppercase tracking-[0.2em] text-[#8a7a64]">{group.label}</h2>
+            <ol className="mt-4 grid gap-4">
+              {group.entries.map((entry) => (
+                <li key={`${entry.date}-${entry.title}`} className="rounded-[1.5rem] border border-[#d8c7ad] bg-[#fbf5e9] p-5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <h3 className="font-display text-xl font-semibold">{entry.title}</h3>
+                    <time dateTime={entry.date} className="font-ledger text-xs text-[#8a7a64]">{formatFeatureDate(entry.date)}</time>
+                  </div>
+                  <p className="mt-2 leading-7 text-[#665746]">{entry.description}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function RoadmapPage() {
   return (
@@ -4116,6 +4240,7 @@ const privacySections = [
       "Your sign-up email choice — only if you tick \"Email me\" and then continue with Google or Apple, held for up to 15 minutes so it survives the trip to their sign-in page and removed as soon as you're back.",
       "The app itself — FirstFinder's own code and icons, so it can start offline. No personal information.",
       "Your layout choice on shared collection pages — grid or list. No personal information.",
+      "Which announcement you've closed — so a banner you dismissed stays dismissed until there's a new one. No personal information.",
       "Google Analytics cookies — to count visits and recognize a returning browser. You can block them with a browser setting, an extension, or Google's own opt-out, and FirstFinder works exactly the same either way."
     ],
     closing: "Logging out or deleting your account clears your session, the collection copy, the photo links, and any saves still waiting from that browser. We don't run advertising cookies, and nothing here follows you around other sites."
@@ -7362,6 +7487,8 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
         <div>
           <div className="text-xs uppercase tracking-[0.18em] text-[#fff7ea]/50">Support</div>
           <div className="mt-4 flex flex-col gap-3">
+            {/* The Features page's only way in. Public, like Roadmap. */}
+            <FooterLink onClick={() => onNavigate("features")}>Features</FooterLink>
             <FooterLink onClick={() => onNavigate("roadmap")}>Roadmap</FooterLink>
             {isLoggedIn
               ? <FooterLink onClick={() => onNavigate("feedback")}>Contact Support</FooterLink>
