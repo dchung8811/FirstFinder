@@ -13,7 +13,8 @@ import {
   formatEstimatedValue,
   formatGain,
   getActiveInventory,
-  toValueRange
+  toValueRange,
+  firstCollectible
 } from "./items";
 
 const book = (over = {}) => ({
@@ -280,5 +281,83 @@ describe("getActiveInventory", () => {
     const active = getActiveInventory([book(), book({ status: "Sold" }), book({ status: "Wishlist" })]);
     expect(active).toHaveLength(2);
     expect(active.every((entry) => entry.status !== "Sold")).toBe(true);
+  });
+});
+
+describe("firstCollectible", () => {
+  const at = (iso) => ({ savedAt: iso });
+  const imported = "2026-08-02T03:35:03.350Z";
+
+  it("returns the earliest item when times differ", () => {
+    const inventory = [
+      { id: "b", name: "Later", ...at("2026-09-01T00:00:00Z") },
+      { id: "a", name: "Zebra", ...at("2026-08-01T00:00:00Z") }
+    ];
+    expect(firstCollectible(inventory).name).toBe("Zebra");
+  });
+
+  it("breaks a bulk-import tie by name, whatever order the rows arrive in", () => {
+    const rows = [
+      { id: "1", name: "The Great Hunt", ...at(imported) },
+      { id: "2", name: "The Dark Tower VII", ...at(imported) },
+      { id: "3", name: "A Game of Thrones", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).name).toBe("A Game of Thrones");
+    expect(firstCollectible([...rows].reverse()).name).toBe("A Game of Thrones");
+  });
+
+  it("ignores case and sorts numbers in titles by value", () => {
+    const rows = [
+      { id: "1", name: "book 10", ...at(imported) },
+      { id: "2", name: "Book 9", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).name).toBe("Book 9");
+  });
+
+  it("ignores leading [tags] when breaking a tie", () => {
+    const rows = [
+      { id: "1", name: "[LIMITED] The Way of Kings [SIGNED]", ...at(imported) },
+      { id: "2", name: "[Paperback] [SIGNED] Dune", ...at(imported) },
+      { id: "3", name: "Emma", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).name).toBe("[Paperback] [SIGNED] Dune");
+  });
+
+  it("keeps a name made only of tags as a name, not untitled", () => {
+    const rows = [
+      { id: "1", name: "", ...at(imported) },
+      { id: "2", name: "[SIGNED]", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).name).toBe("[SIGNED]");
+  });
+
+  it("puts untitled items after named ones in a tie", () => {
+    const rows = [
+      { id: "1", name: "", ...at(imported) },
+      { id: "2", name: "Zebra", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).name).toBe("Zebra");
+  });
+
+  it("falls back to id when name and time both tie", () => {
+    const rows = [
+      { id: "b", name: "Dune", ...at(imported) },
+      { id: "a", name: "Dune", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).id).toBe("a");
+    expect(firstCollectible([...rows].reverse()).id).toBe("a");
+  });
+
+  it("sorts an unreadable date last rather than first", () => {
+    const rows = [
+      { id: "1", name: "Broken", savedAt: "not a date" },
+      { id: "2", name: "Real", ...at(imported) }
+    ];
+    expect(firstCollectible(rows).name).toBe("Real");
+  });
+
+  it("returns null for an empty collection", () => {
+    expect(firstCollectible([])).toBeNull();
+    expect(firstCollectible(undefined)).toBeNull();
   });
 });
