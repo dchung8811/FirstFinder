@@ -22,7 +22,7 @@ export function emailUpdatesMetadata(subscribed, now = new Date()) {
   };
 }
 
-// Google and Apple sign-up leave the page for the provider and come back on a
+// Google sign-up leaves the page for the provider and come back on a
 // fresh load, so a ticked box on the sign-up form has to survive that trip in
 // browser storage. It is kept only briefly: a flag left behind by a cancelled
 // sign-in must not opt in whoever signs in on this browser tomorrow.

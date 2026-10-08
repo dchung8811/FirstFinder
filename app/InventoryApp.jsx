@@ -206,13 +206,6 @@ function Icon({ name, size = 20, className = "" }) {
         <path d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2 10 10 0 0 0 2.9 7.6l3.3 2.7C7 7.9 9.3 6.1 12 6.1Z" />
       </>
     ),
-    apple: (
-      <path
-        fill="currentColor"
-        stroke="none"
-        d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.08ZM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25Z"
-      />
-    ),
     arrow: <path d="m9 18 6-6-6-6" />,
     play: <path d="m8 5 12 7-12 7V5Z" />,
     menu: <path d="M4 6h16M4 12h16M4 18h16" />,
@@ -1122,7 +1115,7 @@ export default function FirstFinderApp() {
     };
   }, []);
 
-  // The other half of the sign-up checkbox for Google and Apple: a ticked box
+  // The other half of the sign-up checkbox for Google sign-up: a ticked box
   // was parked in browser storage before the redirect, and is spent here on
   // the account that comes back. Already-subscribed accounts skip the write
   // so a returning collector's consent timestamp isn't moved.
@@ -4159,7 +4152,7 @@ function TermsPage({ onViewPrivacy }) {
 // Everything below has to describe what the code actually does. When a service
 // provider changes, a column is added that holds something personal, or a
 // retention rule moves, this file is part of that change -- not a follow-up.
-const privacyLastUpdated = "October 6, 2026";
+const privacyLastUpdated = "October 7, 2026";
 
 const privacySummary = [
   "We collect what running a catalog needs: your email, what you record about your items, and your photos.",
@@ -4186,7 +4179,7 @@ const privacySections = [
       "Almost everything here is something you typed or uploaded on purpose. The exceptions are the last two groups, which are collected automatically."
     ],
     list: [
-      "Account information — your email address, and a password you set (stored only as a hash by our authentication provider, never as text we can read). If you sign in with Google or Apple instead, we receive the email address and account identifier that sign-in hands us, and no password at all.",
+      "Account information — your email address, and a password you set (stored only as a hash by our authentication provider, never as text we can read). If you sign in with Google instead, we receive the email address and account identifier that sign-in hands us, and no password at all.",
       "Your email preference — whether you've opted in to update emails, and when you last changed that choice, so there is a record of what you agreed to.",
       "Collection records — everything you enter about an item: name, maker, edition, printing, category, condition, status, notes, and its reference number.",
       "Purchase and sale information — purchase date, source, price paid, your estimated value, and, if you mark an item sold, the sale price and date. We never see or handle a payment: FirstFinder charges nothing, and these are numbers you type about deals you made elsewhere.",
@@ -4228,7 +4221,7 @@ const privacySections = [
       "Vercel — hosting for the website and its server routes. It processes requests as they pass through, and keeps standard server logs including IP addresses.",
       "OpenAI — receives the photos you submit to photo identification, along with the prompt describing what to look for, and returns the suggested details. This happens only when you press identify, and only for the photos in that request. Don't submit a photo you aren't comfortable having processed this way.",
       "Google Analytics — receives the page views and events in section 2. It does not receive your email address, your collection, or your photos.",
-      "Google and Apple — only if you choose to sign in with them, and only to the extent that sign-in requires.",
+      "Google — only if you choose to sign in with it, and only to the extent that sign-in requires.",
       "GitHub — receives your feedback. Every submission is filed as an issue in the public FirstFinder repository. The description is scanned first and obvious personal details (email addresses, phone numbers, street addresses, long card- or account-shaped numbers) are masked, but that is a pattern matcher, not a promise: don't write anything into feedback you would not want published. Your email address and account identifier are not included in the issue."
     ],
     closing: "Beyond those, we disclose personal information only when the law requires it, when we respond to a valid legal request, or when it is necessary to investigate abuse or protect someone from harm — the circumstances set out in sections 5 and 6 of the Terms. If FirstFinder were ever transferred to someone else, your information would move with it and you'd be told before it did."
@@ -4253,7 +4246,7 @@ const privacySections = [
       "A copy of your collection — so the app opens with your items when you have no connection, say in a shop. It includes what you've recorded about each item, prices and values included, but not the photos themselves.",
       "Temporary photo links — so photos don't have to be fetched fresh on every visit. Each lasts up to a week, and anyone who has one can open that photo without logging in, so treat a shared computer accordingly.",
       "Saves made while offline — items and their photos waiting to upload, removed once they do.",
-      "Your sign-up email choice — only if you tick \"Email me\" and then continue with Google or Apple, held for up to 15 minutes so it survives the trip to their sign-in page and removed as soon as you're back.",
+      "Your sign-up email choice — only if you tick \"Email me\" and then continue with Google, held for up to 15 minutes so it survives the trip to their sign-in page and removed as soon as you're back.",
       "The app itself — FirstFinder's own code and icons, so it can start offline. No personal information.",
       "Your layout choice on shared collection pages — grid or list. No personal information.",
       "Which announcement you've closed — so a banner you dismissed stays dismissed until there's a new one. No personal information.",
@@ -4883,21 +4876,10 @@ function HomePage({ onGetStarted }) {
   );
 }
 
-// Apple sign-in is built and tested but stays dark until the Apple provider is
-// switched on in Supabase, which needs a paid Apple Developer account. Shipping
-// the button before then would just hand collectors a control that bounces them
-// back with an error. Set NEXT_PUBLIC_APPLE_AUTH_ENABLED=true to light it up --
-// no code change. Read as a full static expression so Next can inline it.
-const appleAuthEnabled = process.env.NEXT_PUBLIC_APPLE_AUTH_ENABLED === "true";
-
-// Named in one place so the button list and the two sentences that promise it
-// can't disagree about whether Apple exists.
-const socialProviders = appleAuthEnabled ? "Google or Apple" : "Google";
-
 const authModeCopy = {
   signin: {
     heading: "Log in to your collection.",
-    sub: `Use your email and password, or continue with ${socialProviders}, to get back to your collection.`,
+    sub: `Use your email and password, or continue with Google, to get back to your collection.`,
     formTitle: "Log in",
     formSub: "Enter the email and password you signed up with.",
     submit: "Log in",
@@ -5054,9 +5036,9 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     setForm((current) => ({ ...current, password: "", confirmPassword: "" }));
   }
 
-  // One handler for both social buttons -- Google and Apple differ only in the
-  // provider string, and keeping them on one path means the error handling and
-  // the redirect target can't drift apart between the two.
+  // Takes the provider as an argument even with Google the only one, so a
+  // second provider would be a button, not a second copy of the error handling
+  // and redirect target.
   async function handleOAuthLogin(provider, label) {
     trackEvent(`${provider}_login_clicked`, { source_page: "login" });
     // The box is only on the sign-up form, so only a click from there carries
@@ -5219,7 +5201,7 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
               {mode === "signup" && (
                 <Field label="Confirm password" type="password" value={form.confirmPassword} onChange={(value) => setForm({ ...form, confirmPassword: value })} />
               )}
-              {/* Covers the Google and Apple buttons below as well as this
+              {/* Covers the Google button below as well as this
                   form: the choice rides through their redirect in browser
                   storage (src/lib/pendingEmailUpdates.js). Everyone can change
                   it later in My account. */}
@@ -5255,11 +5237,6 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
                 <SocialAuthButton icon="google" onClick={() => handleOAuthLogin("google", "Google")}>
                   Continue with Google
                 </SocialAuthButton>
-                {appleAuthEnabled && (
-                  <SocialAuthButton icon="apple" onClick={() => handleOAuthLogin("apple", "Apple")}>
-                    Continue with Apple
-                  </SocialAuthButton>
-                )}
               </div>
             </div>
           )}
@@ -5277,7 +5254,7 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
             <AuthTermsNotice
               onViewTerms={onViewTerms}
               onViewPrivacy={onViewPrivacy}
-              action={mode === "signup" ? `Creating an account, or continuing with ${socialProviders}` : `Continuing with ${socialProviders}`}
+              action={mode === "signup" ? `Creating an account, or continuing with Google` : `Continuing with Google`}
             />
           )}
         </CardContent>

@@ -218,8 +218,8 @@ export function buildPlatformChecks({ capacity = {}, plan = "free", now = new Da
 
     // Fine-grained tokens expire, and when this one lapses the feedback-to-
     // issue pipeline stops filing silently -- feedback still saves, it just
-    // never reaches GitHub. Exactly the failure mode the Apple client-secret
-    // note in .env.example warns about, so it gets a real check.
+    // never reaches GitHub. A credential that lapses without an error is the
+    // kind of failure nobody notices for weeks, so it gets a real check.
     if (github.tokenExpiresAt) {
       const daysLeft = daysBetween(github.tokenExpiresAt, now);
       const status =

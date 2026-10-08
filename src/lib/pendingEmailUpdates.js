@@ -1,4 +1,4 @@
-// Carries a ticked "email me about new features" box across the Google/Apple
+// Carries a ticked "email me about new features" box across the Google
 // redirect. The rules for what counts as a valid flag live in
 // src/utils/emailUpdates.js; this file is only the storage around them.
 //
