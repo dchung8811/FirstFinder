@@ -3,6 +3,8 @@ import {
   EXPLORE_STRIP_LIMIT,
   buildExploreCollection,
   collectionMonogram,
+  featuredShelves,
+  interleaveShelfCovers,
   normalizeExplorePicks,
   selectExploreItems,
   sortExploreCollections,
@@ -141,6 +143,51 @@ describe("sortExploreCollections", () => {
       { slug: "undated", itemCount: 1, lastActivity: null }
     ]);
     expect(sorted.map((row) => row.slug)).toEqual(["new", "old", "undated"]);
+  });
+});
+
+describe("featuredShelves", () => {
+  const shelf = (slug, coverCount, itemCount) => ({
+    slug,
+    itemCount,
+    covers: Array.from({ length: coverCount }, (_, index) => ({ id: `${slug}-${index}` })),
+    moreCount: itemCount - coverCount
+  });
+
+  it("keeps the first three shelves, in the order given", () => {
+    const shelves = ["a", "b", "c", "d", "e"].map((slug) => shelf(slug, 2, 2));
+    expect(featuredShelves(shelves).map((entry) => entry.slug)).toEqual(["a", "b", "c"]);
+  });
+
+  it("shortens the strip and recounts what is left behind it", () => {
+    const [trimmed] = featuredShelves([shelf("a", 8, 197)]);
+    expect(trimmed.covers).toHaveLength(6);
+    expect(trimmed.moreCount).toBe(191);
+  });
+
+  it("leaves a short shelf alone", () => {
+    const [trimmed] = featuredShelves([shelf("a", 1, 1)]);
+    expect(trimmed.covers).toHaveLength(1);
+    expect(trimmed.moreCount).toBe(0);
+  });
+
+  it("treats anything but a list as no shelves", () => {
+    expect(featuredShelves(undefined)).toEqual([]);
+  });
+});
+
+describe("interleaveShelfCovers", () => {
+  const shelf = (slug, coverIds) => ({ slug, title: `Shelf ${slug}`, covers: coverIds.map((id) => ({ id })) });
+
+  it("deals one cover from each shelf in turn, carrying its shelf along", () => {
+    const dealt = interleaveShelfCovers([shelf("a", ["a1", "a2", "a3"]), shelf("b", ["b1"]), shelf("c", ["c1", "c2"])]);
+    expect(ids(dealt)).toEqual(["a1", "b1", "c1", "a2", "c2", "a3"]);
+    expect(dealt[1]).toMatchObject({ shelfSlug: "b", shelfTitle: "Shelf b" });
+  });
+
+  it("treats anything but a list as no covers", () => {
+    expect(interleaveShelfCovers(undefined)).toEqual([]);
+    expect(interleaveShelfCovers([])).toEqual([]);
   });
 });
 

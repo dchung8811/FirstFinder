@@ -116,6 +116,24 @@ export function sortExploreCollections(collections) {
     .sort((a, b) => (Date.parse(b.lastActivity || 0) || 0) - (Date.parse(a.lastActivity || 0) || 0));
 }
 
+// The home page's preview of Explore: the first few shelves, each cut to a
+// short strip. Applied before any cover is signed, so a shelf or cover that
+// the home page doesn't show never gets a URL. That matters more here than on
+// /explore itself -- every first-time visitor sees the home page, and each
+// cover is a full-size photo downloaded from storage.
+//
+// moreCount is recomputed against the shorter strip so the "+N more" tile
+// still adds up to the shelf's real size.
+export const HOME_SHELF_LIMIT = 3;
+export const HOME_COVER_LIMIT = 6;
+
+export function featuredShelves(collections, { shelves = HOME_SHELF_LIMIT, covers = HOME_COVER_LIMIT } = {}) {
+  return (Array.isArray(collections) ? collections : []).slice(0, shelves).map((collection) => {
+    const strip = collection.covers.slice(0, covers);
+    return { ...collection, covers: strip, moreCount: Math.max(0, collection.itemCount - strip.length) };
+  });
+}
+
 // The two-letter mark beside each row's title.
 export function collectionMonogram(title) {
   const words = String(title || "")
@@ -126,6 +144,35 @@ export function collectionMonogram(title) {
   if (words.length === 0) return "FF";
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+// The home page's moving strip: covers dealt from each featured shelf in
+// turn -- first of each, then second of each -- so the strip shows several
+// collections side by side instead of one shelf and then the next. Each
+// cover keeps a note of which shelf it came from, which is where it links.
+export function interleaveShelfCovers(shelves) {
+  const list = Array.isArray(shelves) ? shelves : [];
+  const longest = Math.max(0, ...list.map((shelf) => shelf.covers?.length || 0));
+  const dealt = [];
+  for (let index = 0; index < longest; index += 1) {
+    for (const shelf of list) {
+      const cover = shelf.covers?.[index];
+      if (cover) dealt.push({ ...cover, shelfSlug: shelf.slug, shelfTitle: shelf.title });
+    }
+  }
+  return dealt;
+}
+
+// Jacket colours for covers nobody has photographed, all drawn from the
+// existing palette. Chosen by item id so a book keeps its colour between
+// visits instead of reshuffling on every render -- and between /explore and
+// the home page, which both draw these jackets.
+const JACKET_TONES = ["bg-[#123f38]", "bg-[#3f352a]", "bg-[#6d5526]", "bg-[#8f3524]"];
+
+export function jacketTone(id) {
+  let hash = 0;
+  for (const char of String(id)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return JACKET_TONES[hash % JACKET_TONES.length];
 }
 
 // "updated 2d ago" on each row. Coarse on purpose: an exact timestamp on a

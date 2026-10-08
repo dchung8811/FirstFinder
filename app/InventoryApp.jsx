@@ -63,7 +63,7 @@ import {
 } from "../src/utils/items";
 import { csvUpdateRow, storedEdition, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
-import { EXPLORE_STRIP_LIMIT, SHARE_BLURB_MAX, toggleExplorePick } from "../src/utils/explore";
+import { EXPLORE_STRIP_LIMIT, SHARE_BLURB_MAX, collectionMonogram, interleaveShelfCovers, jacketTone, toggleExplorePick } from "../src/utils/explore";
 import { createSignedUrlBatcher } from "../src/utils/signedUrlBatch";
 import {
   createOperation,
@@ -4359,8 +4359,6 @@ function PrivacyPage({ onViewTerms }) {
 // nothing for either one.
 const demoVideoSrc = "/firstfinder-demo.mp4";
 const demoVideoPoster = "/firstfinder-demo-poster.jpg";
-const aiFeatureVideoSrc = "/firstfinder-ai-feature.mp4";
-const aiFeatureVideoPoster = "/firstfinder-ai-feature-poster.jpg";
 
 // Plays while it is on screen and pauses when it is not, so a loop that has
 // scrolled away is not still decoding frames on someone's phone.
@@ -4576,16 +4574,6 @@ function DemoVideoPlayer() {
   );
 }
 
-function AiFeatureVideo() {
-  return (
-    <LoopingVideo
-      src={aiFeatureVideoSrc}
-      poster={aiFeatureVideoPoster}
-      label="Identifying a book from a photo in FirstFinder"
-    />
-  );
-}
-
 function LedgerRow({ label, value, strong = false }) {
   return (
     <div className="flex items-baseline gap-2 text-sm">
@@ -4621,21 +4609,181 @@ function SpecimenCard({ index, kind, title, detail, paid, value, chips, classNam
   );
 }
 
-// Quoted in two places -- the home page section and the card inside the app --
-// and it must match IDENTIFY_DAILY_LIMIT in app/api/identify-book/route.js,
-// which is the only place it is actually enforced. This constant is copy, not
-// a limit.
+// Quoted by the identify card inside the app, and it must match
+// IDENTIFY_DAILY_LIMIT in app/api/identify-book/route.js, which is the only
+// place it is actually enforced. This constant is copy, not a limit.
 const identifyDailyLimitCopy = 2;
 
-// Deliberately narrow claims: the identification is grounded in a real search
-// for comparable sales and every field lands in an editable draft, so the copy
-// promises a head start rather than an answer.
-const aiFeaturePoints = [
-  { icon: "search", title: "Grounded in real sales", text: "It searches for comparable copies and weighs sold prices over asking prices." },
-  { icon: "file", title: "Edition points read for you", text: "Publisher, printing, and the number line — the details that decide the value." },
-  { icon: "check", title: "You approve every field", text: "The draft opens for review. Correct anything, then save it to your ledger." },
-  { icon: "camera", title: "The photo comes along", text: "The picture you took is attached to the record as proof, not thrown away." }
-];
+// Seconds each cover takes to cross its own width, near enough. The strip's
+// whole loop is timed from this so a long strip moves at the same pace as a
+// short one rather than racing to fit a fixed duration.
+const MARQUEE_SECONDS_PER_COVER = 4;
+
+// A strip shorter than this is repeated until it isn't, so one loop is wider
+// than a wide screen and the seam never comes into view.
+const MARQUEE_MIN_COVERS = 12;
+
+// Below this there isn't a strip to scroll -- one book circling past on its
+// own reads as a glitch -- so the covers just sit in a row.
+const MARQUEE_MIN_TO_MOVE = 4;
+
+function ShelfCover({ cover }) {
+  const label = cover.name || "Untitled item";
+  const credit = itemCredit(cover);
+  return (
+    // Out of the tab order, like /explore's covers: a keyboard visitor reaches
+    // each shelf once through the list below instead of a stop per book on a
+    // strip that won't sit still.
+    <a href={`/c/${cover.shelfSlug}`} tabIndex={-1} className="group block w-36 shrink-0 sm:w-40">
+      <div className="aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#fff7ea]/15 bg-[#0d2f2a]">
+        {cover.photoUrl ? (
+          <img src={cover.photoUrl} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:opacity-90" />
+        ) : (
+          // Same jacket /explore draws for an unphotographed book, so a book
+          // looks the same here as it does one click away.
+          <div className={`flex h-full w-full flex-col justify-between p-3 text-[#fff7ea] ${jacketTone(cover.id)}`}>
+            <div className="font-display line-clamp-5 text-sm font-semibold leading-snug">{label}</div>
+            {credit && <div className="line-clamp-2 text-[10px] uppercase tracking-[0.14em] text-[#fff7ea]/75">{credit}</div>}
+          </div>
+        )}
+      </div>
+      <div className="mt-2 truncate text-sm font-medium" title={label}>{label}</div>
+      <div className="truncate text-xs text-[#a9c4bd]" title={cover.shelfTitle}>from {cover.shelfTitle}</div>
+    </a>
+  );
+}
+
+// Books from a few real shelves on /explore, drifting past in a loop. It
+// replaced the photo identification pitch in this spot: a stranger deciding
+// whether to start a ledger learns more from other collectors' actual books
+// than from a feature list, and the identify feature is still introduced on
+// Add Items.
+//
+// Fetched after the page loads rather than rendered with it -- see
+// app/api/featured-shelves/route.js for why "/" doesn't load it on the server.
+function FeaturedShelves() {
+  // null while loading; [] when there is nothing to show, which hides the band.
+  const [shelves, setShelves] = useState(null);
+  // Hover and focus pause the strip on their own (in CSS). This is the pause
+  // for everyone else -- touch screens have no hover, and anything that moves
+  // by itself for more than a few seconds needs a way to stop it.
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/featured-shelves", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : { shelves: [] }))
+      .then((body) => {
+        if (!cancelled) setShelves(Array.isArray(body?.shelves) ? body.shelves : []);
+      })
+      .catch(() => {
+        if (!cancelled) setShelves([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const covers = useMemo(() => interleaveShelfCovers(shelves), [shelves]);
+  if (shelves && covers.length === 0) return null;
+
+  const moves = covers.length >= MARQUEE_MIN_TO_MOVE;
+  const repeats = moves ? Math.ceil(MARQUEE_MIN_COVERS / covers.length) : 1;
+  const loop = Array.from({ length: repeats }, () => covers).flat();
+
+  return (
+    <section id="explore" className="overflow-hidden border-y border-[#0d2f2a] bg-[#123f38] text-[#fff7ea]">
+      <div className="mx-auto max-w-6xl px-6 pt-16 md:pt-20">
+        <div className="inline-flex items-center gap-2 rounded-full bg-[#fff7ea]/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#d8e6e2]">
+          <Icon name="star" size={14} /> From the community
+        </div>
+        <h2 className="font-display mt-5 text-3xl font-semibold leading-tight tracking-tight md:text-4xl">Shelves worth a look.</h2>
+        <p className="mt-4 max-w-2xl text-lg leading-8 text-[#d8e6e2]">
+          Real collections, shared by the collectors who own them. Titles, editions, and photos &mdash; never prices.
+        </p>
+      </div>
+
+      {shelves === null ? (
+        <div className="mt-10 flex gap-4 px-6" aria-hidden="true">
+          {Array.from({ length: 10 }, (_, index) => (
+            <div key={index} className="aspect-[3/4] w-36 shrink-0 animate-pulse rounded-2xl bg-[#fff7ea]/10 sm:w-40" />
+          ))}
+        </div>
+      ) : moves ? (
+        // Two identical halves, and the track slides left by exactly one of
+        // them before starting over -- the second half is then where the
+        // first began, so the loop has no visible jump. Full-bleed, with the
+        // ends faded, so books drift in and out rather than being cut off at
+        // the edge of the column.
+        <div className="shelf-marquee mt-10 [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)]">
+          <div
+            className="shelf-marquee-track flex w-max"
+            data-paused={paused || undefined}
+            style={{ "--shelf-marquee-duration": `${loop.length * MARQUEE_SECONDS_PER_COVER}s` }}
+          >
+            {[0, 1].map((half) => (
+              <div key={half} className={`flex gap-4 pr-4 ${half === 1 ? "shelf-marquee-copy" : ""}`} aria-hidden={half === 1 || undefined}>
+                {loop.map((cover, index) => (
+                  <ShelfCover key={`${cover.id}-${index}`} cover={cover} />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mx-auto mt-10 flex max-w-6xl gap-4 overflow-x-auto px-6">
+          {covers.map((cover) => (
+            <ShelfCover key={cover.id} cover={cover} />
+          ))}
+        </div>
+      )}
+
+      <div className="mx-auto max-w-6xl px-6 pb-16 pt-10 md:pb-20">
+        {shelves && (
+          <ul className="flex flex-wrap gap-3" aria-label="Shelves shown above">
+            {shelves.map((shelf) => (
+              <li key={shelf.slug}>
+                <a
+                  href={`/c/${shelf.slug}`}
+                  className="inline-flex items-center gap-3 rounded-full border border-[#fff7ea]/20 py-1.5 pl-1.5 pr-4 text-sm transition hover:bg-[#fff7ea]/10"
+                >
+                  <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-full bg-[#fff7ea] text-xs font-semibold text-[#123f38]">
+                    {collectionMonogram(shelf.title)}
+                  </span>
+                  <span className="font-medium">{shelf.title}</span>
+                  <span className="text-[#a9c4bd]">
+                    {shelf.itemCount} {shelf.itemCount === 1 ? "item" : "items"}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="mt-8 flex flex-wrap items-center gap-5">
+          {/* Styled as the outline Button rather than rendered as one: this
+              leaves the app for a real route, so it is a link. */}
+          <a
+            href="/explore"
+            className="inline-flex h-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-[#fff8ee] px-7 text-base font-medium text-[#201a14] transition hover:bg-white"
+          >
+            Explore more collections <Icon name="arrow" size={18} className="ml-1" />
+          </a>
+          {moves && (
+            <button
+              type="button"
+              onClick={() => setPaused((value) => !value)}
+              aria-pressed={paused}
+              className="shelf-marquee-toggle text-sm font-medium text-[#d8e6e2] underline underline-offset-4 hover:text-[#fff7ea]"
+            >
+              {paused ? "Play the shelf" : "Pause the shelf"}
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function HomePage({ onGetStarted }) {
   const steps = [
@@ -4692,86 +4840,12 @@ function HomePage({ onGetStarted }) {
         </div>
       </section>
 
-      {/* Sits between the hero and the walkthrough on purpose: the hero says
-          what the ledger is, this says the part that is actually novel, and
+      {/* Between the hero and the walkthrough: the hero says what the ledger
+          is, this shows what other collectors have actually done with it, and
           "See it in 60 seconds" then covers the whole flow end to end. The
-          deep green band also keeps the page alternating rather than running
+          band is deep green so the page keeps alternating rather than running
           two cream sections together. */}
-      <section id="ai" className="border-y border-[#0d2f2a] bg-[#123f38] text-[#fff7ea]">
-        <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
-          {/* Three cells placed explicitly rather than two columns with the
-              button nested inside the copy: nesting it made a phone read
-              heading -> copy -> call to action -> video, which strands the
-              video after the section has already closed. Placed on the grid,
-              the same three blocks fall as copy -> video -> button on a phone
-              and still resolve to phone-left, copy-above-button on desktop. */}
-          <div className="grid items-center gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-x-16 lg:gap-y-8">
-            <div className="lg:col-start-2 lg:row-start-1">
-              <div className="inline-flex items-center gap-2 rounded-full bg-[#fff7ea]/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#d8e6e2]">
-                <Icon name="camera" size={14} /> Fastest way in
-              </div>
-              <h2 className="font-display mt-5 text-3xl font-semibold leading-tight tracking-tight md:text-4xl">
-                Take a picture, we'll fill in the rest.
-              </h2>
-              <p className="mt-5 max-w-xl text-lg leading-8 text-[#d8e6e2]">
-                Photograph the cover and FirstFinder reads the title, author, and edition points, then searches for
-                what copies like yours actually sold for. You get an editable draft in a few seconds &mdash; nothing is
-                saved until you say so.
-              </p>
-
-              <ul className="mt-8 grid gap-4 sm:grid-cols-2">
-                {aiFeaturePoints.map((point) => (
-                  <li key={point.title} className="flex gap-3">
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#fff7ea]/10 text-[#fff7ea]">
-                      <Icon name={point.icon} size={16} />
-                    </span>
-                    <div>
-                      <div className="font-medium">{point.title}</div>
-                      <p className="mt-1 text-sm leading-6 text-[#a9c4bd]">{point.text}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* lg:row-span-2 so the phone stands beside the copy and the button
-                together instead of forcing a third row of its own. */}
-            <div className="relative mx-auto w-full max-w-[248px] sm:max-w-[268px] lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:mx-0">
-              <div className="pointer-events-none absolute -inset-x-6 -inset-y-6 rounded-[3rem] border border-dashed border-[#fff7ea]/20" aria-hidden="true" />
-              {/* aspect-[588/1280] is the clip's own ratio, so the player is
-                  exactly as tall as the footage and YouTube adds no bar at
-                  either end. The border is the bezel. */}
-              <div className="relative overflow-hidden rounded-[2.25rem] border-[6px] border-[#201a14] bg-[#201a14] shadow-[0_30px_60px_-25px_rgba(0,0,0,0.7)]">
-                <div className="relative aspect-[588/1280] overflow-hidden rounded-[1.75rem] bg-black">
-                  <AiFeatureVideo />
-                </div>
-              </div>
-            </div>
-
-            <div className="lg:col-start-2 lg:row-start-2">
-              {/* The outline variant rather than the primary one with an
-                  inverted palette passed through className: the primary's own
-                  text-[#fff7ea] and a text color from className are the same
-                  utility at the same specificity, so which one wins comes down
-                  to their order in the generated stylesheet, not the order
-                  they are written here -- and the label rendered cream on
-                  cream. Outline is already a cream button with dark text, so
-                  nothing needs overriding. */}
-              <Button variant="outline" onClick={onGetStarted} className="h-12 border-transparent px-7 text-base">
-                Try it on your next find <Icon name="arrow" size={18} className="ml-1" />
-              </Button>
-              {/* Said plainly and up front rather than discovered on the third
-                  attempt. Every identification is a search-grounded model call
-                  with a real per-call cost on a self-funded app, and a cap
-                  someone runs into unwarned reads as the feature being broken. */}
-              <p className="mt-5 max-w-md text-sm leading-6 text-[#a9c4bd]">
-                {identifyDailyLimitCopy} identifications per account per day. Each one is a paid, search-grounded
-                API call, so it's capped — and it can pause altogether if the budget runs out.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
+      <FeaturedShelves />
 
       <section id="how-it-works" className="border-t border-[#e2d4bc] bg-[#fbf5e9]">
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
