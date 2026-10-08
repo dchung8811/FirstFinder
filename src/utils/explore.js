@@ -149,7 +149,7 @@ export function collectionMonogram(title) {
 // The home page's moving strip: covers dealt from each featured shelf in
 // turn -- first of each, then second of each -- so the strip shows several
 // collections side by side instead of one shelf and then the next. Each
-// cover keeps a note of which shelf it came from, which is where it links.
+// cover keeps a note of which shelf it came from, which is where it opens.
 export function interleaveShelfCovers(shelves) {
   const list = Array.isArray(shelves) ? shelves : [];
   const longest = Math.max(0, ...list.map((shelf) => shelf.covers?.length || 0));

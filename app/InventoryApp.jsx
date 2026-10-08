@@ -114,7 +114,8 @@ import {
   buildPublicItem,
   shareSettingsChanged,
   generateShareSlug,
-  sharePath
+  sharePath,
+  publicItemHref
 } from "../src/utils/publicCollection";
 import { buildCsvTemplate, buildCsvExport, parseCsvBatch } from "../src/utils/csv";
 import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters, recentFinds } from "../src/utils/dashboard";
@@ -4625,10 +4626,10 @@ function ShelfCover({ cover }) {
   const label = cover.name || "Untitled item";
   const credit = itemCredit(cover);
   return (
-    // Out of the tab order, like /explore's covers: a keyboard visitor reaches
-    // each shelf once through the list below instead of a stop per book on a
-    // strip that won't sit still.
-    <a href={`/c/${cover.shelfSlug}`} tabIndex={-1} className="group block w-36 shrink-0 sm:w-40">
+    // Opens this book on its shelf, as /explore's covers do. Out of the tab
+    // order like them too: a keyboard visitor reaches each shelf once through
+    // the list below instead of a stop per book on a strip that won't sit still.
+    <a href={publicItemHref(cover.shelfSlug, cover.id)} tabIndex={-1} className="group block w-36 shrink-0 sm:w-40">
       <div className="aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#fff7ea]/15 bg-[#0d2f2a]">
         {cover.photoUrl ? (
           <img src={cover.photoUrl} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:opacity-90" />

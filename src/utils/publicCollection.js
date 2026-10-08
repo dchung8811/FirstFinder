@@ -403,6 +403,21 @@ export function isValidShareSlug(value) {
   return typeof value === "string" && new RegExp(`^[${SLUG_ALPHABET}]{${SLUG_LENGTH}}$`).test(value);
 }
 
+// Where a single book on a shared page lives: a fragment on the shelf, not a
+// page of its own. The shelf already renders every shared item in full, so a
+// book "page" would only be one card from the same payload -- and a second
+// public route is a second place that has to get buildPublicItem right.
+//
+// The id is the item's row id, which the shared page already carries for
+// every card, so linking to it reveals nothing the page doesn't.
+export function publicItemAnchor(itemId) {
+  return `item-${itemId}`;
+}
+
+export function publicItemHref(slug, itemId) {
+  return `/c/${slug}#${publicItemAnchor(itemId)}`;
+}
+
 // Whether the share dialog is holding edits that have not been published yet.
 //
 // Compares only the fields the dialog can change, so a slug rotation or an
