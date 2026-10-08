@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../src/lib/supabaseClient";
 import { forgetAccountOnDevice } from "../../src/lib/forgetAccountOnDevice";
+import { loadNavCounts } from "../../src/lib/navCounts";
 import { appNavItems, pathForView } from "../../src/utils/appNav";
 import SiteNav from "../SiteNav";
 
@@ -13,8 +14,11 @@ import SiteNav from "../SiteNav";
 // Every tab but Explore is a page inside the app, at its own address
 // (src/utils/appNav.js), which InventoryApp opens once it knows who is
 // signed in.
-// No counts beside My Collection and Wishlist: this page never loads the
-// collection, and a number here would mean fetching it just to print it.
+// The counts beside My Collection and Wishlist are fetched on their own
+// (src/lib/navCounts.js), since this page never loads the collection. They
+// matter for more than the numbers: the tab row shows as many tabs as fit, so
+// without them Explore's tabs were narrower than the app's and an extra one
+// -- Feedback -- slipped out of the menu and into the row.
 export default function ExploreNav() {
   const router = useRouter();
   // undefined until the session lookup answers. The tabs wait for it rather than
@@ -22,6 +26,8 @@ export default function ExploreNav() {
   // later under a collector's cursor.
   const [session, setSession] = useState(undefined);
   const isLoggedIn = session === undefined ? null : Boolean(session);
+  const [counts, setCounts] = useState({ inventoryCount: null, wishlistCount: null });
+  const userId = session?.user?.id;
 
   useEffect(() => {
     let mounted = true;
@@ -37,7 +43,24 @@ export default function ExploreNav() {
     };
   }, []);
 
-  const items = isLoggedIn === null ? [] : appNavItems({ isLoggedIn });
+  // Keyed on the user rather than the session object, which is replaced on
+  // every token refresh. Cleared on sign-out so the next collector to sign in
+  // on this browser never sees the last one's numbers, even for a moment.
+  useEffect(() => {
+    if (!userId) return undefined;
+    let current = true;
+    loadNavCounts(userId)
+      .then((next) => {
+        if (current) setCounts(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+      setCounts({ inventoryCount: null, wishlistCount: null });
+    };
+  }, [userId]);
+
+  const items = isLoggedIn === null ? [] : appNavItems({ isLoggedIn, ...(isLoggedIn ? counts : {}) });
 
   return (
     <SiteNav
