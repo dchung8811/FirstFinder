@@ -4,6 +4,9 @@ import { useRouter } from "next/navigation";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
+import SiteNav, { TabButton } from "./SiteNav";
+import { appNavItems, landingView } from "../src/utils/appNav";
+import { forgetAccountOnDevice } from "../src/lib/forgetAccountOnDevice";
 import {
   REPO_URL,
   CONTRIBUTING_URL,
@@ -826,7 +829,6 @@ export default function FirstFinderApp() {
   const [identifyDraft, setIdentifyDraft] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState([]);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   // Which account the server confirmed as an admin, rather than a bare
   // boolean. Admin-ness belongs to a user, not to the app, so holding the id
   // and comparing lets signing out (or signing in as someone else) fall back
@@ -864,11 +866,10 @@ export default function FirstFinderApp() {
   const [savingWant, setSavingWant] = useState(false);
 
   const loadedUserIdRef = useRef(null);
-  const navSlotRef = useRef(null);
-  const navMeasureRef = useRef(null);
-  // Wraps the hamburger and its dropdown, so a click landing anywhere else can
-  // be told apart from a click inside the open menu.
-  const navMenuRef = useRef(null);
+  // A /?view=<name> that arrived with the page -- how routes outside the app,
+  // like /explore, link to a page inside it. Consumed once, when the session
+  // lookup decides where this visit starts.
+  const viewIntentRef = useRef(null);
 
   const router = useRouter();
 
@@ -886,7 +887,6 @@ export default function FirstFinderApp() {
 
   function go(view) {
     setActiveView(view);
-    setMobileMenuOpen(false);
   }
 
   // The site banner, set from /admin. Read with the anon key: RLS only returns
@@ -937,7 +937,6 @@ export default function FirstFinderApp() {
   // /admin lives outside this single-page shell (its own route and layout), so
   // it cannot be reached by setting activeView.
   function goToHref(href) {
-    setMobileMenuOpen(false);
     router.push(href);
   }
 
@@ -1048,16 +1047,26 @@ export default function FirstFinderApp() {
 
   // Declared before the session effect on purpose: effects run in order, so
   // the intent is recorded before getSession can resolve and decide where a
-  // signed-out visitor lands. The param is stripped straight away so a reload
-  // or a shared URL doesn't reopen the dialog.
+  // signed-out visitor lands. Both params are stripped straight away so a
+  // reload or a shared URL doesn't reopen the dialog or the view.
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
-    if (query.get("share") !== "explore") return;
-    shareIntentRef.current = "explore";
+    if (query.get("share") !== "explore" && !query.has("view")) return;
+    if (query.get("share") === "explore") shareIntentRef.current = "explore";
+    if (query.has("view")) viewIntentRef.current = query.get("view");
     query.delete("share");
+    query.delete("view");
     const rest = query.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
   }, []);
+
+  // getSession and onAuthStateChange race to say where a visit starts; whichever
+  // gets there first spends the /?view= intent, so it is honoured exactly once.
+  function takeLandingView(isSignedIn) {
+    const requested = viewIntentRef.current;
+    viewIntentRef.current = null;
+    return landingView(requested, isSignedIn);
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -1073,7 +1082,7 @@ export default function FirstFinderApp() {
       if (data.session) {
         setCurrentUser(data.session.user);
         setIsLoggedIn(true);
-        setActiveView("dashboard");
+        setActiveView(takeLandingView(true));
         if (loadedUserIdRef.current !== data.session.user.id) {
           loadedUserIdRef.current = data.session.user.id;
           loadInventory(data.session.user.id);
@@ -1082,6 +1091,8 @@ export default function FirstFinderApp() {
         // Sharing needs an account. Sign-in lands on the dashboard as usual,
         // and the effect below takes it from there once settings arrive.
         setActiveView("login");
+      } else if (viewIntentRef.current) {
+        setActiveView(takeLandingView(false));
       }
     });
 
@@ -1098,7 +1109,10 @@ export default function FirstFinderApp() {
 
       if (!session) {
         loadedUserIdRef.current = null;
-        setActiveView("home");
+        // Not on INITIAL_SESSION: that is the page opening signed out, where
+        // the view is already home -- or already where getSession sent a
+        // /?view= or /?share= link, which this must not undo.
+        if (event !== "INITIAL_SESSION") setActiveView("home");
         return;
       }
 
@@ -1112,7 +1126,7 @@ export default function FirstFinderApp() {
         // keep this history rather than counting page loads.
         if (event === "SIGNED_IN") recordLogin(session.user.id);
         loadInventory(session.user.id);
-        setActiveView("dashboard");
+        setActiveView(takeLandingView(true));
       }
     });
 
@@ -1181,32 +1195,6 @@ export default function FirstFinderApp() {
 
   const isAdmin = Boolean(currentUser && adminUserId === currentUser.id);
 
-  // A dropdown has to be dismissible by the two gestures everyone already
-  // expects of one -- click away, press Escape -- or it reads as a panel that
-  // got stuck open. Only listening while it is actually open keeps this off
-  // the event path for every other click in the app.
-  useEffect(() => {
-    if (!mobileMenuOpen) return;
-
-    function onPointerDown(event) {
-      if (navMenuRef.current && !navMenuRef.current.contains(event.target)) {
-        setMobileMenuOpen(false);
-      }
-    }
-
-    function onKeyDown(event) {
-      if (event.key === "Escape") setMobileMenuOpen(false);
-    }
-
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [mobileMenuOpen]);
-
   const activeInventory = useMemo(() => getActiveInventory(inventory), [inventory]);
   // The nav label says how many items are in the collection, which it cannot
   // truthfully do before the fetch lands. Rather than assert "(0)" to someone
@@ -1218,59 +1206,20 @@ export default function FirstFinderApp() {
   const wishlistCountKnown = !(wishlistLoading && wishlist.length === 0);
   const soldInventory = useMemo(() => inventory.filter((entry) => entry.status === "Sold"), [inventory]);
 
-  const navItems = useMemo(() => (
-    isLoggedIn
-      ? [
-          { view: "dashboard", label: "Dashboard" },
-          { view: "inventory", label: `My Collection${inventoryCountKnown ? ` (${activeInventory.length})` : ""}` },
-          // Its own tab, beside the collection rather than inside it: the
-          // whole point of the rework is that what you are hunting is not a
-          // subset of what you own. Same count guard as the collection --
-          // no number until the fetch has actually landed.
-          { view: "wishlist", label: `Wishlist${wishlistCountKnown ? ` (${openWishlist.length})` : ""}` },
-          { view: "addItems", label: "Add Items" },
-          // A real route (/explore), not a view: it is a server-rendered
-          // public page, so it carries an href and navigates out of this shell.
-          { view: "explore", label: "Explore", href: "/explore" },
-          // Feedback sits where Roadmap used to, because the nav row only has
-          // space for the first few and this is the one worth spending it on:
-          // a collector who wants to tell us something should not have to find
-          // a menu first. Roadmap keeps its place in the list, just further
-          // down, which on most widths means inside the menu.
-          { view: "feedback", label: "Feedback" },
-          { view: "about", label: "About" },
-          { view: "roadmap", label: "Roadmap" },
-          { view: "account", label: "My Account" }
-        ]
-      : [
-          { view: "home", label: "Get Started" },
-          { view: "explore", label: "Explore", href: "/explore" },
-          { view: "roadmap", label: "Roadmap" },
-          { view: "about", label: "About" }
-        ]
-  ), [isLoggedIn, inventoryCountKnown, activeInventory.length, wishlistCountKnown, openWishlist.length]);
+  const navItems = useMemo(
+    () =>
+      appNavItems({
+        isLoggedIn,
+        inventoryCount: inventoryCountKnown ? activeInventory.length : null,
+        wishlistCount: wishlistCountKnown ? openWishlist.length : null
+      }),
+    [isLoggedIn, inventoryCountKnown, activeInventory.length, wishlistCountKnown, openWishlist.length]
+  );
 
-  // The nav never scrolls sideways: whatever does not fit on one line drops out
-  // of the pill and into the menu behind the hamburger.
-  // Resizing reshuffles which tabs are behind the menu, so close it rather than
-  // leave a panel open over a list that just changed under the reader.
-  const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
-  const visibleNavCount = useNavOverflow(navSlotRef, navMeasureRef, navItems, closeMobileMenu);
-
-  // What the hamburger holds: whatever did not fit in the tab row, plus Admin
-  // for the accounts that have it.
-  //
-  // Admin is appended here rather than added to navItems, so it never competes
-  // for a slot in the visible row however wide the window is. It is a
-  // maintainer's tool, not part of the app every collector uses, and it should
-  // not sit in the tab strip next to My Collection. Keeping it out of navItems
-  // also leaves the overflow measurement reading exactly the tabs it did
-  // before, so nothing about the row's behaviour changes for anyone else.
-  const menuItems = useMemo(() => {
-    const items = navItems.slice(visibleNavCount);
-    if (isAdmin) items.push({ view: "admin", label: "Admin", href: "/admin" });
-    return items;
-  }, [navItems, visibleNavCount, isAdmin]);
+  // Admin only ever sits in the menu: it is a maintainer's tool, not part of
+  // the app every collector uses, and it should not sit in the tab strip next
+  // to My Collection.
+  const navMenuExtras = useMemo(() => (isAdmin ? [{ view: "admin", label: "Admin", href: "/admin" }] : []), [isAdmin]);
   const visibleInventory = inventoryStatusView === "sold" ? soldInventory : activeInventory;
 
   const totalCostBasis = useMemo(() => activeInventory.reduce((sum, entry) => sum + toNumber(entry.purchasePrice), 0), [activeInventory]);
@@ -1573,15 +1522,9 @@ export default function FirstFinderApp() {
     }
 
     trackEvent("logout");
-    // The snapshot is one person's shelf sitting in a browser other people
-    // use. Signing out has to take it with them.
-    clearOfflineCollection(currentUser?.id);
-    // And the photo URLs, which are worse than the snapshot: each one is a
-    // bearer token that opens a photo for anyone holding it, with no login.
-    clearSignedUrls(currentUser?.id);
-    // The queue goes too. It holds photographs and unsaved finds, and this is
-    // a device someone else may sign in on next.
-    clearQueue(currentUser?.id);
+    // Not awaited, as before: the screen goes back to home straight away and
+    // the stores empty behind it.
+    forgetAccountOnDevice(currentUser?.id);
     queueRef.current = [];
     setQueue([]);
     loadedUserIdRef.current = null;
@@ -2904,81 +2847,20 @@ export default function FirstFinderApp() {
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
       </div>
 
-      <nav className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-5 md:gap-8 print:hidden">
-        {/* min-w-0 rather than shrink-0, and the tagline is hidden on the
-            narrowest screens. With shrink-0 here the wordmark held its full
-            322px on a 375px phone, so nothing in the row could give way and
-            the log out button was pushed ~130px past the right edge -- which
-            mobile Safari answers by shrinking the whole page to fit, leaving
-            a white gutter down the side of every view. */}
-        <button onClick={() => go(isLoggedIn ? "dashboard" : "home")} className="flex min-w-0 items-center gap-3 text-left">
-          <img src="/firstfinder-mark-exact.png" alt="FirstFinder logo" className="h-10 w-10 shrink-0 rounded-xl object-cover" /><div className="min-w-0"><div className="truncate text-xl font-semibold tracking-tight">FirstFinder</div><div className="hidden truncate text-xs uppercase tracking-[0.22em] text-[#746655] sm:block">Your collection, catalogued</div></div>
-        </button>
-
-        <NavTabs
-          items={navItems}
-          activeView={activeView}
-          onSelect={(view) => {
-            const target = navItems.find((navItem) => navItem.view === view);
-            if (target?.href) goToHref(target.href);
-            else go(view);
-          }}
-          containerRef={navSlotRef}
-          measureRef={navMeasureRef}
-          visibleCount={visibleNavCount}
-        />
-
-        <div className="flex shrink-0 items-center gap-2">
-          {isLoggedIn ? <Button variant="outline" onClick={logout} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Log out</Button> : <Button onClick={() => setActiveView("login")} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]">Log in</Button>}
-          {menuItems.length > 0 && (
-            /* The menu is positioned against this wrapper rather than laid out
-               in the page. It used to render as a full-width block below the
-               nav, which pushed the whole page down on every open and read as
-               a section of the page rather than a menu belonging to the
-               button. Anchoring it here keeps it the size of its contents and
-               leaves the layout underneath alone. */
-            <div className="relative" ref={navMenuRef}>
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen((open) => !open)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d8c7ad] bg-[#fff8ee] text-[#201a14] hover:bg-white"
-                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-                aria-expanded={mobileMenuOpen}
-                aria-haspopup="menu"
-              >
-                <Icon name={mobileMenuOpen ? "x" : "menu"} size={18} />
-              </button>
-
-              {mobileMenuOpen && (
-                /* right-0 rather than left-0: the button sits at the end of the
-                   nav, so a menu growing rightwards would run off the screen on
-                   a phone. z-40 keeps it above page content without going over
-                   the toasts and modals, which sit higher. */
-                <div
-                  role="menu"
-                  /* The height cap is not hypothetical: on the narrowest
-                     screens the whole nav collapses in here, and eight items
-                     stand ~400px tall -- taller than a phone's viewport in
-                     landscape. Without this the last entries (Admin among
-                     them, since it is appended last) sit below the fold with
-                     no way to reach them. */
-                  className="absolute right-0 top-full z-40 mt-2 flex max-h-[calc(100vh-5rem)] w-56 max-w-[calc(100vw-2rem)] flex-col gap-1 overflow-y-auto rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-2 shadow-[0_18px_40px_-18px_rgba(32,26,20,0.45)]"
-                >
-                  {menuItems.map((navItem) => (
-                    <MobileNavLink
-                      key={navItem.view}
-                      active={activeView === navItem.view}
-                      onClick={() => (navItem.href ? goToHref(navItem.href) : go(navItem.view))}
-                    >
-                      {navItem.label}
-                    </MobileNavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </nav>
+      <SiteNav
+        items={navItems}
+        menuExtras={navMenuExtras}
+        activeView={activeView}
+        onSelect={(navItem) => (navItem.href ? goToHref(navItem.href) : go(navItem.view))}
+        onHome={() => go(isLoggedIn ? "dashboard" : "home")}
+        account={
+          isLoggedIn ? (
+            <Button variant="outline" onClick={logout} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Log out</Button>
+          ) : (
+            <Button onClick={() => setActiveView("login")} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]">Log in</Button>
+          )
+        }
+      />
 
       {shouldShowBanner(siteBanner, dismissedBannerId) && (
         <SiteBanner
@@ -4698,8 +4580,15 @@ function FeaturedShelves() {
           <Icon name="star" size={14} /> From the community
         </div>
         <h2 className="font-display mt-5 text-3xl font-semibold leading-tight tracking-tight md:text-4xl">Shelves worth a look.</h2>
+        {/* Every claim here is enforced, not aspirational: a shelf appears only
+            once its owner has listed their page and separately switched on
+            Explore (loadExploreCollections checks both), and the Explore query
+            never selects a price, value, note, or receipt photo. Keep it that
+            way, or change the copy. */}
         <p className="mt-4 max-w-2xl text-lg leading-8 text-[#d8e6e2]">
-          Real collections, shared by the collectors who own them. Titles, editions, and photos &mdash; never prices.
+          Real collections, put here by the collectors who own them. Nothing appears unless its owner switches it on,
+          and they can take it down at any time. You see titles, editions, and photos &mdash; never prices, receipts, or
+          notes.
         </p>
       </div>
 
@@ -8814,76 +8703,6 @@ function PhotoViewerModal({ entry, kind = "all", userId = null, onRecovered = nu
 }
 
 function clearPhotoUrls(photos) { photos.forEach((photo) => URL.revokeObjectURL(photo.url)); }
-// Measures the tabs at their natural width against the space the nav actually
-// has and reports how many fit. Everything past that goes into the menu, so the
-// pill never scrolls and never spills over the buttons beside it.
-const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : React.useLayoutEffect;
-
-function useNavOverflow(containerRef, measureRef, items, onCountChange) {
-  const [visibleCount, setVisibleCount] = useState(items.length);
-  const lastCountRef = useRef(items.length);
-  const signature = items.map((navItem) => navItem.label).join("|");
-
-  useIsomorphicLayoutEffect(() => {
-    const container = containerRef.current;
-    const measure = measureRef.current;
-    if (!container || !measure) return undefined;
-
-    function recompute() {
-      const widths = Array.from(measure.children).map((child) => child.getBoundingClientRect().width);
-      // The pill's own border and p-1 padding, which the tabs have to share the
-      // slot with.
-      const available = container.clientWidth - 10;
-      const gap = 4;
-      let used = 0;
-      let count = 0;
-      for (let index = 0; index < widths.length; index += 1) {
-        const next = used + widths[index] + (index === 0 ? 0 : gap);
-        if (next > available) break;
-        used = next;
-        count += 1;
-      }
-      setVisibleCount(count);
-      if (count !== lastCountRef.current) {
-        lastCountRef.current = count;
-        onCountChange();
-      }
-    }
-
-    recompute();
-    const observer = new ResizeObserver(recompute);
-    observer.observe(container);
-    observer.observe(measure);
-    return () => observer.disconnect();
-  }, [signature, onCountChange]);
-
-  return Math.min(visibleCount, items.length);
-}
-
-function NavTabs({ items, activeView, onSelect, containerRef, measureRef, visibleCount }) {
-  return (
-    <div ref={containerRef} className="relative flex min-w-0 flex-1 justify-center">
-      {/* A copy of every tab at its natural width, sealed inside a zero-sized
-          box so it can be measured without adding a pixel of scrollable area. */}
-      <div aria-hidden="true" className="pointer-events-none invisible absolute left-0 top-0 h-0 w-0 overflow-hidden">
-        <div ref={measureRef} className="flex flex-nowrap items-center gap-1">
-          {items.map((navItem) => (
-            <TabButton key={navItem.view} active={false} onClick={() => {}}>{navItem.label}</TabButton>
-          ))}
-        </div>
-      </div>
-      {visibleCount > 0 && (
-        <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-hidden rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
-          {items.slice(0, visibleCount).map((navItem) => (
-            <TabButton key={navItem.view} active={activeView === navItem.view} onClick={() => onSelect(navItem.view)}>{navItem.label}</TabButton>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 // ---------------------------------------------------------------------------
 // Wishlist
 // ---------------------------------------------------------------------------
@@ -9427,7 +9246,6 @@ function FoundItDialog({ want, saving, onConfirm, onClose }) {
   );
 }
 
-function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text" }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><input type={type} value={value || ""} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
 // options may be plain strings, where the value and the label are the same
 // thing (every status, condition and category list in the app), or

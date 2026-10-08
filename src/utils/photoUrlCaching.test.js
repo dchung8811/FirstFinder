@@ -118,11 +118,17 @@ describe("signed URL cache wiring", () => {
     expect(funnel[0]).toContain("pruneSignedUrls");
   });
 
-  // Signed URLs are bearer tokens sitting on disk for up to a week. Both exits
-  // have to take them, not just one.
+  // Signed URLs are bearer tokens sitting on disk for up to a week. Every exit
+  // has to take them, not just one. Account deletion clears them directly;
+  // both Log out buttons (the app's and /explore's) go through
+  // forgetAccountOnDevice, which has to be the thing that clears them.
   it("clears them on sign-out and on account deletion", () => {
-    const clears = source.match(/clearSignedUrls\(/g) || [];
-    expect(clears.length).toBeGreaterThanOrEqual(2);
+    expect(source).toMatch(/clearSignedUrls\(/);
+    expect(/async function logout\(\)[\s\S]*?forgetAccountOnDevice\(/.test(source)).toBe(true);
+    const forget = readFileSync(resolve(process.cwd(), "src/lib/forgetAccountOnDevice.js"), "utf8");
+    expect(forget).toMatch(/clearSignedUrls\(/);
+    const exploreNav = readFileSync(resolve(process.cwd(), "app/explore/ExploreNav.jsx"), "utf8");
+    expect(exploreNav).toMatch(/forgetAccountOnDevice\(/);
   });
 
   // The recovery path must not be served from the cache. resign() runs
