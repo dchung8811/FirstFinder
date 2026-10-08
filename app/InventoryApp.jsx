@@ -1111,10 +1111,15 @@ export default function FirstFinderApp({ initialView = "home" }) {
       if (data.session) {
         setCurrentUser(data.session.user);
         setIsLoggedIn(true);
-        land(takeLandingView(true));
+        // Placed only by whichever of this and onAuthStateChange's
+        // INITIAL_SESSION gets here first -- the same guard that stops the
+        // inventory loading twice. The first spends the address the visit
+        // asked for; a second placement would find it spent and send a
+        // collector who opened /feedback to the dashboard instead.
         if (loadedUserIdRef.current !== data.session.user.id) {
           loadedUserIdRef.current = data.session.user.id;
           loadInventory(data.session.user.id);
+          land(takeLandingView(true));
         }
       } else if (shareIntentRef.current) {
         // Sharing needs an account. Sign-in lands on the dashboard as usual,
