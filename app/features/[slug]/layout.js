@@ -2,6 +2,10 @@
 // guides have one: the app's nav and footer live inside the "use client"
 // InventoryApp.jsx and can't be imported into a server component. See
 // app/books/layout.js. Duplicating a header is the cheaper mistake.
+//
+// It sits on [slug] rather than on /features so that /features itself is the
+// app's own Features page (app/features/page.js), nav bar and all, which every
+// guide links back to.
 
 export default function FeaturesLayout({ children }) {
   return (

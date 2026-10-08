@@ -56,8 +56,8 @@ export default async function FeatureGuidePage({ params }) {
 
   return (
     <article className="mx-auto max-w-4xl px-6 pb-4">
-      <a href="/" className="text-sm font-medium text-[#123f38] underline underline-offset-4">
-        ← FirstFinder
+      <a href="/features" className="text-sm font-medium text-[#123f38] underline underline-offset-4">
+        ← All features
       </a>
       <div className="mt-6 font-mono text-xs uppercase tracking-[0.2em] text-[#8a7a64]">
         Feature guide{entry ? ` · Live since ${formatFeatureDate(entry.date)}` : ""}
