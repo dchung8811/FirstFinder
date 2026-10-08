@@ -12,3 +12,44 @@ body {
   font-family: var(--font-plex-mono), ui-monospace, SFMono-Regular, monospace;
   font-variant-numeric: tabular-nums;
 }
+/* The home page's strip of shared books (FeaturedShelves in InventoryApp).
+   Its track holds two identical halves and slides left by one half, so the
+   loop restarts on an identical frame. Written here rather than as Tailwind
+   arbitrary values because the keyframes, the hover pause and the
+   reduced-motion fallback have to agree with each other. */
+@keyframes shelf-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.shelf-marquee-track {
+  animation: shelf-marquee var(--shelf-marquee-duration, 60s) linear infinite;
+}
+
+/* The pause button's state lives here too, not in a Tailwind class: utilities
+   sit in a cascade layer, and this unlayered animation shorthand would
+   override them. */
+.shelf-marquee:hover .shelf-marquee-track,
+.shelf-marquee:focus-within .shelf-marquee-track,
+.shelf-marquee-track[data-paused] {
+  animation-play-state: paused;
+}
+
+/* No drifting at all for anyone who has asked for less motion: the strip
+   becomes an ordinary row they can scroll themselves, the repeated half and
+   the pause control go, since there is nothing to pause. */
+@media (prefers-reduced-motion: reduce) {
+  .shelf-marquee {
+    overflow-x: auto;
+  }
+
+  .shelf-marquee-track {
+    animation: none;
+  }
+
+  .shelf-marquee-copy,
+  .shelf-marquee-toggle {
+    display: none;
+  }
+}

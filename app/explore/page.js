@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { loadExploreCollections } from "../../src/lib/sharedCollection";
-import { collectionMonogram, updatedAgo } from "../../src/utils/explore";
+import { collectionMonogram, jacketTone, updatedAgo } from "../../src/utils/explore";
 import { itemCredit } from "../../src/utils/items";
 import { Chip } from "../c/[slug]/ItemCard";
 
@@ -13,17 +13,6 @@ export const metadata = {
   description: "Browse the shelves FirstFinder collectors have chosen to share — first editions, signed copies, and the rest.",
   alternates: { canonical: "/explore" }
 };
-
-// Jacket colours for covers nobody has photographed, all drawn from the
-// existing palette. Chosen by item id so a book keeps its colour between
-// visits instead of reshuffling on every render.
-const JACKET_TONES = ["bg-[#123f38]", "bg-[#3f352a]", "bg-[#6d5526]", "bg-[#8f3524]"];
-
-function jacketTone(id) {
-  let hash = 0;
-  for (const char of String(id)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return JACKET_TONES[hash % JACKET_TONES.length];
-}
 
 function Cover({ cover, href }) {
   const label = cover.name || "Untitled item";

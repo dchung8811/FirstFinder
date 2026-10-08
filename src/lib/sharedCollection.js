@@ -412,7 +412,10 @@ const EXPLORE_ITEM_COLUMNS = [
 //
 // Returns [] on any failure, like listListedCollectionSlugs: an Explore page
 // with nothing on it is better than a 500.
-export async function loadExploreCollections() {
+//
+// `pick` narrows the sorted rows before anything is signed -- the home page
+// passes featuredShelves so it pays for the covers it shows and no others.
+export async function loadExploreCollections({ pick = (collections) => collections } = {}) {
   try {
     const admin = createSupabaseAdminClient();
 
@@ -483,7 +486,7 @@ export async function loadExploreCollections() {
       })
     );
 
-    const collections = sortExploreCollections(rows.filter(Boolean));
+    const collections = pick(sortExploreCollections(rows.filter(Boolean)));
 
     // Signed last, and only for the covers that will actually be on screen --
     // at most EXPLORE_STRIP_LIMIT per row. Same one-hour TTL as the collection
