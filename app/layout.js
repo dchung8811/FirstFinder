@@ -2,6 +2,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import ServiceWorkerRegistrar from "./ServiceWorkerRegistrar";
 import { Fraunces, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { HOME_TITLE } from "../src/utils/appNav";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -20,7 +21,7 @@ const description = "A free, open-source catalog for collectors — not for shop
 // The bare name is a weak title: it carries no keywords, and an unrelated iOS
 // app already owns "FirstFinder" in search results. Leading with what the app
 // does gives Google something to match a query against.
-const defaultTitle = "FirstFinder — Catalog your collection and identify first editions";
+const defaultTitle = HOME_TITLE;
 
 // Matches the manifest's theme_color, so an installed window's title bar is
 // the app's green rather than the browser's default.

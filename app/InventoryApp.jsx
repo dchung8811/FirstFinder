@@ -5,7 +5,7 @@ import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
 import SiteNav, { TabButton } from "./SiteNav";
-import { appNavItems, landingView } from "../src/utils/appNav";
+import { appNavItems, documentTitle, landingView, pathForView, viewForPath } from "../src/utils/appNav";
 import { forgetAccountOnDevice } from "../src/lib/forgetAccountOnDevice";
 import {
   REPO_URL,
@@ -761,8 +761,12 @@ function ToastStack({ toasts, onDismiss }) {
 }
 
 
-export default function FirstFinderApp() {
-  const [activeView, setActiveView] = useState("home");
+// `initialView` is the view the address names (app/[view]/page.js), so the
+// server draws the right page for /about or /privacy instead of home. For a
+// page that needs an account it draws nothing yet; the session lookup below
+// decides what this visit actually opens on.
+export default function FirstFinderApp({ initialView = "home" }) {
+  const [activeView, setActiveView] = useState(initialView);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [item, setItem] = useState({ ...emptyItem, ...sampleItems[0] });
@@ -859,10 +863,26 @@ export default function FirstFinderApp() {
   const [savingWant, setSavingWant] = useState(false);
 
   const loadedUserIdRef = useRef(null);
-  // A /?view=<name> that arrived with the page -- how routes outside the app,
-  // like /explore, link to a page inside it. Consumed once, when the session
-  // lookup decides where this visit starts.
+  // The view this visit asked for -- by its address (/collection), or by a
+  // /?view=<name> link from an older page outside the app. Spent when the
+  // session lookup decides where the visit starts; kept through a detour to
+  // the login form, so signing in lands on the page that was asked for.
   const viewIntentRef = useRef(null);
+  // The address bar follows activeView (see the effect after the session
+  // lookup). These say how the next change should be written to history.
+  //   landedRef: the session lookup has placed this visit. Until then the
+  //     view is provisional and the address is left as it arrived.
+  //   landingViewRef: the view that placement chose. Moving to it replaces the
+  //     entry rather than adding one, so Back doesn't return to "/" only to be
+  //     sent straight on to the dashboard again.
+  //   fromHistoryRef: this change came from Back or Forward, which has already
+  //     moved through history; writing it again would break the next Back.
+  const landedRef = useRef(false);
+  const landingViewRef = useRef(null);
+  const fromHistoryRef = useRef(false);
+  const previousViewRef = useRef(initialView);
+  // The title the current view should have, once the app has set one.
+  const titleRef = useRef(null);
 
   const router = useRouter();
 
@@ -1043,6 +1063,12 @@ export default function FirstFinderApp() {
   // signed-out visitor lands. Both params are stripped straight away so a
   // reload or a shared URL doesn't reopen the dialog or the view.
   useEffect(() => {
+    // Read from the address rather than from initialView: coming Back to the
+    // app from /explore can remount it under whichever page was first loaded,
+    // and the address is the one thing that is always right.
+    const fromPath = viewForPath(window.location.pathname);
+    if (fromPath && fromPath !== "home") viewIntentRef.current = fromPath;
+
     const query = new URLSearchParams(window.location.search);
     if (query.get("share") !== "explore" && !query.has("view")) return;
     if (query.get("share") === "explore") shareIntentRef.current = "explore";
@@ -1054,11 +1080,20 @@ export default function FirstFinderApp() {
   }, []);
 
   // getSession and onAuthStateChange race to say where a visit starts; whichever
-  // gets there first spends the /?view= intent, so it is honoured exactly once.
+  // gets there first spends the intent, so it is honoured exactly once. The
+  // exception is a signed-out visitor asking for a collector's page: the
+  // intent waits for them at the login form, and the sign-in spends it.
   function takeLandingView(isSignedIn) {
     const requested = viewIntentRef.current;
-    viewIntentRef.current = null;
-    return landingView(requested, isSignedIn);
+    const view = landingView(requested, isSignedIn);
+    if (isSignedIn || view !== "login") viewIntentRef.current = null;
+    return view;
+  }
+
+  function land(view) {
+    landedRef.current = true;
+    landingViewRef.current = view;
+    setActiveView(view);
   }
 
   useEffect(() => {
@@ -1066,6 +1101,7 @@ export default function FirstFinderApp() {
 
     supabase.auth.getSession().then(({ data, error }) => {
       if (!mounted) return;
+      landedRef.current = true;
 
       if (error) {
         console.error("Session lookup error:", error.message);
@@ -1075,7 +1111,7 @@ export default function FirstFinderApp() {
       if (data.session) {
         setCurrentUser(data.session.user);
         setIsLoggedIn(true);
-        setActiveView(takeLandingView(true));
+        land(takeLandingView(true));
         if (loadedUserIdRef.current !== data.session.user.id) {
           loadedUserIdRef.current = data.session.user.id;
           loadInventory(data.session.user.id);
@@ -1083,9 +1119,9 @@ export default function FirstFinderApp() {
       } else if (shareIntentRef.current) {
         // Sharing needs an account. Sign-in lands on the dashboard as usual,
         // and the effect below takes it from there once settings arrive.
-        setActiveView("login");
+        land("login");
       } else if (viewIntentRef.current) {
-        setActiveView(takeLandingView(false));
+        land(takeLandingView(false));
       }
     });
 
@@ -1096,7 +1132,7 @@ export default function FirstFinderApp() {
       setIsLoggedIn(Boolean(session));
 
       if (event === "PASSWORD_RECOVERY") {
-        setActiveView("resetPassword");
+        land("resetPassword");
         return;
       }
 
@@ -1119,7 +1155,7 @@ export default function FirstFinderApp() {
         // keep this history rather than counting page loads.
         if (event === "SIGNED_IN") recordLogin(session.user.id);
         loadInventory(session.user.id);
-        setActiveView(takeLandingView(true));
+        land(takeLandingView(true));
       }
     });
 
@@ -1128,6 +1164,84 @@ export default function FirstFinderApp() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // The address bar follows the view, so every page of the app has a real
+  // address: refresh stays put, a bookmark or shared link opens the page it
+  // names, and Back and Forward move between pages instead of off the site.
+  //
+  // One effect keyed on activeView rather than a history call beside each of
+  // the thirty-odd places that change view -- the same choice the tracking
+  // and scroll effects make, and for the same reason: nothing can switch view
+  // without the address following.
+  //
+  // Leaving the login, sign-up or reset form replaces its entry instead of
+  // stacking on top of it: Back from the dashboard should not reopen a login
+  // form for someone who is already in.
+  useEffect(() => {
+    const previous = previousViewRef.current;
+    previousViewRef.current = activeView;
+    // A pending "take me to my collection after login" is dropped once the
+    // visitor goes somewhere else instead.
+    if (!["login", "signup", "resetPassword"].includes(activeView)) {
+      if (landedRef.current && landingViewRef.current !== activeView) viewIntentRef.current = null;
+    }
+    if (!landedRef.current) return;
+
+    const replace =
+      activeView === landingViewRef.current || fromHistoryRef.current || ["login", "signup", "resetPassword"].includes(previous);
+    landingViewRef.current = null;
+    fromHistoryRef.current = false;
+
+    const path = pathForView(activeView);
+    if (!path) return;
+    // The tab title too: the server set it for the page first loaded, and
+    // nothing else will change it as the view moves on.
+    titleRef.current = documentTitle(activeView);
+    document.title = titleRef.current;
+    if (window.location.pathname === path) return;
+    // A replace keeps whatever the address arrived with -- a reset link's
+    // tokens, a campaign tag. A new page starts clean.
+    if (replace) window.history.replaceState(null, "", `${path}${window.location.search}${window.location.hash}`);
+    else window.history.pushState(null, "", path);
+  }, [activeView]);
+
+  // Keeps the title the effect above set. On a first load that redirects --
+  // /collection opened signed out becomes /login -- Next writes the server's
+  // title for the address the page arrived at a moment after the redirect has
+  // already renamed the tab, and the tab says "My Collection" over a login
+  // form. Only while this component is on screen: leaving for /explore
+  // unmounts it, and Explore's own title takes over.
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      if (titleRef.current && document.title !== titleRef.current) document.title = titleRef.current;
+    });
+    observer.observe(document.head, { subtree: true, childList: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
+
+  // Back and Forward. The address has already changed; this brings the view
+  // into line with it, through the same rules as an address typed in -- so
+  // Back onto a collector's page after logging out shows the login form, not
+  // an empty collection. Addresses outside the app (/explore, /c/...) are
+  // Next's to handle and are left alone.
+  useEffect(() => {
+    function onPopState() {
+      const requested = viewForPath(window.location.pathname);
+      if (!requested) return;
+      const next = landingView(requested, isLoggedIn);
+      if (next === activeView) {
+        // Nothing to switch, but the address may name a page this visitor
+        // was redirected away from; show the one they are actually on.
+        const path = pathForView(next);
+        if (path && window.location.pathname !== path) window.history.replaceState(null, "", path);
+        return;
+      }
+      fromHistoryRef.current = true;
+      setActiveView(next);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [isLoggedIn, activeView]);
 
   // The other half of the sign-up checkbox for Google sign-up: a ticked box
   // was parked in browser storage before the redirect, and is spent here on

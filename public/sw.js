@@ -28,7 +28,7 @@
 
 // Bump to retire every cache this worker wrote. The old ones are deleted on
 // activate, so a stale shell cannot outlive a release.
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const SHELL_CACHE = `firstfinder-shell-${CACHE_VERSION}`;
 const ASSET_CACHE = `firstfinder-assets-${CACHE_VERSION}`;
 
@@ -96,13 +96,20 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(SHELL_CACHE).then((cache) => cache.put(SHELL_URL, copy)).catch(() => undefined);
+          // Only the front page refreshes the shell. Every app page has its own
+          // address now, and storing whichever page was opened last as "the
+          // shell" would make an offline launch open on /privacy or a shared
+          // shelf. (v2 retires the v1 cache, which did exactly that.)
+          if (url.pathname === SHELL_URL && response.ok) {
+            const copy = response.clone();
+            caches.open(SHELL_CACHE).then((cache) => cache.put(SHELL_URL, copy)).catch(() => undefined);
+          }
           return response;
         })
         .catch(async () => {
-          // Any page of the app falls back to the shell: the app is one client
-          // route, so the shell can render whichever view was asked for.
+          // Any page of the app falls back to the shell: it reads the address
+          // it was opened at, so the front page can open whichever view was
+          // asked for.
           const cached = await caches.match(SHELL_URL);
           return cached || Response.error();
         })

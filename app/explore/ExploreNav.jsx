@@ -4,14 +4,15 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../src/lib/supabaseClient";
 import { forgetAccountOnDevice } from "../../src/lib/forgetAccountOnDevice";
-import { appNavItems } from "../../src/utils/appNav";
+import { appNavItems, pathForView } from "../../src/utils/appNav";
 import SiteNav from "../SiteNav";
 
 // The app's own nav bar on /explore. Explore is reached from that bar, and a
 // page that drops it the moment you arrive reads as having left the site.
 //
-// Every tab but Explore is a view inside the app, so choosing one goes to
-// /?view=<name>, which InventoryApp opens once it knows who is signed in.
+// Every tab but Explore is a page inside the app, at its own address
+// (src/utils/appNav.js), which InventoryApp opens once it knows who is
+// signed in.
 // No counts beside My Collection and Wishlist: this page never loads the
 // collection, and a number here would mean fetching it just to print it.
 export default function ExploreNav() {
@@ -42,7 +43,7 @@ export default function ExploreNav() {
     <SiteNav
       items={items}
       activeView="explore"
-      onSelect={(navItem) => router.push(navItem.href || `/?view=${navItem.view}`)}
+      onSelect={(navItem) => router.push(navItem.href || pathForView(navItem.view))}
       onHome={() => router.push("/")}
       account={
         isLoggedIn === null ? null : isLoggedIn ? (
@@ -63,7 +64,7 @@ export default function ExploreNav() {
         ) : (
           <button
             type="button"
-            onClick={() => router.push("/?view=login")}
+            onClick={() => router.push("/login")}
             className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-[#123f38] px-5 py-3 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
           >
             Log in

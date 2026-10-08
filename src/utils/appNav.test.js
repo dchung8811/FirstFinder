@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appNavItems, landingView } from "./appNav";
+import { HOME_TITLE, VIEW_PATHS, appNavItems, documentTitle, isPrivateView, landingView, pathForView, viewForPath, viewTitle } from "./appNav";
 
 const views = (items) => items.map((item) => item.view);
 
@@ -32,7 +32,20 @@ describe("landingView", () => {
   it("falls back to the dashboard for a collector asking for something unknown or signed-out only", () => {
     expect(landingView("nonsense", true)).toBe("dashboard");
     expect(landingView("login", true)).toBe("dashboard");
+    expect(landingView("home", true)).toBe("dashboard");
     expect(landingView(null, true)).toBe("dashboard");
+  });
+
+  it("opens public pages for a collector too", () => {
+    expect(landingView("privacy", true)).toBe("privacy");
+    expect(landingView("features", true)).toBe("features");
+  });
+
+  it("never opens the two views that can't be opened cold", () => {
+    expect(landingView("identify", true)).toBe("addItems");
+    expect(landingView("identify", false)).toBe("login");
+    expect(landingView("resetPassword", true)).toBe("dashboard");
+    expect(landingView("resetPassword", false)).toBe("login");
   });
 
   it("sends a signed-out visitor asking for a collector's page to the login form", () => {
@@ -44,5 +57,58 @@ describe("landingView", () => {
     expect(landingView("about", false)).toBe("about");
     expect(landingView("signup", false)).toBe("signup");
     expect(landingView("admin", false)).toBe("home");
+  });
+});
+
+describe("view paths", () => {
+  it("round-trips every view through its path", () => {
+    for (const [view, path] of Object.entries(VIEW_PATHS)) {
+      expect(pathForView(view)).toBe(path);
+      expect(viewForPath(path)).toBe(view);
+    }
+  });
+
+  it("gives every view its own path", () => {
+    const paths = Object.values(VIEW_PATHS);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  it("ignores a trailing slash", () => {
+    expect(viewForPath("/collection/")).toBe("inventory");
+    expect(viewForPath("/")).toBe("home");
+  });
+
+  it("says nothing about addresses outside the app", () => {
+    expect(viewForPath("/explore")).toBeNull();
+    expect(viewForPath("/c/someone")).toBeNull();
+    expect(viewForPath("/collection/extra")).toBeNull();
+    expect(pathForView("explore")).toBeNull();
+  });
+
+  it("marks only the collection's own pages as private", () => {
+    expect(isPrivateView("inventory")).toBe(true);
+    expect(isPrivateView("about")).toBe(false);
+    expect(isPrivateView("login")).toBe(false);
+  });
+
+  it("knows a path for every tab the nav offers inside the app", () => {
+    for (const isLoggedIn of [true, false]) {
+      for (const item of appNavItems({ isLoggedIn })) {
+        if (!item.href) expect(pathForView(item.view)).not.toBeNull();
+      }
+    }
+  });
+});
+
+describe("titles", () => {
+  it("names every view that has an address", () => {
+    for (const view of Object.keys(VIEW_PATHS)) {
+      if (view !== "home") expect(viewTitle(view)).toBeTruthy();
+    }
+  });
+
+  it("matches the layout's template in the browser, and keeps home's full title", () => {
+    expect(documentTitle("inventory")).toBe("My Collection | FirstFinder");
+    expect(documentTitle("home")).toBe(HOME_TITLE);
   });
 });
