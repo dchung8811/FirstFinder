@@ -2,6 +2,7 @@
 
 import { formatCurrency } from "../../../src/utils/format";
 import { itemCredit } from "../../../src/utils/items";
+import { publicItemAnchor } from "../../../src/utils/publicCollection";
 
 // The card, the chip, and the detail row a shared collection page is built
 // from.
@@ -31,7 +32,7 @@ function DetailRow({ label, children }) {
   );
 }
 
-export function ItemCard({ item, onViewPhotos }) {
+export function ItemCard({ item, onViewPhotos, marked = false }) {
   // "First / First" reads the way collectors say it; either half alone still
   // needs its noun, so a lone printing doesn't render as a bare "Second".
   const editionLine =
@@ -42,7 +43,14 @@ export function ItemCard({ item, onViewPhotos }) {
   const hasDetails = item.estimatedValue || item.purchasePrice || item.soldPrice || item.purchaseDate || item.source || item.notes;
 
   return (
-    <article className="overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
+    // The anchor Explore and the home page link a single book to. `marked`
+    // rings the card that was asked for, so it can be told apart from its
+    // neighbours once the page has scrolled to it -- see CollectionBrowser for
+    // why that is state and not :target.
+    <article
+      id={publicItemAnchor(item.id)}
+      className={`scroll-mt-6 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm ${marked ? "ring-2 ring-[#123f38] ring-offset-4 ring-offset-[#f6efe3]" : ""}`}
+    >
       {/* A plain <img>, not next/image: these are short-lived signed URLs
           into a private Supabase bucket, and routing them through the image
           optimizer would cache copies of private photos outside it.

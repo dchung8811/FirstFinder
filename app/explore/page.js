@@ -2,6 +2,7 @@ import Link from "next/link";
 import { loadExploreCollections } from "../../src/lib/sharedCollection";
 import { collectionMonogram, jacketTone, updatedAgo } from "../../src/utils/explore";
 import { itemCredit } from "../../src/utils/items";
+import { publicItemHref } from "../../src/utils/publicCollection";
 import { Chip } from "../c/[slug]/ItemCard";
 
 // Rendered per request, like /c/<slug>: switching Explore off has to take a
@@ -77,13 +78,13 @@ function Shelf({ collection }) {
         </Link>
       </div>
 
-      {/* Every tile leads to the same shelf: a cover here is a sample of the
-          collection, and the collection page is where an item opens. Covers
-          are out of the tab order so a keyboard visitor gets one stop per
-          shelf (the title) instead of nine. */}
+      {/* Each tile opens its own book on the shelf page, scrolled to and
+          marked -- someone who clicked one cover wants that book, not the top
+          of a shelf of two hundred. Covers stay out of the tab order so a
+          keyboard visitor gets one stop per shelf (the title) instead of nine. */}
       <div className="-mx-4 mt-5 flex gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
         {collection.covers.map((cover) => (
-          <Cover key={cover.id} cover={cover} href={href} />
+          <Cover key={cover.id} cover={cover} href={publicItemHref(collection.slug, cover.id)} />
         ))}
         {collection.moreCount > 0 && (
           /* Sits where the eye already is after scrolling the strip, and

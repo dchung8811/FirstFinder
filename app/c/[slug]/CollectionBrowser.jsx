@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   sortOptions,
   filterPublicItems,
@@ -11,6 +11,7 @@ import {
 } from "../../../src/utils/publicCollectionBrowse";
 import { formatCurrency } from "../../../src/utils/format";
 import { itemCredit } from "../../../src/utils/items";
+import { publicItemAnchor } from "../../../src/utils/publicCollection";
 import { ItemCard } from "./ItemCard";
 import PhotoViewer from "./PhotoViewer";
 
@@ -92,7 +93,7 @@ function valueForItem(item) {
   return item.status === "Sold" ? item.soldPrice : item.estimatedValue;
 }
 
-function RecordTable({ items, onViewPhotos }) {
+function RecordTable({ items, onViewPhotos, markedId }) {
   // Derived from the items rather than passed down: a withheld field is absent
   // from the object, so "does anything here have a price" is the same question
   // as "did the owner publish prices".
@@ -116,7 +117,11 @@ function RecordTable({ items, onViewPhotos }) {
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id} className="border-t border-[#e0d2bc]">
+              <tr
+                key={item.id}
+                id={publicItemAnchor(item.id)}
+                className={`scroll-mt-6 border-t border-[#e0d2bc] ${item.id === markedId ? "bg-[#edf4f2]" : ""}`}
+              >
                 <td className="px-5 py-4">
                   <div className="font-semibold">{item.name || "Untitled item"}</div>
                   <div className="text-[#665746]">{itemCredit(item) || "Unknown maker"}</div>
@@ -192,6 +197,34 @@ export default function CollectionBrowser({ items }) {
     setViewing(item);
     setPhotoIndex(0);
   }
+
+  // Arriving from a cover on Explore or the home page, at /c/<slug>#item-<id>.
+  //
+  // The browser's own jump to the fragment can't be relied on here: the page
+  // streams in behind loading.js, so the card may not exist yet when the
+  // browser looks for it, and a visitor who last chose Records gets the cards
+  // the server rendered swapped for a table after hydration, which leaves them
+  // scrolled to where a card used to be. So once the view this visitor will
+  // actually see has rendered, scroll to the book once. Only once: toggling
+  // the view later shouldn't yank them back to it.
+  //
+  // The book is marked from state rather than with :target, which only
+  // tracks full page loads -- Explore's links are client-side navigations,
+  // and those never update it.
+  const arrived = useRef(false);
+  const [markedId, setMarkedId] = useState(null);
+  useEffect(() => {
+    if (arrived.current || view !== viewStore.read()) return;
+    arrived.current = true;
+    // Compared raw, not decoded: the anchors are plain ids that never need
+    // escaping, and decodeURIComponent throws on a hand-mangled fragment like
+    // "#%" -- which would take the whole shelf down over a typo in a link.
+    const anchor = window.location.hash.slice(1);
+    const item = anchor && items.find((candidate) => publicItemAnchor(candidate.id) === anchor);
+    if (!item) return;
+    setMarkedId(item.id);
+    document.getElementById(anchor)?.scrollIntoView({ block: "start" });
+  }, [view, items]);
 
   const options = useMemo(() => collectFilterOptions(items), [items]);
 
@@ -304,11 +337,11 @@ export default function CollectionBrowser({ items }) {
       ) : view === "cards" ? (
         <div className={`${showControls ? "mt-8" : "mt-10"} grid gap-6 sm:grid-cols-2 lg:grid-cols-3`}>
           {visible.map((item) => (
-            <ItemCard key={item.id} item={item} onViewPhotos={openPhotos} />
+            <ItemCard key={item.id} item={item} onViewPhotos={openPhotos} marked={item.id === markedId} />
           ))}
         </div>
       ) : (
-        <RecordTable items={visible} onViewPhotos={openPhotos} />
+        <RecordTable items={visible} onViewPhotos={openPhotos} markedId={markedId} />
       )}
 
       {viewing && (
