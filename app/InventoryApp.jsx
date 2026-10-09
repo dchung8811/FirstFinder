@@ -4564,7 +4564,7 @@ function DemoVideoPlayer() {
     <LoopingVideo
       src={demoVideoSrc}
       poster={demoVideoPoster}
-      label="A walkthrough of cataloguing a collection in FirstFinder"
+      label="A walkthrough of adding a book to a collection in FirstFinder on a phone"
     />
   );
 }
@@ -4860,11 +4860,13 @@ function HomePage({ onGetStarted }) {
       <section id="how-it-works" className="bg-[#fbf5e9]">
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
           <div className="mx-auto max-w-3xl">
-            <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in 60 seconds.</h2>
-            {/* aspect-[1152/720], not aspect-video: the recording is 16:10, and
-                cropping it to 16:9 would shave the top and bottom off a screen
-                capture whose edges are the app's own chrome. */}
-            <div className="relative mt-8 aspect-[1152/720] w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-black shadow-xl">
+            <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in 90 seconds.</h2>
+            {/* The recording is a portrait iPhone capture, so the frame takes
+                its exact 600:1304 shape -- object-cover in any other box would
+                crop the status bar or the form fields off the edges. Capped at
+                300px wide so the whole phone screen fits in one viewport
+                instead of a full-width video taller than the page. */}
+            <div className="relative mx-auto mt-8 aspect-[600/1304] w-full max-w-[300px] overflow-hidden rounded-[2rem] border border-[#d3c1a4] bg-black shadow-xl">
               <DemoVideoPlayer />
             </div>
           </div>
