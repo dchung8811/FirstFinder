@@ -216,7 +216,10 @@ export default function CollectionBrowser({ items }) {
   useEffect(() => {
     if (arrived.current || view !== viewStore.read()) return;
     arrived.current = true;
-    const anchor = decodeURIComponent(window.location.hash.slice(1));
+    // Compared raw, not decoded: the anchors are plain ids that never need
+    // escaping, and decodeURIComponent throws on a hand-mangled fragment like
+    // "#%" -- which would take the whole shelf down over a typo in a link.
+    const anchor = window.location.hash.slice(1);
     const item = anchor && items.find((candidate) => publicItemAnchor(candidate.id) === anchor);
     if (!item) return;
     setMarkedId(item.id);
