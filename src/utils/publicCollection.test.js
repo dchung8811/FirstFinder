@@ -18,6 +18,8 @@ import {
   summaryLine,
   generateShareSlug,
   isValidShareSlug,
+  publicItemAnchor,
+  publicItemHref,
   SLUG_LENGTH
 } from "./publicCollection";
 
@@ -303,6 +305,16 @@ describe("share slugs", () => {
   it("does not repeat itself", () => {
     const slugs = new Set(Array.from({ length: 200 }, () => generateShareSlug()));
     expect(slugs.size).toBe(200);
+  });
+});
+
+describe("publicItemHref", () => {
+  it("points at the book's card on its shelf", () => {
+    expect(publicItemHref("abc", "row-1")).toBe("/c/abc#item-row-1");
+  });
+
+  it("uses the same anchor the card is given", () => {
+    expect(publicItemHref("abc", "row-1").split("#")[1]).toBe(publicItemAnchor("row-1"));
   });
 });
 
