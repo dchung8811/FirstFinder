@@ -4630,7 +4630,7 @@ function ShelfCover({ cover }) {
     // order like them too: a keyboard visitor reaches each shelf once through
     // the list below instead of a stop per book on a strip that won't sit still.
     <a href={publicItemHref(cover.shelfSlug, cover.id)} tabIndex={-1} className="group block w-36 shrink-0 sm:w-40">
-      <div className="aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#fff7ea]/15 bg-[#0d2f2a]">
+      <div className="aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-[#efe4d2] shadow-[0_14px_30px_-20px_rgba(48,36,20,0.55)]">
         {cover.photoUrl ? (
           <img src={cover.photoUrl} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:opacity-90" />
         ) : (
@@ -4642,22 +4642,22 @@ function ShelfCover({ cover }) {
           </div>
         )}
       </div>
-      <div className="mt-2 truncate text-sm font-medium" title={label}>{label}</div>
-      <div className="truncate text-xs text-[#a9c4bd]" title={cover.shelfTitle}>from {cover.shelfTitle}</div>
+      <div className="mt-2 truncate text-sm font-medium text-[#201a14]" title={label}>{label}</div>
+      <div className="truncate text-xs text-[#8a7a64]" title={cover.shelfTitle}>from {cover.shelfTitle}</div>
     </a>
   );
 }
 
-// Books from a few real shelves on /explore, drifting past in a loop. It
-// replaced the photo identification pitch in this spot: a stranger deciding
+// Books from a few real shelves on /explore, drifting past in a loop under the
+// hero's headline. It sits in the hero rather than further down because it is
+// the quickest proof of what the headline promises: a stranger deciding
 // whether to start a ledger learns more from other collectors' actual books
-// than from a feature list, and the identify feature is still introduced on
-// Add Items.
+// than from a feature list.
 //
 // Fetched after the page loads rather than rendered with it -- see
 // app/api/featured-shelves/route.js for why "/" doesn't load it on the server.
 function FeaturedShelves() {
-  // null while loading; [] when there is nothing to show, which hides the band.
+  // null while loading; [] when there is nothing to show, which hides the strip.
   const [shelves, setShelves] = useState(null);
   // Hover and focus pause the strip on their own (in CSS). This is the pause
   // for everyone else -- touch screens have no hover, and anything that moves
@@ -4687,28 +4687,19 @@ function FeaturedShelves() {
   const loop = Array.from({ length: repeats }, () => covers).flat();
 
   return (
-    <section id="explore" className="overflow-hidden border-y border-[#0d2f2a] bg-[#123f38] text-[#fff7ea]">
-      <div className="mx-auto max-w-6xl px-6 pt-16 md:pt-20">
-        <div className="inline-flex items-center gap-2 rounded-full bg-[#fff7ea]/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#d8e6e2]">
-          <Icon name="star" size={14} /> From the community
-        </div>
-        <h2 className="font-display mt-5 text-3xl font-semibold leading-tight tracking-tight md:text-4xl">Shelves worth a look.</h2>
-        {/* Every claim here is enforced, not aspirational: a shelf appears only
-            once its owner has listed their page and separately switched on
-            Explore (loadExploreCollections checks both), and the Explore query
-            never selects a price, value, note, or receipt photo. Keep it that
-            way, or change the copy. */}
-        <p className="mt-4 max-w-2xl text-lg leading-8 text-[#d8e6e2]">
-          Real collections, put here by the collectors who own them. Nothing appears unless its owner switches it on,
-          and they can take it down at any time. You see titles, editions, and photos &mdash; never prices, receipts, or
-          notes.
-        </p>
-      </div>
+    <div className="mt-14 md:mt-16">
+      {/* Enforced, not aspirational: a shelf appears only once its owner has
+          listed their page and separately switched on Explore
+          (loadExploreCollections checks both). Keep it that way, or change
+          the copy. */}
+      <p className="font-ledger mx-auto max-w-6xl px-6 text-center text-xs text-[#8a7a64]">
+        From real shelves on Explore, shared by the collectors who own them.
+      </p>
 
       {shelves === null ? (
-        <div className="mt-10 flex gap-4 px-6" aria-hidden="true">
+        <div className="mt-6 flex justify-center gap-4 overflow-hidden px-6" aria-hidden="true">
           {Array.from({ length: 10 }, (_, index) => (
-            <div key={index} className="aspect-[3/4] w-36 shrink-0 animate-pulse rounded-2xl bg-[#fff7ea]/10 sm:w-40" />
+            <div key={index} className="aspect-[3/4] w-36 shrink-0 animate-pulse rounded-2xl bg-[#efe4d2] sm:w-40" />
           ))}
         </div>
       ) : moves ? (
@@ -4717,7 +4708,7 @@ function FeaturedShelves() {
         // first began, so the loop has no visible jump. Full-bleed, with the
         // ends faded, so books drift in and out rather than being cut off at
         // the edge of the column.
-        <div className="shelf-marquee mt-10 [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)]">
+        <div className="shelf-marquee mt-6 pb-2 [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)]">
           <div
             className="shelf-marquee-track flex w-max"
             data-paused={paused || undefined}
@@ -4733,57 +4724,46 @@ function FeaturedShelves() {
           </div>
         </div>
       ) : (
-        <div className="mx-auto mt-10 flex max-w-6xl gap-4 overflow-x-auto px-6">
+        <div className="mx-auto mt-6 flex max-w-6xl justify-center gap-4 overflow-x-auto px-6 pb-2">
           {covers.map((cover) => (
             <ShelfCover key={cover.id} cover={cover} />
           ))}
         </div>
       )}
 
-      <div className="mx-auto max-w-6xl px-6 pb-16 pt-10 md:pb-20">
-        {shelves && (
-          <ul className="flex flex-wrap gap-3" aria-label="Shelves shown above">
+      {shelves && (
+        <div className="mx-auto mt-6 flex max-w-6xl flex-wrap items-center justify-center gap-3 px-6">
+          <ul className="flex flex-wrap justify-center gap-3" aria-label="Shelves shown above">
             {shelves.map((shelf) => (
               <li key={shelf.slug}>
                 <a
                   href={`/c/${shelf.slug}`}
-                  className="inline-flex items-center gap-3 rounded-full border border-[#fff7ea]/20 py-1.5 pl-1.5 pr-4 text-sm transition hover:bg-[#fff7ea]/10"
+                  className="inline-flex items-center gap-2.5 rounded-full border border-[#d3c1a4] bg-[#fffdf8] py-1 pl-1 pr-3.5 text-sm text-[#201a14] transition hover:border-[#123f38]/40"
                 >
-                  <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-full bg-[#fff7ea] text-xs font-semibold text-[#123f38]">
+                  <span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full bg-[#123f38] text-[11px] font-semibold text-[#fff7ea]">
                     {collectionMonogram(shelf.title)}
                   </span>
                   <span className="font-medium">{shelf.title}</span>
-                  <span className="text-[#a9c4bd]">
+                  <span className="text-[#8a7a64]">
                     {shelf.itemCount} {shelf.itemCount === 1 ? "item" : "items"}
                   </span>
                 </a>
               </li>
             ))}
           </ul>
-        )}
-
-        <div className="mt-8 flex flex-wrap items-center gap-5">
-          {/* Styled as the outline Button rather than rendered as one: this
-              leaves the app for a real route, so it is a link. */}
-          <a
-            href="/explore"
-            className="inline-flex h-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-[#fff8ee] px-7 text-base font-medium text-[#201a14] transition hover:bg-white"
-          >
-            Explore more collections <Icon name="arrow" size={18} className="ml-1" />
-          </a>
           {moves && (
             <button
               type="button"
               onClick={() => setPaused((value) => !value)}
               aria-pressed={paused}
-              className="shelf-marquee-toggle text-sm font-medium text-[#d8e6e2] underline underline-offset-4 hover:text-[#fff7ea]"
+              className="shelf-marquee-toggle ml-1 text-sm font-medium text-[#665746] underline underline-offset-4 hover:text-[#123f38]"
             >
               {paused ? "Play the shelf" : "Pause the shelf"}
             </button>
           )}
         </div>
-      </div>
-    </section>
+      )}
+    </div>
   );
 }
 
@@ -4791,33 +4771,68 @@ function HomePage({ onGetStarted }) {
   const steps = [
     { number: "01", icon: "camera", title: "Snap it", text: "Photograph the item and the receipt the day it comes home. Proof beats memory." },
     { number: "02", icon: "file", title: "Log it", text: "Edition points, condition, where you found it, what you paid. Thirty seconds per item." },
-    { number: "03", icon: "dollar", title: "Track it", text: "What you paid, what it's worth now, and how that changed if you ever let it go." }
+    { number: "03", icon: "dollar", title: "Track it", text: "See what your collection is worth today, and keep what something sold for if you ever let it go." }
   ];
 
   return (
     <>
-      <section className="mx-auto max-w-6xl px-6 pb-20 pt-14 md:pt-20">
-        <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-            <h1 className="font-display max-w-2xl text-5xl font-semibold leading-[1.02] tracking-tight text-[#201a14] md:text-[4.4rem]">
-              All your favorite finds catalogued.
-            </h1>
-            <p className="mt-6 max-w-xl text-lg leading-8 text-[#665746]">
-              Item photos, receipt proof, purchase details, and value in one ledger — for the first editions, cards, and programs you swore you'd keep track of this time.
-            </p>
-            <div className="mt-9 flex flex-wrap items-center gap-5">
-              <Button onClick={onGetStarted} className="h-12 rounded-full bg-[#123f38] px-7 text-base text-[#fff7ea] hover:bg-[#0f332d]">
-                Get Started <Icon name="arrow" size={18} className="ml-1" />
-              </Button>
-              <a href="#how-it-works" className="text-sm font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
-                See how it works
-              </a>
-            </div>
-            <p className="font-ledger mt-10 text-xs text-[#8a7a64]">Built by a collector who kept losing receipts.</p>
-          </motion.div>
+      {/* The hero is centred, with the shelf strip full-bleed underneath, so
+          the headline and its proof read as one thing: what FirstFinder is,
+          then what collectors have already put in it. overflow-hidden is
+          load-bearing: the strip's track is several screens wide, and without
+          the clip the whole page scrolls sideways. */}
+      <section className="overflow-hidden pb-16 pt-14 md:pb-20 md:pt-20">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-3xl px-6 text-center">
+          <h1 className="font-display text-5xl font-semibold leading-[1.02] tracking-tight text-[#201a14] md:text-[4.4rem]">
+            All your favorite finds catalogued.
+          </h1>
+          <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-[#665746]">
+            Photos, receipts, and any information you want to jot down on your favorite collectibles!
+          </p>
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+            <Button onClick={onGetStarted} className="h-12 rounded-full bg-[#123f38] px-7 text-base text-[#fff7ea] hover:bg-[#0f332d]">
+              Get Started <Icon name="arrow" size={18} className="ml-1" />
+            </Button>
+            {/* Styled as the outline Button rather than rendered as one: this
+                leaves the app for a real route, so it is a link. */}
+            <a
+              href="/explore"
+              className="inline-flex h-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-[#123f38]/30 bg-[#fffdf8] px-7 text-base font-medium text-[#123f38] transition hover:border-[#123f38]/60 hover:bg-white"
+            >
+              Explore collections
+            </a>
+          </div>
+        </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="relative mx-auto w-full max-w-lg lg:mx-0">
-            <div className="pointer-events-none absolute -left-6 top-8 hidden h-full w-full rounded-2xl border border-dashed border-[#d3c1a4] sm:block" aria-hidden="true" />
+        <FeaturedShelves />
+      </section>
+
+      {/* Deep green so the page alternates rather than running two cream
+          sections together. The hero shows what collectors share; this shows
+          the private side -- what one entry in your own ledger holds. */}
+      <section className="overflow-hidden border-y border-[#0d2f2a] bg-[#123f38] text-[#fff7ea]">
+        <div className="mx-auto grid max-w-6xl gap-14 px-6 py-16 md:py-20 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-[#fff7ea]/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#d8e6e2]">
+              <Icon name="receipt" size={14} /> Your ledger
+            </div>
+            <h2 className="font-display mt-5 text-3xl font-semibold leading-tight tracking-tight md:text-4xl">Every find gets its own record.</h2>
+            <p className="mt-4 max-w-xl text-lg leading-8 text-[#d8e6e2]">
+              Photos of the item and its receipt, the edition and condition, where you found it, what you paid, and what
+              it&rsquo;s worth now &mdash; all on one page, so the proof is there when you need it.
+            </p>
+            {/* True by default, not by promise: a collection page starts with
+                visibility "off" and prices hidden (defaultShareSettings in
+                src/utils/publicCollection.js). Change that, change this. */}
+            <p className="mt-4 max-w-xl text-lg leading-8 text-[#d8e6e2]">
+              Your ledger stays private. Nothing goes on a public shelf until you share it, and prices stay hidden there
+              unless you choose to show them.
+            </p>
+            <p className="font-ledger mt-8 text-xs text-[#a9c4bd]">Built by a collector who kept losing receipts.</p>
+          </div>
+
+          <div className="relative mx-auto w-full max-w-lg lg:mx-0 lg:ml-auto">
+            <div className="pointer-events-none absolute -left-6 top-8 hidden h-full w-full rounded-2xl border border-dashed border-[#fff7ea]/25 sm:block" aria-hidden="true" />
             <SpecimenCard
               index="001"
               kind="Book · First edition"
@@ -4835,21 +4850,14 @@ function HomePage({ onGetStarted }) {
               detail="Veterans Stadium era · minor corner wear"
               paid="$12"
               value="$40"
-              chips={[{ icon: "receipt", text: "Flea market find", tone: "green" }, { icon: "camera", text: "2 photos" }]}
+              chips={[{ text: "Found at a flea market", tone: "green" }, { icon: "camera", text: "2 photos" }]}
               className="relative z-20 ml-auto -mt-1 rotate-[2.5deg]"
             />
-          </motion.div>
+          </div>
         </div>
       </section>
 
-      {/* Between the hero and the walkthrough: the hero says what the ledger
-          is, this shows what other collectors have actually done with it, and
-          "See it in 60 seconds" then covers the whole flow end to end. The
-          band is deep green so the page keeps alternating rather than running
-          two cream sections together. */}
-      <FeaturedShelves />
-
-      <section id="how-it-works" className="border-t border-[#e2d4bc] bg-[#fbf5e9]">
+      <section id="how-it-works" className="bg-[#fbf5e9]">
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
           <div className="mx-auto max-w-3xl">
             <h2 className="font-display text-center text-3xl font-semibold tracking-tight md:text-4xl">See it in 60 seconds.</h2>
