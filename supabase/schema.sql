@@ -8,9 +8,9 @@
 --
 -- Run once in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 --
--- Safe to re-run: every statement is idempotent. Existing projects (including
--- production) already have all of this from the patch files, so running it
--- there changes nothing.
+-- Safe to re-run: every statement is idempotent, and every policy block drops
+-- the historical names for that policy before creating the canonical one, so a
+-- re-run converges on one set rather than stacking a second set beside it.
 --
 -- If you add a column or a policy, add it BOTH here and in a new patch file,
 -- so fresh setups and existing databases stay in step.
@@ -90,9 +90,12 @@ create table if not exists public.inventory_items (
 create unique index if not exists inventory_items_user_reference_number_idx
   on public.inventory_items (user_id, reference_number);
 
--- Every read in the app is scoped to the signed-in user.
-create index if not exists inventory_items_user_id_idx
-  on public.inventory_items (user_id);
+-- No standalone (user_id) index: the unique index above already leads with
+-- user_id, so it serves every `where user_id = ...` read on its own. A second
+-- index on the same leading column would be one more structure to keep in
+-- memory and to maintain on write, for lookups the first one already answers.
+-- The deployed database does not have one, and this file should not create one
+-- for a fresh project either.
 
 -- Row Level Security is not optional here. The app talks to Supabase with the
 -- public anon key and queries rows by id alone (e.g. .eq("id", id)) without
@@ -101,26 +104,45 @@ create index if not exists inventory_items_user_id_idx
 -- delete anyone else's collection.
 alter table public.inventory_items enable row level security;
 
+-- These four have been created under three different names over the project's
+-- life: "own items" here, "own inventory items" in inventory-items-rls.sql,
+-- and "their own inventory" on the deployed database. Policies are OR'd, so
+-- two sets with different names do not conflict -- they simply both run, and
+-- every row read is checked twice for no benefit. Each block below therefore
+-- drops every historical name before creating the canonical one, which is what
+-- makes re-running this file converge instead of accumulate.
+--
+-- The canonical name is the one production already carries, so a re-run there
+-- rewrites the policy it already has rather than introducing a new one.
+
 drop policy if exists "Users can view own items" on public.inventory_items;
-create policy "Users can view own items"
+drop policy if exists "Users can view own inventory items" on public.inventory_items;
+drop policy if exists "Users can view their own inventory" on public.inventory_items;
+create policy "Users can view their own inventory"
 on public.inventory_items for select to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can insert own items" on public.inventory_items;
-create policy "Users can insert own items"
+drop policy if exists "Users can insert own inventory items" on public.inventory_items;
+drop policy if exists "Users can insert their own inventory" on public.inventory_items;
+create policy "Users can insert their own inventory"
 on public.inventory_items for insert to authenticated
-with check (auth.uid() = user_id);
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can update own items" on public.inventory_items;
-create policy "Users can update own items"
+drop policy if exists "Users can update own inventory items" on public.inventory_items;
+drop policy if exists "Users can update their own inventory" on public.inventory_items;
+create policy "Users can update their own inventory"
 on public.inventory_items for update to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can delete own items" on public.inventory_items;
-create policy "Users can delete own items"
+drop policy if exists "Users can delete own inventory items" on public.inventory_items;
+drop policy if exists "Users can delete their own inventory" on public.inventory_items;
+create policy "Users can delete their own inventory"
 on public.inventory_items for delete to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------
 -- feedback: the in-app "Send feedback" form.
@@ -170,12 +192,12 @@ alter table public.feedback enable row level security;
 drop policy if exists "Users can view own feedback" on public.feedback;
 create policy "Users can view own feedback"
 on public.feedback for select to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can insert own feedback" on public.feedback;
 create policy "Users can insert own feedback"
 on public.feedback for insert to authenticated
-with check (auth.uid() = user_id);
+with check ((select auth.uid()) = user_id);
 
 -- Photos are attached in a follow-up update after the initial insert (the same
 -- two-step pattern as inventory_items), so users need to be able to update
@@ -183,8 +205,8 @@ with check (auth.uid() = user_id);
 drop policy if exists "Users can update own feedback" on public.feedback;
 create policy "Users can update own feedback"
 on public.feedback for update to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------
 -- shared_collections: the settings behind a public /c/<slug> collection page.
@@ -248,23 +270,23 @@ alter table public.shared_collections enable row level security;
 drop policy if exists "Users can view own share settings" on public.shared_collections;
 create policy "Users can view own share settings"
 on public.shared_collections for select to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can insert own share settings" on public.shared_collections;
 create policy "Users can insert own share settings"
 on public.shared_collections for insert to authenticated
-with check (auth.uid() = user_id);
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can update own share settings" on public.shared_collections;
 create policy "Users can update own share settings"
 on public.shared_collections for update to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can delete own share settings" on public.shared_collections;
 create policy "Users can delete own share settings"
 on public.shared_collections for delete to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------
 -- Storage: item and receipt photos.

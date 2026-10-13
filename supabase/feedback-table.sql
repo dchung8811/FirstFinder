@@ -23,12 +23,12 @@ alter table public.feedback enable row level security;
 drop policy if exists "Users can view own feedback" on public.feedback;
 create policy "Users can view own feedback"
 on public.feedback for select to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can insert own feedback" on public.feedback;
 create policy "Users can insert own feedback"
 on public.feedback for insert to authenticated
-with check (auth.uid() = user_id);
+with check ((select auth.uid()) = user_id);
 
 -- Photos are attached in a follow-up update after the initial insert (same
 -- two-step pattern as inventory_items), so users need to be able to update
@@ -36,5 +36,5 @@ with check (auth.uid() = user_id);
 drop policy if exists "Users can update own feedback" on public.feedback;
 create policy "Users can update own feedback"
 on public.feedback for update to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);

@@ -56,7 +56,7 @@ alter table public.login_events enable row level security;
 drop policy if exists "Users can record own logins" on public.login_events;
 create policy "Users can record own logins"
 on public.login_events for insert to authenticated
-with check (auth.uid() = user_id);
+with check ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------
 -- shared_collections.first_published_at: when the page actually went live.

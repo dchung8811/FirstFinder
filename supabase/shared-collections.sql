@@ -83,23 +83,23 @@ alter table public.shared_collections enable row level security;
 drop policy if exists "Users can view own share settings" on public.shared_collections;
 create policy "Users can view own share settings"
 on public.shared_collections for select to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can insert own share settings" on public.shared_collections;
 create policy "Users can insert own share settings"
 on public.shared_collections for insert to authenticated
-with check (auth.uid() = user_id);
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can update own share settings" on public.shared_collections;
 create policy "Users can update own share settings"
 on public.shared_collections for update to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can delete own share settings" on public.shared_collections;
 create policy "Users can delete own share settings"
 on public.shared_collections for delete to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------
 -- inventory_items.hidden_from_share: the per-item opt-out.
