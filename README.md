@@ -197,7 +197,7 @@ the deployment's logs.
 
 There is no daily cap on scans by default. Collectors can scan as much as they
 like while the OpenAI account has credit; once it runs out, the route answers
-with a plain "the AI budget has run out" error (HTTP 503) instead of a
+with a plain "the scanning budget has run out" error (HTTP 503) instead of a
 misleading "try again". A cap is built in for the day it's needed: set
 `SCAN_DAILY_LIMIT` to a whole number of scans per user per UTC day (`0` turns
 scanning off), and it is enforced in Postgres the same way as identification's,

@@ -7409,7 +7409,7 @@ function ScanNotesPanel({ notes, onDismiss }) {
         </p>
       )}
       <p className="mt-4 text-xs leading-5 text-[#5c7a72]">
-        Read by AI from your photos, not looked up. Check it against the book before you submit. Photos go to OpenAI to be read.
+        Read from your photos, not looked up. Check it against the book before you submit. Photos go to OpenAI to be read.
       </p>
     </div>
   );

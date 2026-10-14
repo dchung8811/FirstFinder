@@ -231,7 +231,7 @@ export async function POST(request) {
         if (outOfCredit) console.error("Scan refused: the OpenAI account is out of credit.");
         return NextResponse.json({
           error: outOfCredit
-            ? "Snap a picture is paused because FirstFinder's AI budget has run out. It'll work again once the account is topped up — Quick Add still works by hand."
+            ? "Snap a picture is paused for now because FirstFinder's scanning budget has run out. It'll be back once it's topped up — Quick Add still works by hand."
             : "Scanning is busy right now. Try again in a moment."
         }, { status: outOfCredit ? 503 : 429 });
       }
