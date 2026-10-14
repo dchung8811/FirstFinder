@@ -3,7 +3,7 @@
 --
 -- They are separate because they cost wildly different amounts. A scan is a
 -- small vision model copying printed text off a cover or a copyright page --
--- about a twentieth of a cent -- while an identification is a reasoning model
+-- about a tenth of a cent -- while an identification is a reasoning model
 -- running live web searches. Sharing one counter would mean either a scan cap
 -- of two a day, which defeats the point of a cheap way in, or an
 -- identification cap high enough to cost real money. The cap here is generous

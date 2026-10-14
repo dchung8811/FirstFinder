@@ -8,9 +8,12 @@ import { createSupabaseAdminClient } from "../../../src/lib/supabaseAdmin";
 //
 // That narrow job is why a small model is enough, and the small model is why
 // this can be the main way in while app/api/identify-book stays capped at two a
-// day. gpt-4.1-nano at roughly $0.10 / $0.40 per million tokens puts a two-photo
-// scan near a twentieth of a cent. Tunable without a deploy.
-const MODEL = process.env.OPENAI_SCAN_MODEL || "gpt-4.1-nano";
+// day. gpt-5.4-nano at roughly $0.20 / $1.25 per million tokens puts a
+// two-photo scan near a tenth of a cent. It was picked over gpt-4.1-nano, at
+// about the same price, because on a test copyright page 4.1-nano dropped the
+// publisher -- and the publisher is what the Random House number-line rule in
+// scanFill.js turns on. Tunable without a deploy.
+const MODEL = process.env.OPENAI_SCAN_MODEL || "gpt-5.4-nano";
 const REASONING_MODEL = /^(gpt-5|o\d)/.test(MODEL);
 
 // A cover and a copyright page are the usual pair; a third allows for a spine

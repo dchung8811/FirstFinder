@@ -34,7 +34,7 @@ export const featureGuides = [
         // The start.jpg screenshot showed this card at the top of the page,
         // under its old title, so it is off until it is retaken from the
         // card's new place at the bottom.
-        body: "From the menu, choose Add Items and scroll to the last card, Research what it's worth. (To fill in the fields without the research, use Scan a book at the top of the page instead.)"
+        body: "From the menu, choose Add Items and scroll to the last card, Research what it's worth. (To fill in the fields without the research, use Snap a picture in Quick Add instead.)"
       },
       {
         title: "Take or upload a photo of the cover",
@@ -52,7 +52,7 @@ export const featureGuides = [
     tips: [
       "Each account gets 2 identifications a day. Every one is a paid, search-grounded call, and FirstFinder is self-funded.",
       "Identification is a starting point, not an appraisal. Condition, the jacket, and provenance decide what a particular copy is worth.",
-      "Ran out for the day? Scan a book, at the top of the same page, still fills in the fields from your photos. It doesn't research a value."
+      "Ran out for the day? Snap a picture, in Quick Add on the same page, still fills in the fields from your photos. It doesn't research a value."
     ]
   },
   {

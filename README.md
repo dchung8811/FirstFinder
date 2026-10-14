@@ -64,7 +64,7 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 
 ### Cataloging and photos
 
-- Scan a book to fill in Quick Add: photograph the cover and copyright page, and the title, author, and publisher are copied in, with the edition and printing worked out from the edition statement and number line by code the collector can check against the book. Fields already typed are never overwritten, and the photos are attached to the saved record.
+- Snap a picture to fill in Quick Add: photograph the cover and copyright page, and the title, author, and publisher are copied in, with the edition and printing worked out from the edition statement and number line by code the collector can check against the book. Fields already typed are never overwritten, and the photos are attached to the saved record.
 - Optionally, research a collectible from a photo: take a picture, and the title, maker, edition, printing, and condition are filled in for review, alongside a web-search-grounded value range backed by comparable sales and their sources. Add a copyright page or number line photo and re-check for a more confident edition read. Cost basis is deliberately left blank, and the photo is attached to the saved record.
 - Add a collectible through either a fast **Quick Add** form or a guided, tutorial-style flow.
 - Track books, trading cards, sports memorabilia, and other collectible categories.
@@ -183,7 +183,7 @@ unavailable until you set them.
 
 ### Scan to fill
 
-**Scan a book** on Add Items needs `OPENAI_API_KEY` set. It calls
+**Snap a picture** in Quick Add needs `OPENAI_API_KEY` set. It calls
 `app/api/scan-book`, which sends up to three photos to OpenAI's Responses API
 and asks only for a transcription: title, author, publisher, year, the edition
 and printing statements, the number line, and the ISBN, exactly as printed.
@@ -192,8 +192,7 @@ afterwards in `src/utils/scanFill.js`, in code with tests, so the same line
 always gives the same printing and the collector sees the reason.
 
 Because the job is narrow, a small model is enough: `OPENAI_SCAN_MODEL`
-defaults to `gpt-4.1-nano`, at roughly a twentieth of a cent per two-photo
-scan. The route logs each call's token usage so the real cost can be read off
+defaults to `gpt-5.4-nano`, at roughly a tenth of a cent per two-photo scan. The route logs each call's token usage so the real cost can be read off
 the deployment's logs. `SCAN_DAILY_LIMIT` (default 25) caps scans per user per
 UTC day. That cap is there to stop a script from looping on the endpoint, not
 to ration the feature. It is persisted the same way as identification's: run

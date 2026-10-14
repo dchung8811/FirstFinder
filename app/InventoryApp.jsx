@@ -2807,12 +2807,10 @@ export default function FirstFinderApp({ initialView = "home" }) {
         category: fields.category || "Book"
       });
 
-      pushToast(
-        filled.length > 0
-          ? `Filled ${filled.length} field${filled.length === 1 ? "" : "s"} from your photo${photos.length === 1 ? "" : "s"}. Check them before you submit.`
-          : "Read your photos, but every field it found already had something in it.",
-        "success"
-      );
+      // The notes panel in the form says how many fields were filled; a toast
+      // is only worth it when the answer is none, which the panel can't
+      // explain on its own.
+      if (filled.length === 0) pushToast("Read your photos, but every field it found already had something in it.", "warning");
       document.getElementById("quick-add-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
       console.error("Scan error:", error.message);
@@ -5986,7 +5984,7 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-5xl font-semibold tracking-tight">Add something quickly.</h1>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">Scan a book to fill in the fields, type anything else into quick add, use CSV for bulk import, or open the tutorial for the guided flow.</p>
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">Snap a picture to fill in quick add, or type it in. Use CSV for bulk import, or open the tutorial for the guided flow.</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button
@@ -6016,16 +6014,25 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
         <DashboardCard icon="dollar" label="Change in value" value={formatCurrency(totalGain)} />
       </div>
 
-      <ScanToFillCard onScan={onScanPhotos} scanning={scanning} notes={scanNotes} onDismiss={onDismissScanNotes} />
-
       <div id="quick-add-form" className="scroll-mt-24">
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
           <CardContent className="p-6 md:p-8">
             <form onSubmit={onSave}>
-            <div>
-              <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Quick add</div>
-              <h2 className="mt-1 text-3xl font-semibold">New collectible</h2>
+            {/* Scanning lives in the form it fills rather than in a card of
+                its own above it: one place to add an item, where the photo
+                is the quick way to fill it and typing is the fallback. */}
+            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Quick add</div>
+                <h2 className="mt-1 text-3xl font-semibold">New collectible</h2>
+                <p className="mt-2 max-w-xl leading-7 text-[#665746]">
+                  Snap the cover and copyright page and we'll fill in the fields below, edition and printing included, or type them in yourself. Nothing is saved until you submit.
+                </p>
+              </div>
+              <SnapPictureButton onScan={onScanPhotos} scanning={scanning} scanned={Boolean(scanNotes)} />
             </div>
+
+            {scanNotes && <ScanNotesPanel notes={scanNotes} onDismiss={onDismissScanNotes} />}
 
             <div className="mt-6 grid gap-3 md:grid-cols-4">
               <BookNameField
@@ -7340,73 +7347,71 @@ function IdentifyLoadingOverlay({ photos, steps = identifyingSteps, note = "This
   );
 }
 
-// The main way in on Add Items: photograph the cover and the copyright page,
-// and Quick Add fills itself in. Sits above the form it fills.
-function ScanToFillCard({ onScan, scanning, notes, onDismiss }) {
+// The quick way to fill Quick Add: photos of the cover and copyright page go
+// to /api/scan-book. Sits in the form's own header, beside the fields it fills.
+function SnapPictureButton({ onScan, scanning, scanned }) {
   return (
-    <Card className="mt-8 rounded-[2rem] border-[#123f38]/25 bg-[#edf4f2] shadow-sm">
-      <CardContent className="p-6 md:p-8">
-        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#123f38]">
-              <Icon name="camera" size={14} /> Fastest way in
-            </div>
-            <h2 className="mt-3 text-2xl font-semibold">Snap the cover and copyright page.</h2>
-            <p className="mt-2 max-w-xl leading-7 text-[#365c53]">
-              We'll copy the title, author, and publisher into Quick Add below, and read the number line for the edition and printing. Nothing is saved until you submit, and anything you've already typed is left alone.
-            </p>
-          </div>
-          <label
-            onClick={() => trackEvent("scan_button_clicked", { source_page: "add_items", has_notes: Boolean(notes) })}
-            className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${scanning ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}
-          >
-            <Icon name="camera" size={18} />
-            {scanning ? "Reading..." : notes ? "Scan another page" : "Scan a book"}
-            {/* No capture attribute: on a phone that would open the camera for
-                a single shot, and the cover-plus-copyright-page pair is the
-                point. Without it, the phone offers the camera or the library. */}
-            <input type="file" accept="image/*" multiple onChange={onScan} disabled={scanning} className="hidden" />
-          </label>
-        </div>
+    <div className="flex shrink-0 flex-col items-stretch gap-2 md:items-end">
+      <label
+        onClick={() => trackEvent("scan_button_clicked", { source_page: "add_items", scanned })}
+        className={`flex h-12 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${scanning ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}
+      >
+        <Icon name="camera" size={18} />
+        {scanning ? "Reading..." : scanned ? "Snap another page" : "Snap a picture"}
+        {/* No capture attribute: on a phone that would open the camera for
+            a single shot, and the cover-plus-copyright-page pair is the
+            point. Without it, the phone offers the camera or the library. */}
+        <input type="file" accept="image/*" multiple onChange={onScan} disabled={scanning} className="hidden" />
+      </label>
+      <p className="text-center text-xs text-[#8a7a64] md:text-right">Up to 3 photos at a time</p>
+    </div>
+  );
+}
 
-        {notes && (
-          <div className="mt-6 rounded-2xl bg-white/80 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <h3 className="font-semibold text-[#123f38]">What the scan read</h3>
-              <button type="button" onClick={onDismiss} aria-label="Hide what the scan read" className="rounded-full p-1 text-[#5c7a72] hover:bg-[#edf4f2]">
-                <Icon name="x" size={14} />
-              </button>
+// What the last scan read, and why it set the edition and printing as it did,
+// so the collector can hold the copyright page up next to it.
+function ScanNotesPanel({ notes, onDismiss }) {
+  const read = [
+    ["Edition statement", notes.editionStatement],
+    ["Number line", notes.numberLine],
+    ["Year", notes.publicationYear],
+    ["ISBN", notes.isbn]
+  ].filter(([, value]) => value);
+
+  return (
+    <div className="mt-6 rounded-2xl border border-[#123f38]/20 bg-[#edf4f2] p-5">
+      <div className="flex items-start justify-between gap-4">
+        <h3 className="font-semibold text-[#123f38]">
+          {notes.filledCount > 0 ? `Filled ${notes.filledCount} field${notes.filledCount === 1 ? "" : "s"} from your photos` : "What the scan read"}
+        </h3>
+        <button type="button" onClick={onDismiss} aria-label="Hide what the scan read" className="rounded-full p-1 text-[#5c7a72] hover:bg-white/70">
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+      {read.length > 0 && (
+        <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+          {read.map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-xs uppercase tracking-[0.16em] text-[#5c7a72]">{label}</dt>
+              <dd className="mt-0.5 break-words font-mono text-[#201a14]">{value}</dd>
             </div>
-            <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-              {[
-                ["Edition statement", notes.editionStatement],
-                ["Number line", notes.numberLine],
-                ["Year", notes.publicationYear],
-                ["ISBN", notes.isbn]
-              ].filter(([, value]) => value).map(([label, value]) => (
-                <div key={label} className="min-w-0">
-                  <dt className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</dt>
-                  <dd className="mt-0.5 break-words font-mono text-[#201a14]">{value}</dd>
-                </div>
-              ))}
-            </dl>
-            {notes.reasons.length > 0 && (
-              <ul className="mt-4 space-y-1 text-sm leading-6 text-[#365c53]">
-                {notes.reasons.map((reason) => <li key={reason}>{reason}</li>)}
-              </ul>
-            )}
-            {!notes.sawCopyrightPage && (
-              <p className="mt-4 rounded-xl bg-[#fff3d8] p-3 text-sm leading-6 text-[#6d5526]">
-                No copyright page in that scan. Scan it next for the publisher, edition, and printing.
-              </p>
-            )}
-            <p className="mt-4 text-xs leading-5 text-[#5c7a72]">
-              Read by AI from your photos, not looked up. Hold it next to the book before you submit. Photos go to OpenAI to be read.
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          ))}
+        </dl>
+      )}
+      {notes.reasons.length > 0 && (
+        <ul className="mt-4 space-y-1 text-sm leading-6 text-[#365c53]">
+          {notes.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+        </ul>
+      )}
+      {!notes.sawCopyrightPage && (
+        <p className="mt-4 rounded-xl bg-[#fff3d8] p-3 text-sm leading-6 text-[#6d5526]">
+          No copyright page in that scan. Snap it next for the publisher, edition, and printing.
+        </p>
+      )}
+      <p className="mt-4 text-xs leading-5 text-[#5c7a72]">
+        Read by AI from your photos, not looked up. Check it against the book before you submit. Photos go to OpenAI to be read.
+      </p>
+    </div>
   );
 }
 
