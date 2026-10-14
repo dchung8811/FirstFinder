@@ -581,3 +581,57 @@ create policy "Anyone can read the banner while it is on"
   on public.site_banner for select
   to anon, authenticated
   using (enabled);
+
+-- ---------------------------------------------------------------------------
+-- Scan-to-fill daily cap (patch: scan-daily-limit.sql)
+--
+-- A generous per-user cap on app/api/scan-book, separate from photo
+-- identification's because a scan costs a small fraction of what an
+-- identification does. RLS on with no policies: only the service role reads
+-- or writes it. See scan-daily-limit.sql for the reasoning.
+-- ---------------------------------------------------------------------------
+create table if not exists public.scan_usage (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  usage_date date not null,
+  call_count integer not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, usage_date)
+);
+
+alter table public.scan_usage enable row level security;
+
+create or replace function public.claim_scan_call(p_user_id uuid, p_limit integer)
+returns table (allowed boolean, used integer, day_limit integer)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_today date := (now() at time zone 'utc')::date;
+  v_used integer;
+begin
+  if p_limit <= 0 then
+    return query select false, 0, p_limit;
+    return;
+  end if;
+
+  insert into public.scan_usage as usage (user_id, usage_date, call_count)
+  values (p_user_id, v_today, 1)
+  on conflict (user_id, usage_date) do update
+    set call_count = usage.call_count + 1,
+        updated_at = now()
+    where usage.call_count < p_limit
+  returning usage.call_count into v_used;
+
+  if v_used is null then
+    return query select false, p_limit, p_limit;
+    return;
+  end if;
+
+  return query select true, v_used, p_limit;
+end;
+$$;
+
+revoke all on function public.claim_scan_call(uuid, integer) from public;
+revoke all on function public.claim_scan_call(uuid, integer) from anon;
+revoke all on function public.claim_scan_call(uuid, integer) from authenticated;

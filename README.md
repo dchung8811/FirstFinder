@@ -64,7 +64,8 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 
 ### Cataloging and photos
 
-- Identify a collectible from a photo: take a picture, and the title, maker, edition, printing, and condition are filled in for review, alongside a web-search-grounded value range backed by comparable sales and their sources. Add a copyright page or number line photo and re-check for a more confident edition read. Cost basis is deliberately left blank, and the photo is attached to the saved record.
+- Scan a book to fill in Quick Add: photograph the cover and copyright page, and the title, author, and publisher are copied in, with the edition and printing worked out from the edition statement and number line by code the collector can check against the book. Fields already typed are never overwritten, and the photos are attached to the saved record.
+- Optionally, research a collectible from a photo: take a picture, and the title, maker, edition, printing, and condition are filled in for review, alongside a web-search-grounded value range backed by comparable sales and their sources. Add a copyright page or number line photo and re-check for a more confident edition read. Cost basis is deliberately left blank, and the photo is attached to the saved record.
 - Add a collectible through either a fast **Quick Add** form or a guided, tutorial-style flow.
 - Track books, trading cards, sports memorabilia, and other collectible categories.
 - Record an item's title, author (books and comics) and make / publisher / brand, edition, status, condition (Near Fine/Fine, Very Good/Good, Fair, Poor), purchase date, source, purchase price, estimated value, and notes.
@@ -180,9 +181,28 @@ Some features run server-side because they need keys that must never reach the
 browser. The app runs fine without those keys — those features are simply
 unavailable until you set them.
 
+### Scan to fill
+
+**Scan a book** on Add Items needs `OPENAI_API_KEY` set. It calls
+`app/api/scan-book`, which sends up to three photos to OpenAI's Responses API
+and asks only for a transcription: title, author, publisher, year, the edition
+and printing statements, the number line, and the ISBN, exactly as printed.
+There is no web search and no valuation. What the number line means is decided
+afterwards in `src/utils/scanFill.js`, in code with tests, so the same line
+always gives the same printing and the collector sees the reason.
+
+Because the job is narrow, a small model is enough: `OPENAI_SCAN_MODEL`
+defaults to `gpt-4.1-nano`, at roughly a twentieth of a cent per two-photo
+scan. The route logs each call's token usage so the real cost can be read off
+the deployment's logs. `SCAN_DAILY_LIMIT` (default 25) caps scans per user per
+UTC day. That cap is there to stop a script from looping on the endpoint, not
+to ration the feature. It is persisted the same way as identification's: run
+`supabase/scan-daily-limit.sql` once, and until then the route falls back to a
+per-instance counter and logs that it did.
+
 ### Photo identification
 
-The "take a picture and fill in the fields" flow needs `OPENAI_API_KEY` set --
+The optional "research what it's worth" flow, the last card on Add Items, also needs `OPENAI_API_KEY` set --
 it calls `app/api/identify-book`, a server-side route that sends the photo(s)
 to OpenAI's Responses API with the `web_search` tool enabled and returns
 structured fields. The key is read only on the server and must never be

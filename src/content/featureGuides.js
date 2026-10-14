@@ -17,7 +17,7 @@ export const featureGuides = [
   {
     slug: "identify-from-a-photo",
     title: "Identify an item from a photo",
-    summary: "Photograph a cover and FirstFinder drafts the record for you: title, edition, and a rough value, ready for you to check and save.",
+    summary: "Optional AI research: photograph a cover and FirstFinder searches for comparable sales, then drafts the record with a suggested edition and a value range, ready for you to check and save.",
     video: {
       src: "/firstfinder-ai-feature.mp4",
       poster: "/firstfinder-ai-feature-poster.jpg",
@@ -31,12 +31,14 @@ export const featureGuides = [
     steps: [
       {
         title: "Open Add Items",
-        body: "From the menu, choose Add Items. The first card, Fastest way in, is photo identification.",
-        image: { ...PHONE, src: "/features/identify-from-a-photo/start.jpg", alt: "The Add Items page with a card titled Take a picture, we'll fill in the rest, and a Take or upload a photo button." }
+        // The start.jpg screenshot showed this card at the top of the page,
+        // under its old title, so it is off until it is retaken from the
+        // card's new place at the bottom.
+        body: "From the menu, choose Add Items and scroll to the last card, Research what it's worth. (To fill in the fields without the research, use Scan a book at the top of the page instead.)"
       },
       {
         title: "Take or upload a photo of the cover",
-        body: "Tap Take or upload a photo. On a phone this opens the camera; on a computer, pick an image file. A clear, straight-on shot of the cover or title page works best."
+        body: "Tap Research a photo. On a phone this opens the camera; on a computer, pick an image file. A clear, straight-on shot of the cover or title page works best."
       },
       {
         title: "Check the draft",
@@ -50,7 +52,7 @@ export const featureGuides = [
     tips: [
       "Each account gets 2 identifications a day. Every one is a paid, search-grounded call, and FirstFinder is self-funded.",
       "Identification is a starting point, not an appraisal. Condition, the jacket, and provenance decide what a particular copy is worth.",
-      "Ran out for the day? Quick Add, just below on the same page, saves an item by hand."
+      "Ran out for the day? Scan a book, at the top of the same page, still fills in the fields from your photos. It doesn't research a value."
     ]
   },
   {

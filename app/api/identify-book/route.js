@@ -318,6 +318,14 @@ export async function POST(request) {
 
     const payload = await response.json();
 
+    // Logged so the real cost of an identification can be read off Vercel's
+    // logs rather than estimated from a price list. Search calls are billed
+    // per call on top of these tokens.
+    if (payload.usage) {
+      const searches = (payload.output || []).filter((item) => item.type === "web_search_call").length;
+      console.info("Identify usage:", JSON.stringify({ model: payload.model, images: images.length, input: payload.usage.input_tokens, output: payload.usage.output_tokens, searches }));
+    }
+
     // Web search runs as a tool-call loop before the final answer, so the
     // response can come back "incomplete" (ran out of budget mid-research)
     // even with a 200 status. Treat that as a failure rather than trying to

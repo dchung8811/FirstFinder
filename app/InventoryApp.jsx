@@ -66,6 +66,7 @@ import {
 } from "../src/utils/items";
 import { csvUpdateRow, storedEdition, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
+import { mergeScanIntoItem, scanResultToFields } from "../src/utils/scanFill";
 import { EXPLORE_STRIP_LIMIT, SHARE_BLURB_MAX, collectionMonogram, interleaveShelfCovers, jacketTone, toggleExplorePick } from "../src/utils/explore";
 import { createSignedUrlBatcher } from "../src/utils/signedUrlBatch";
 import {
@@ -825,6 +826,11 @@ export default function FirstFinderApp({ initialView = "home" }) {
   const [identifying, setIdentifying] = useState(false);
   const [identifyingPhotos, setIdentifyingPhotos] = useState([]);
   const [identifyDraft, setIdentifyDraft] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanningPhotos, setScanningPhotos] = useState([]);
+  // What the last scan read and why it filled the edition and printing as it
+  // did, shown beside Quick Add. Cleared with the form.
+  const [scanNotes, setScanNotes] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState([]);
   // Which account the server confirmed as an admin, rather than a bare
@@ -1904,6 +1910,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
     setQuickItem({ ...emptyItem, purchaseDate: todayIso() });
     setQuickItemPhotos([]);
     setQuickReceiptPhotos([]);
+    setScanNotes(null);
     setActiveView("inventory");
   }
 
@@ -2724,6 +2731,99 @@ export default function FirstFinderApp({ initialView = "home" }) {
     }
   }
 
+  // Scan-to-fill: photos of the cover and copyright page go to
+  // /api/scan-book, which only transcribes; scanFill.js turns that into Quick
+  // Add fields, filling only what is still empty so nothing typed by hand is
+  // overwritten. The photos join the item's photos, since a copyright page is
+  // exactly the evidence worth keeping with the record.
+  async function handleScanPhotos(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (files.length === 0) return;
+
+    if (!currentUser) {
+      pushToast("Please log in before scanning.", "error");
+      return;
+    }
+    if (!requireOnline("scanning a book")) return;
+
+    if (files.length > 3) pushToast("Scanning the first 3 photos — add the rest as item photos below.", "warning");
+
+    let photos;
+    try {
+      photos = (await Promise.all(files.slice(0, 3).map(fileToPhoto))).map((photo) => ({ ...photo, type: "image/jpeg" }));
+    } catch (error) {
+      pushToast("Could not read that photo.", "error");
+      return;
+    }
+
+    setScanningPhotos(photos);
+    setScanning(true);
+    trackEvent("scan_started", { photo_count: photos.length });
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        pushToast("Please log in again before scanning.", "error");
+        clearPhotoUrls(photos);
+        return;
+      }
+
+      const images = await Promise.all(photos.map(photoToDataUrl));
+      const response = await fetch("/api/scan-book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ images })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        pushToast(payload.error || "Couldn't read those photos. Please try again.", "error");
+        clearPhotoUrls(photos);
+        return;
+      }
+
+      const result = payload.result || {};
+      const { fields, reasons } = scanResultToFields(result);
+      const { item: merged, filled } = mergeScanIntoItem(quickItem, fields);
+      setQuickItem(merged);
+      setQuickItemPhotos((current) => [...current, ...photos]);
+      setScanNotes({
+        reasons,
+        numberLine: result.numberLine || "",
+        editionStatement: result.editionStatement || "",
+        publicationYear: result.publicationYear || "",
+        isbn: result.isbn || "",
+        // Nudges for a copyright page only when this scan didn't include one.
+        sawCopyrightPage: Boolean(result.numberLine || result.editionStatement || result.printingStatement || result.publisher),
+        filledCount: filled.length
+      });
+
+      trackEvent("scan_completed", {
+        photo_count: photos.length,
+        fields_filled: filled.length,
+        read_number_line: Boolean(result.numberLine),
+        category: fields.category || "Book"
+      });
+
+      pushToast(
+        filled.length > 0
+          ? `Filled ${filled.length} field${filled.length === 1 ? "" : "s"} from your photo${photos.length === 1 ? "" : "s"}. Check them before you submit.`
+          : "Read your photos, but every field it found already had something in it.",
+        "success"
+      );
+      document.getElementById("quick-add-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      console.error("Scan error:", error.message);
+      pushToast("Couldn't read those photos. Please try again.", "error");
+      clearPhotoUrls(photos);
+    } finally {
+      setScanning(false);
+      setScanningPhotos([]);
+    }
+  }
+
   async function addIdentifyPhotos(event) {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
@@ -3062,7 +3162,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
       )}
       {activeView === "resetPassword" && <ResetPasswordPage onDone={() => setActiveView("dashboard")} />}
       {activeView === "dashboard" && isLoggedIn && <DashboardPage inventory={inventory} loading={inventoryLoading} onAddItems={() => setActiveView("addItems")} onCollection={() => setActiveView("inventory")} onOpenItem={showItemInCollection} />}
-      {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
+      {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onScanPhotos={handleScanPhotos} scanning={scanning} scanNotes={scanNotes} onDismissScanNotes={() => setScanNotes(null)} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} onAddPhotos={addIdentifyPhotos} onRemovePhoto={removeIdentifyPhoto} onReIdentify={reIdentify} identifying={identifying} />}
       {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} />}
       {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onShare={openShareDialog} shareVisibility={shareSettings?.visibility} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} onRecoverPhotos={recoverItemPhotos} userId={currentUser?.id} bulkMessage={bulkMessage} focusItemId={focusItemId} onFocusHandled={() => { focusItemRef.current = null; setFocusItemId(null); }} />}
@@ -3071,6 +3171,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
 
       {identifying && <IdentifyLoadingOverlay photos={identifyingPhotos} />}
+      {scanning && <IdentifyLoadingOverlay photos={scanningPhotos} steps={scanningSteps} note="This takes a second or two. Check what it fills in before you submit." />}
 
       <SiteFooter isLoggedIn={isLoggedIn} onNavigate={go} />
 
@@ -3874,7 +3975,7 @@ function AboutPage({ onGoToFeedback, onGoToContribute }) {
 //
 // Update termsLastUpdated whenever the substance below changes -- section 12
 // tells people that date is how they know the terms moved.
-const termsLastUpdated = "September 9, 2026";
+const termsLastUpdated = "October 13, 2026";
 
 // A plain-English gloss shown above the binding text. It is explicitly not a
 // substitute for the sections themselves, and it stays short enough that
@@ -3925,7 +4026,7 @@ const termsSections = [
       "Malware, phishing, spam, or anything built to damage or disrupt FirstFinder or the people using it.",
       "Attempting to reach another person's account, collection, or photos; probing or bypassing our authentication, access controls, or security; or scraping, crawling, or automating access without our written permission.",
       "Reverse engineering the service, or reselling, sublicensing, or commercially exploiting any part of it.",
-      "Deliberately overloading our storage, database, or the photo identification feature — for example, bulk uploads unrelated to a real collection."
+      "Deliberately overloading our storage, database, or the scanning and photo identification features — for example, bulk uploads unrelated to a real collection."
     ],
     closing: "That list isn't exhaustive. If you are using FirstFinder in a way a reasonable person would call abusive, assume it's covered."
   },
@@ -3935,7 +4036,7 @@ const termsSections = [
     paragraphs: [
       "Your collection is yours. Photos, records, notes, receipts — you keep every right you already had in them, and we don't claim ownership of any of it.",
       "To run the service, you give us a limited, non-exclusive, worldwide, royalty-free license to store, back up, transmit, resize, and display your content, solely to operate and support FirstFinder for you. That license ends when you delete the content or your account, apart from copies in routine backups that age out on their own and anything we are required to keep under section 6.",
-      "When you use photo identification, the photo you submit is sent to a third-party AI provider (currently OpenAI) to be analyzed and returned as suggested details. Don't submit photos you aren't comfortable having processed that way.",
+      "When you scan a book or use photo identification, the photos you submit are sent to a third-party AI provider (currently OpenAI) to be read or analyzed and returned as suggested details. Don't submit photos you aren't comfortable having processed that way.",
       "Your collection is private unless you publish it. If you turn on a shareable collection page, the items and fields you choose become readable by anyone holding the link, whether or not they have a FirstFinder account, and by search engines if you also choose to have the page listed. Purchase prices, sources, notes, and sold records are only included if you switch them on; receipt photos are never published. You can switch the page off or reset its link at any time, which stops it being served immediately — but we can't recall anything already copied, screenshotted, cached, or indexed while it was public.",
       "You are responsible for having the right to upload whatever you upload, and for what you choose to publish on a shareable collection page."
     ]
@@ -4154,13 +4255,13 @@ function TermsPage({ onViewPrivacy }) {
 // Everything below has to describe what the code actually does. When a service
 // provider changes, a column is added that holds something personal, or a
 // retention rule moves, this file is part of that change -- not a follow-up.
-const privacyLastUpdated = "October 7, 2026";
+const privacyLastUpdated = "October 13, 2026";
 
 const privacySummary = [
   "We collect what running a catalog needs: your email, what you record about your items, and your photos.",
   "We don't sell your data, and we don't run ads against it.",
   "Your collection is private until you publish a shareable page yourself.",
-  "Photos you send to photo identification go to OpenAI to be analyzed.",
+  "Photos you scan or send to photo identification go to OpenAI to be read.",
   "Deleting your account from My Account erases your records and your photos for good."
 ];
 
@@ -4189,7 +4290,7 @@ const privacySections = [
       "Wishlist entries — the copies you're hunting and the specification you'd accept.",
       "Feedback — what you write in Send feedback, and any screenshots you attach. Read section 4 before you send one: feedback becomes a public GitHub issue.",
       "Sign-in activity — a timestamped record of each sign-in, kept so the maintainer can see how many people use FirstFinder and how often they come back.",
-      "Photo identification usage — a per-day count of how many identifications your account has run, which is how the daily cap is enforced.",
+      "Scanning and photo identification usage — a per-day count of how many scans and identifications your account has run, which is how the daily caps are enforced.",
       "Analytics — page views and in-app events (for example, opening the identification flow or exporting a report), collected through Google Analytics along with the technical data it gathers: a device or browser identifier, approximate location derived from IP address, referring page, and general device and browser details."
     ],
     closing: "We do not ask for and do not want your street address, your phone number, your date of birth, a government identifier, or a payment card number. If one of those turns up inside a note or on a receipt photo, it is there because you put it there."
@@ -4205,7 +4306,7 @@ const privacySections = [
       "To store and show your collection, your photos, your wishlist, and the totals and reports built from them.",
       "To produce the things you ask for: an identification suggestion, an estimated value, a CSV export, an insurance report, a shareable collection page.",
       "To answer feedback and support requests, and to fix what you tell us is broken.",
-      "To enforce the daily cap on photo identification and to protect FirstFinder from abuse, fraud, and attempts to reach other people's accounts.",
+      "To enforce the daily caps on scanning and photo identification and to protect FirstFinder from abuse, fraud, and attempts to reach other people's accounts.",
       "To understand, in aggregate, which parts of FirstFinder people actually use, so the effort goes where it helps.",
       "Only if you opt in, to email you now and then about new features. It is off unless you turn it on, at sign-up or in My account, and you can turn it off there at any time.",
       "To meet a legal obligation, including the reporting duties described in section 6 of the Terms."
@@ -4221,7 +4322,7 @@ const privacySections = [
     list: [
       "Supabase — our database, authentication, and photo storage. It holds essentially everything described in section 2 apart from analytics. Access is restricted per-account at the database level, so one user's rows and photos are not readable by another.",
       "Vercel — hosting for the website and its server routes. It processes requests as they pass through, and keeps standard server logs including IP addresses.",
-      "OpenAI — receives the photos you submit to photo identification, along with the prompt describing what to look for, and returns the suggested details. This happens only when you press identify, and only for the photos in that request. Don't submit a photo you aren't comfortable having processed this way.",
+      "OpenAI — receives the photos you scan or submit to photo identification, along with the prompt describing what to look for, and returns the suggested details. This happens only when you press scan or research, and only for the photos in that request. Don't submit a photo you aren't comfortable having processed this way.",
       "Google Analytics — receives the page views and events in section 2. It does not receive your email address, your collection, or your photos.",
       "Google — only if you choose to sign in with it, and only to the extent that sign-in requires.",
       "GitHub — receives your feedback. Every submission is filed as an issue in the public FirstFinder repository. The description is scanned first and obvious personal details (email addresses, phone numbers, street addresses, long card- or account-shaped numbers) are masked, but that is a pattern matcher, not a promise: don't write anything into feedback you would not want published. Your email address and account identifier are not included in the issue."
@@ -5879,13 +5980,13 @@ function DeleteAccountDialog({ deleting, onCancel, onConfirm }) {
   );
 }
 
-function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onIdentifyPhoto, identifying, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
+function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPhotos, onUpload, onRemove, onSave, saving, onScanPhotos, scanning, scanNotes, onDismissScanNotes, onIdentifyPhoto, identifying, onFullAdd, onInventory, inventory, totalCostBasis, totalGain, onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
   return (
     <section className="mx-auto max-w-6xl px-6 py-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-5xl font-semibold tracking-tight">Add something quickly.</h1>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">Use quick add for most items. Identify a photo to fill the fields for you, use CSV for bulk import, or open the tutorial for the guided flow.</p>
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">Scan a book to fill in the fields, type anything else into quick add, use CSV for bulk import, or open the tutorial for the guided flow.</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button
@@ -5915,7 +6016,7 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
         <DashboardCard icon="dollar" label="Change in value" value={formatCurrency(totalGain)} />
       </div>
 
-      <IdentifyPhotoCard onPhoto={onIdentifyPhoto} identifying={identifying} />
+      <ScanToFillCard onScan={onScanPhotos} scanning={scanning} notes={scanNotes} onDismiss={onDismissScanNotes} />
 
       <div id="quick-add-form" className="scroll-mt-24">
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
@@ -5983,6 +6084,11 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
       <div className="mt-8">
         <BulkUploadCard onDownloadTemplate={onDownloadTemplate} onBulkUpload={onBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />
       </div>
+
+      {/* Last on the page on purpose. Scanning is the way in; this is an
+          optional extra for when a collector wants a researched value, and it
+          is capped hard because each call is a search-grounded model run. */}
+      <IdentifyPhotoCard onPhoto={onIdentifyPhoto} identifying={identifying} />
     </section>
   );
 }
@@ -7143,14 +7249,22 @@ const identifyingSteps = [
   "Weighing the condition…"
 ];
 
+// Scan-to-fill only transcribes, so its messages say so -- no "searching for
+// sales" for a call that doesn't search.
+const scanningSteps = [
+  "Reading the cover…",
+  "Reading the copyright page…",
+  "Copying the number line…"
+];
+
 // Shown while the identification call is in flight. The photo the user just
 // took is the subject, with a scan sweeping over it, so the wait reads as work
 // happening on their book rather than a spinner on a blank page.
-function IdentifyLoadingOverlay({ photos }) {
+function IdentifyLoadingOverlay({ photos, steps = identifyingSteps, note = "This usually takes a few seconds. You'll get to review and edit everything before anything is saved." }) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setStep((current) => (current + 1) % identifyingSteps.length), 1700);
+    const timer = window.setInterval(() => setStep((current) => (current + 1) % steps.length), 1700);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -7204,7 +7318,7 @@ function IdentifyLoadingOverlay({ photos }) {
             transition={{ duration: 0.3 }}
             className="font-display text-lg font-semibold text-[#201a14]"
           >
-            {identifyingSteps[step]}
+            {steps[step]}
           </motion.div>
         </div>
 
@@ -7219,39 +7333,109 @@ function IdentifyLoadingOverlay({ photos }) {
         </div>
 
         <p className="mt-4 text-center text-sm leading-6 text-[#8a7a64]">
-          This usually takes a few seconds. You'll get to review and edit everything before anything is saved.
+          {note}
         </p>
       </motion.div>
     </div>
   );
 }
 
-// The entry point for photo identification. Sits between the summary cards and
-// the manual form, so the fast path is the first thing you see.
-function IdentifyPhotoCard({ onPhoto, identifying }) {
+// The main way in on Add Items: photograph the cover and the copyright page,
+// and Quick Add fills itself in. Sits above the form it fills.
+function ScanToFillCard({ onScan, scanning, notes, onDismiss }) {
   return (
     <Card className="mt-8 rounded-[2rem] border-[#123f38]/25 bg-[#edf4f2] shadow-sm">
+      <CardContent className="p-6 md:p-8">
+        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#123f38]">
+              <Icon name="camera" size={14} /> Fastest way in
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold">Snap the cover and copyright page.</h2>
+            <p className="mt-2 max-w-xl leading-7 text-[#365c53]">
+              We'll copy the title, author, and publisher into Quick Add below, and read the number line for the edition and printing. Nothing is saved until you submit, and anything you've already typed is left alone.
+            </p>
+          </div>
+          <label
+            onClick={() => trackEvent("scan_button_clicked", { source_page: "add_items", has_notes: Boolean(notes) })}
+            className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${scanning ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}
+          >
+            <Icon name="camera" size={18} />
+            {scanning ? "Reading..." : notes ? "Scan another page" : "Scan a book"}
+            {/* No capture attribute: on a phone that would open the camera for
+                a single shot, and the cover-plus-copyright-page pair is the
+                point. Without it, the phone offers the camera or the library. */}
+            <input type="file" accept="image/*" multiple onChange={onScan} disabled={scanning} className="hidden" />
+          </label>
+        </div>
+
+        {notes && (
+          <div className="mt-6 rounded-2xl bg-white/80 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="font-semibold text-[#123f38]">What the scan read</h3>
+              <button type="button" onClick={onDismiss} aria-label="Hide what the scan read" className="rounded-full p-1 text-[#5c7a72] hover:bg-[#edf4f2]">
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+              {[
+                ["Edition statement", notes.editionStatement],
+                ["Number line", notes.numberLine],
+                ["Year", notes.publicationYear],
+                ["ISBN", notes.isbn]
+              ].filter(([, value]) => value).map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</dt>
+                  <dd className="mt-0.5 break-words font-mono text-[#201a14]">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            {notes.reasons.length > 0 && (
+              <ul className="mt-4 space-y-1 text-sm leading-6 text-[#365c53]">
+                {notes.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+            )}
+            {!notes.sawCopyrightPage && (
+              <p className="mt-4 rounded-xl bg-[#fff3d8] p-3 text-sm leading-6 text-[#6d5526]">
+                No copyright page in that scan. Scan it next for the publisher, edition, and printing.
+              </p>
+            )}
+            <p className="mt-4 text-xs leading-5 text-[#5c7a72]">
+              Read by AI from your photos, not looked up. Hold it next to the book before you submit. Photos go to OpenAI to be read.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Optional AI research: identification plus a value range from live web
+// search. Deliberately the last, quietest card on Add Items -- scanning is the
+// way in, and this is an extra for when a collector wants a researched value.
+// It is capped hard because each call is a search-grounded reasoning model.
+function IdentifyPhotoCard({ onPhoto, identifying }) {
+  return (
+    <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
       <CardContent className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between md:p-8">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-[#123f38]">
-            <Icon name="camera" size={14} /> Fastest way in
-          </div>
-          <h2 className="mt-3 text-2xl font-semibold">Take a picture, we'll fill in the rest.</h2>
-          <p className="mt-2 max-w-xl leading-7 text-[#365c53]">
-            Photograph the cover and we'll identify the title, edition, and a rough value, then hand you an editable draft. The photo is attached to the record. You'll still enter what you paid.
+          <div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">Optional · AI research</div>
+          <h2 className="mt-1 text-2xl font-semibold">Research what it's worth.</h2>
+          <p className="mt-2 max-w-xl leading-7 text-[#665746]">
+            Photograph the cover and an AI model searches the web for comparable sales, then suggests the edition and a value range with its sources. It's a starting point, not an appraisal, and you review everything before it's saved.
           </p>
           {/* Stated before the button, not after the refusal. */}
-          <p className="mt-3 max-w-xl text-sm leading-6 text-[#5c7a72]">
-            Limited to {identifyDailyLimitCopy} identifications a day per account, and they can pause if the budget
-            runs out — each one is a live, search-grounded API call, and this is a self-funded app.
+          <p className="mt-3 max-w-xl text-sm leading-6 text-[#8a7a64]">
+            Limited to {identifyDailyLimitCopy} a day per account, and it can pause if the budget runs out — each one is a live,
+            search-grounded API call, and this is a self-funded app.
           </p>
         </div>
         <label
           onClick={() => trackEvent("identify_button_clicked", { source_page: "add_items" })}
-          className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${identifying ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}
+          className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-7 font-medium text-[#665746] ${identifying ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#fff8ee]"}`}
         >
-          <Icon name="camera" size={18} />
-          {identifying ? "Identifying..." : "Take or upload a photo"}
+          <Icon name="search" size={18} />
+          {identifying ? "Researching..." : "Research a photo"}
           <input type="file" accept="image/*" capture="environment" onChange={onPhoto} disabled={identifying} className="hidden" />
         </label>
       </CardContent>
