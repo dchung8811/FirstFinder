@@ -188,6 +188,34 @@ describe("pickFirstEdition — reprinters and lone firsts", () => {
     expect(pickFirstEdition(damned).year).toBe(1922);
   });
 
+  it("never counts a library rebinding as the first edition (Slaughterhouse-Five)", () => {
+    const slaughterhouse = [
+      ed(1956, "A Delta Book", { lang: ["eng"] }),
+      ed(1968, "Peter Smith Pub Inc", { format: "Hardcover" }),
+      ed(1969, "dell publishing co., inc.", { lang: ["eng"] }),
+      ed(1969, "Dell Pub. Co.", { lang: ["eng"] }),
+      ed(1969, "Delacorte Press/Seymour Lawrence"),
+      ed(1969, "Delacorte Press"),
+      ed(1969, "Delta"),
+      ed(1969, "A DELTA BOOK"),
+      ...laterReprints("Dell")
+    ];
+    expect(pickFirstEdition(slaughterhouse).year).toBe(1969);
+    expect(pickFirstEdition(slaughterhouse).publisher).toMatch(/^Delacorte Press/);
+  });
+
+  it("does not let Peter Smith's rebindings outvote a lone original (Tales of the Grotesque)", () => {
+    const tales = [
+      ed(1840, "Lea and Blanchard", { lang: ["eng"] }),
+      ed(1940, "Peter Smith Pub Inc", { format: "Hardcover" }),
+      ed(1965, "Peter Smith , Gloucester, Mass.", { lang: ["eng"] }),
+      ed(1965, "P. Smith"),
+      ed(1965, "P. Smith", { lang: ["eng"] }),
+      ed(2006, "University of North Carolina at Chapel Hill Libraries", { lang: ["eng"] })
+    ];
+    expect(pickFirstEdition(tales)).toEqual({ year: 1840, publisher: "Lea and Blanchard" });
+  });
+
   it("keeps a single first-edition record followed soon by others (Suttree)", () => {
     const suttree = [
       ed(1979, "Random House", { lang: ["eng"] }),
