@@ -6681,6 +6681,8 @@ function InsuranceExportPage({ items, onBack }) {
   }, 0);
 
   const [itemPhotosById, setItemPhotosById] = useState({});
+  const [photosSigned, setPhotosSigned] = useState(false);
+  const expectsPhotos = items.some((item) => item.itemPhotos?.length > 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -6695,12 +6697,70 @@ function InsuranceExportPage({ items, onBack }) {
         byItem[photo.itemId].push(photo);
       });
       setItemPhotosById(byItem);
+      setPhotosSigned(true);
     });
 
     return () => {
       cancelled = true;
     };
   }, [items]);
+
+  // The printed copy's photos are fetched only once printing is asked for,
+  // then waited on before the print dialog opens.
+  //
+  // They used to be lazy, like every other photo (#180), and that broke the
+  // report: the print-only list is display:none on screen, a lazy image there
+  // is never fetched, and the print dialog snapshots the page at once -- so
+  // every photo printed as an empty loading box. Eager from page load would
+  // fix that by downloading the whole collection's photos for someone who
+  // came for the CSV. Waiting until Print is pressed spends that only on the
+  // person who is about to print them.
+  //
+  // The dialog opens on a second press rather than by itself when the photos
+  // arrive: Safari asks before letting a page print without a tap, and the
+  // installed app is Safari.
+  const [loadPrintPhotos, setLoadPrintPhotos] = useState(false);
+  const [gaveUpWaiting, setGaveUpWaiting] = useState(false);
+  const settledPathsRef = useRef(new Set());
+  const [settledCount, setSettledCount] = useState(0);
+
+  // Only photos that got a URL will ever report back; one that couldn't be
+  // signed already shows as missing and has nothing to wait for.
+  const printablePhotoCount = Object.values(itemPhotosById).reduce((count, photos) => count + photos.filter((photo) => photo.url).length, 0);
+  const photosSettled = settledCount >= printablePhotoCount || gaveUpWaiting;
+  const readyToPrint = !expectsPhotos || (photosSigned && loadPrintPhotos && photosSettled);
+  const waitingForPhotos = loadPrintPhotos && !readyToPrint;
+
+  function handlePhotoSettled(path) {
+    if (settledPathsRef.current.has(path)) return;
+    settledPathsRef.current.add(path);
+    setSettledCount(settledPathsRef.current.size);
+  }
+
+  // A photo that neither loads nor errors -- a stalled connection -- would
+  // otherwise hold the report hostage. After a minute it prints without it.
+  useEffect(() => {
+    if (!loadPrintPhotos) return;
+    const timer = window.setTimeout(() => setGaveUpWaiting(true), 60000);
+    return () => window.clearTimeout(timer);
+  }, [loadPrintPhotos]);
+
+  // Printing from the browser's own menu skips the button and can't be held
+  // up. Start the photos anyway, so the second try has them.
+  useEffect(() => {
+    const startPhotos = () => setLoadPrintPhotos(true);
+    window.addEventListener("beforeprint", startPhotos);
+    return () => window.removeEventListener("beforeprint", startPhotos);
+  }, []);
+
+  function handlePrint() {
+    if (!readyToPrint) {
+      setLoadPrintPhotos(true);
+      return;
+    }
+    trackEvent("insurance_export_printed", { item_count: items.length });
+    window.print();
+  }
 
   function handleExportCsv() {
     trackEvent("insurance_export_csv_downloaded", { item_count: items.length });
@@ -6724,9 +6784,19 @@ function InsuranceExportPage({ items, onBack }) {
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button variant="outline" onClick={onBack} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Back to collection</Button>
           <Button variant="outline" onClick={handleExportCsv} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export as CSV</Button>
-          <Button onClick={() => { trackEvent("insurance_export_printed", { item_count: items.length }); window.print(); }} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]"><Icon name="file" size={16} className="mr-2" /> Print / Save as PDF</Button>
+          <Button onClick={handlePrint} disabled={waitingForPhotos} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d] disabled:opacity-70">
+            <Icon name="file" size={16} className="mr-2" />
+            {waitingForPhotos ? `Loading photos ${Math.min(settledCount, printablePhotoCount)} of ${printablePhotoCount}…` : "Print / Save as PDF"}
+          </Button>
         </div>
       </div>
+      {loadPrintPhotos && readyToPrint && expectsPhotos && (
+        <p className="mt-4 text-right text-sm text-[#665746] print:hidden">
+          {settledCount < printablePhotoCount
+            ? "Some photos are taking too long. Printing now leaves those out."
+            : "Photos are ready. Tap Print / Save as PDF."}
+        </p>
+      )}
 
       <div className="mt-2 hidden print:block">
         <h1 className="text-2xl font-semibold">FirstFinder — Collection Report</h1>
@@ -6802,7 +6872,7 @@ function InsuranceExportPage({ items, onBack }) {
               Purchased {item.purchaseDate || "unknown date"} · {item.source || "unknown source"}
             </div>
             {item.notes && <div className="mt-1 text-xs text-[#8a7a64]">{item.notes}</div>}
-            {(itemPhotosById[item.id]?.length > 0) && (
+            {loadPrintPhotos && (itemPhotosById[item.id]?.length > 0) && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {itemPhotosById[item.id].map((photo) => (
                   <SignedPhoto
@@ -6812,6 +6882,8 @@ function InsuranceExportPage({ items, onBack }) {
                     frameClassName="h-24 w-24 rounded-lg border border-[#e0d2bc]"
                     className="h-24 w-24 object-cover"
                     quiet
+                    eager
+                    onSettled={handlePhotoSettled}
                   />
                 ))}
               </div>
@@ -9770,9 +9842,13 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
   // their own, because reporting a failure for a book nobody photographed
   // sends the owner looking for a bug instead of a camera.
   missingLabel = "Photo didn't load",
-  // Opt out of lazy loading, for the one case where the reader has already
-  // asked for this exact photo: the viewer they just opened.
-  eager = false }) {
+  // Opt out of lazy loading, for the cases where the reader has already
+  // asked for this exact photo: the viewer they just opened, and a report
+  // they are about to print.
+  eager = false,
+  // Called with the path once the photo has either arrived or given up, so a
+  // caller that must wait for every photo (printing) knows when to stop.
+  onSettled }) {
   const [current, setCurrent] = useState(src || "");
   const [status, setStatus] = useState(src ? "loading" : "failed");
   const [prevSrc, setPrevSrc] = useState(src);
@@ -9797,6 +9873,7 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
     const fresh = await signedUrlForPath(path);
     if (!fresh) {
       setStatus("failed");
+      onSettled?.(path);
       return;
     }
     signedAtRef.current = Date.now();
@@ -9812,6 +9889,7 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
       return;
     }
     setStatus("failed");
+    onSettled?.(path);
   }
 
   function retry() {
@@ -9885,7 +9963,10 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
         <img
           src={current}
           alt={alt}
-          onLoad={() => setStatus("ok")}
+          onLoad={() => {
+            setStatus("ok");
+            onSettled?.(path);
+          }}
           onError={handleError}
           /* Async decoding keeps a large photo off the main thread while the
              rest of the page paints -- these are camera photos, not icons. */
