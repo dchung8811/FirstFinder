@@ -13,6 +13,12 @@
 
 export const features = [
   {
+    date: "2026-10-13",
+    title: "Fill in an item by snapping a picture",
+    description: "Snap a book's cover and copyright page in Quick Add, and the title, author, publisher, edition, and printing are filled in for you to check. The printing comes from the number line, with the reason shown, and anything you've typed is left alone.",
+    prs: [228]
+  },
+  {
     date: "2026-10-06",
     title: "Explore other collectors' shelves",
     description: "A new Explore page shows collections whose owners have chosen to be on it, each with a strip of covers they picked. Being on it is a separate switch from sharing your page at all, and it never shows prices.",
