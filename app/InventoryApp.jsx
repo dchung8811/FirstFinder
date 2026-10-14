@@ -7752,6 +7752,9 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
           <div className="text-xs uppercase tracking-[0.18em] text-[#fff7ea]/50">Features</div>
           <div className="mt-4 flex flex-col gap-3">
             <FooterLink onClick={go("tutorial")}>How to / Tutorial</FooterLink>
+            {/* A guide page, public like the identification guides, so a
+                plain link rather than go(), which sends visitors to log in. */}
+            <FooterLink href="/features/snap-a-picture">Snap a picture</FooterLink>
             <FooterLink onClick={go("inventory")}>My Collection</FooterLink>
             <FooterLink onClick={go("wishlist")}>Wishlist</FooterLink>
             <FooterLink onClick={go("account")}>My Account</FooterLink>
