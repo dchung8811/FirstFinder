@@ -91,3 +91,31 @@ describe("isCollectibleShape — keeps genuine first editions", () => {
     expect(accepts("Blood Meridian", "Cormac McCarthy")).toBe(true);
   });
 });
+
+describe("isCollectibleShape — rejects rows found in the catalog in October 2026", () => {
+  it("rejects several books bound or listed as one", () => {
+    expect(accepts("The Great Gatsby / The Last Tycoon", "F. Scott Fitzgerald")).toBe(false);
+    expect(accepts("The Orchard Keeper / Suttree / Blood Meridian", "Cormac McCarthy")).toBe(false);
+    expect(accepts("The Hobbit & The Lord of the Rings [collection/set]", "J.R.R. Tolkien")).toBe(false);
+    expect(accepts("Cormac Mccarthy Bestselling Series, 6 Books Set, Cities of the Plain", "Cormac McCarthy")).toBe(false);
+    expect(accepts("World Beyond Dune Box", "Frank Herbert")).toBe(false);
+  });
+
+  it("rejects textbook editions, adaptations and audio", () => {
+    expect(accepts("1984 with Connections", "George Orwell")).toBe(false);
+    expect(accepts("1984 (adaptation)", "Michael Dean")).toBe(false);
+    expect(accepts("Catch-22. A Dramatization", "Joseph Heller")).toBe(false);
+    expect(accepts("Truths of Dune/Cassette/Swc 1616", "Frank Herbert")).toBe(false);
+  });
+
+  it("rejects bookseller listings copied in as titles", () => {
+    expect(accepts("Catch-22 by Heller, Joseph (2011) Hardcover", "Joseph Heller")).toBe(false);
+    expect(accepts("Catch-22, Joseph Heller", "Joseph Heller")).toBe(false);
+  });
+
+  it("still keeps titles that only resemble those shapes", () => {
+    expect(accepts("The Notebooks of Frank Herbert's Dune", "Frank Herbert")).toBe(true);
+    expect(accepts("The Box Man", "Kobo Abe")).toBe(true);
+    expect(accepts("Stand by Me", "Stephen King")).toBe(true);
+  });
+});

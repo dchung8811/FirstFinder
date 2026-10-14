@@ -165,10 +165,11 @@ export function suggestionSubtitle(suggestion) {
 // The publisher lands in Make / Publisher / Brand, which is a separate field
 // from Author -- and it is the field most worth a second look. For a guide it
 // is the verified first-edition publisher (Dune, Chilton Books). For a catalog
-// row it is whichever edition Open Library happened to describe, which is
-// frequently a later reissue. It is shown in the dropdown before the collector
-// picks, and the hint under the field says to check it, but a collector who
-// records a first edition should confirm this one against their copy.
+// row it is the seed's best reading of Open Library's edition records -- the
+// oldest English edition, reprints outvoted -- which is usually right and
+// never checked. It is shown in the dropdown before the collector picks, and
+// the hint under the field says to check it, but a collector who records a
+// first edition should confirm this one against their copy.
 //
 // Author and publisher belong to the book, so a pick replaces them. Picking a
 // second suggestion after mis-picking a first has to leave a coherent record --

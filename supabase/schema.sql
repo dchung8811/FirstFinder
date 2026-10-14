@@ -340,14 +340,17 @@ create table if not exists public.book_catalog (
   title text not null,
   author text not null default '',
 
-  -- The publisher of the edition Open Library happened to describe, which is
-  -- very often NOT the first edition's publisher. It is shown in the suggestion
-  -- row to tell two same-titled books apart, and it is copied into the item's
-  -- Make / Publisher / Brand field on a pick -- so it is the field on that form
-  -- most worth a collector's second look, and the hint under the name says so.
+  -- The first edition's publisher, as far as Open Library's edition records
+  -- can establish it: the oldest printed English edition, with reprints that
+  -- carry the original's date outvoted (scripts/first-edition.mjs). It is
+  -- copied into the item's Make / Publisher / Brand field on a pick. Better
+  -- evidence than the first seed's, which took whichever imprint the search
+  -- index listed first, but still unchecked -- so the hint under the name still
+  -- says to confirm it against the copy.
   publisher text not null default '',
 
-  -- Year of first publication of the WORK, not of any particular printing.
+  -- The year of that same first edition. For a translated book it is the
+  -- first ENGLISH edition, because the title is the English title.
   first_published_year integer,
 
   -- Open Library's cover id. Kept for a future thumbnail in the dropdown;
@@ -355,8 +358,9 @@ create table if not exists public.book_catalog (
   cover_id text not null default '',
 
   -- The Open Library work key ("/works/OL893415W"). Unique, so re-running the
-  -- seed script updates rows instead of duplicating them. Null for rows that
-  -- came from somewhere else.
+  -- seed script updates rows instead of duplicating them. Where Open Library
+  -- holds one book as several works, the seed merges them and keeps the key of
+  -- the one with the most editions. Null for rows that came from somewhere else.
   openlibrary_key text unique,
 
   -- openlibrary -- bulk imported, unchecked.
