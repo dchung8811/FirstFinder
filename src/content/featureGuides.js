@@ -15,6 +15,69 @@ const PHONE = { kind: "phone", width: 750, height: 1624 };
 
 export const featureGuides = [
   {
+    // Cropped from a screen recording on the maintainer's phone. The crops
+    // start below the dashboard totals, which sit just above Quick Add on
+    // Add Items, so the screenshots show the scan and nothing about money.
+    slug: "snap-a-picture",
+    title: "Fill in an item by snapping a picture",
+    summary: "Photograph a book's cover and copyright page in Quick Add, and FirstFinder fills in the title, author, publisher, and printing, and the edition when the page states it, with the reasoning shown so you can check it against the book.",
+    why: [
+      "Adding a book goes from typing every field to checking a few.",
+      "The printing comes from the number line, worked out the same way every time, with the reason written next to the form.",
+      "It only reads what's printed. Nothing is looked up or guessed, and anything you've already typed is left alone.",
+      "Both photos stay with the item, so the copyright page is on file as evidence."
+    ],
+    steps: [
+      {
+        title: "Open Quick Add",
+        body: "From the menu, choose Add Items. Snap a picture sits at the top of the Quick Add card, above the fields it fills.",
+        image: { kind: "phone", width: 750, height: 1057, src: "/features/snap-a-picture/snap-button.jpg", alt: "The Quick Add card, New collectible, with a Snap a picture button above empty Item name, Category, and What you paid fields." }
+      },
+      {
+        title: "Take a photo, or pick one you already have",
+        body: "Tap Snap a picture. On a phone you can take a photo there and then, or choose from your library. You can send up to 3 photos at once, so the cover and copyright page can go together.",
+        image: { kind: "phone", width: 750, height: 808, src: "/features/snap-a-picture/camera-or-library.jpg", alt: "The phone's menu over the Snap a picture button, offering Photo Library, Take Photo, and Choose Files." }
+      },
+      {
+        title: "Snap the cover",
+        body: "A straight-on shot of the front cover, title and author readable, is all it needs.",
+        image: { kind: "phone", width: 750, height: 1531, src: "/features/snap-a-picture/cover-photo.jpg", alt: "The phone camera's Use Photo screen showing the dust jacket of Lonesome Dove by Larry McMurtry on a wooden table." }
+      },
+      {
+        title: "Check what it filled in",
+        body: "The title and author go into the form, and a panel says how many fields were filled. A cover can't show who published it or which printing it is, so it asks for the copyright page next.",
+        image: { kind: "phone", width: 750, height: 1345, src: "/features/snap-a-picture/after-cover.jpg", alt: "Quick Add after scanning the cover: Filled 2 fields from your photos, a note reading No copyright page in that scan. Snap it next for the publisher, edition, and printing, and Item name filled in as Lonesome Dove." }
+      },
+      {
+        title: "Snap the copyright page",
+        body: "Tap Snap another page and photograph the back of the title page: the block with the copyright, the publisher's address, and the row of numbers. Get the whole number line in the frame.",
+        image: { kind: "phone", width: 750, height: 1531, src: "/features/snap-a-picture/copyright-photo.jpg", alt: "The phone camera's Use Photo screen showing the copyright page of Lonesome Dove, with Simon and Schuster's details and the number line 10 9 8 7 6 5 4 3 2 1." }
+      },
+      {
+        title: "Read the reasoning",
+        body: "The panel shows what it read, the number line, year, and ISBN, and why it chose the printing. Here the lowest number on the line is 1, so it's a first printing. Hold it up next to the book.",
+        image: { kind: "phone", width: 750, height: 1345, src: "/features/snap-a-picture/number-line.jpg", alt: "The scan panel listing Number line 10 9 8 7 6 5 4 3 2 1, Year 1985, ISBN 0-671-50420-7, and the reason: The lowest number on the number line is 1, so this is the first printing." }
+      },
+      {
+        title: "Check the fields",
+        body: "The publisher is filled in from the copyright page, alongside the title and author from the cover. Every field stays editable, so correct anything it misread.",
+        image: { kind: "phone", width: 750, height: 336, src: "/features/snap-a-picture/author-publisher.jpg", alt: "The Author field filled in as Larry McMurtry and Make / Publisher / Brand as Simon and Schuster." }
+      },
+      {
+        title: "Fill in the rest, then submit",
+        body: "The printing is set from the number line. The edition is filled in only when the page says so in words; Lonesome Dove's doesn't, so it was set to First by hand here. Both photos are already attached as item photos. Add what you paid and anything else you know, and tap Submit.",
+        image: { kind: "phone", width: 750, height: 1113, src: "/features/snap-a-picture/edition-printing.jpg", alt: "Edition and Printing both set to First, and the Item photo section holding the cover and copyright page photos." }
+      }
+    ],
+    tips: [
+      "Anything you typed before scanning is never overwritten. A scan only fills fields that are still empty.",
+      "It knows Random House's habit of printing \"First Edition\" over a number line that starts at 2, and calls those first printings.",
+      "Book club editions are marked as Other, never First, whatever else the page says.",
+      "Scanning needs a connection. Offline, add the item by hand and the photos sync later.",
+      "Photos go to OpenAI to be read. Scanning doesn't search the web or estimate a value. For that, use Research what it's worth at the bottom of Add Items."
+    ]
+  },
+  {
     slug: "identify-from-a-photo",
     title: "Identify an item from a photo",
     summary: "Optional AI research: photograph a cover and FirstFinder searches for comparable sales, then drafts the record with a suggested edition and a value range, ready for you to check and save.",

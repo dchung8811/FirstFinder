@@ -15,7 +15,8 @@ export const features = [
   {
     date: "2026-10-13",
     title: "Fill in an item by snapping a picture",
-    description: "Snap a book's cover and copyright page in Quick Add, and the title, author, publisher, edition, and printing are filled in for you to check. The printing comes from the number line, with the reason shown, and anything you've typed is left alone.",
+    guide: "snap-a-picture",
+    description: "Snap a book's cover and copyright page in Quick Add, and the title, author, publisher, and printing are filled in for you to check, and the edition too when the page states it. The printing comes from the number line, with the reason shown, and anything you've typed is left alone.",
     prs: [228]
   },
   {
