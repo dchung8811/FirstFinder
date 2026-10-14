@@ -4288,7 +4288,7 @@ const privacySections = [
       "Wishlist entries — the copies you're hunting and the specification you'd accept.",
       "Feedback — what you write in Send feedback, and any screenshots you attach. Read section 4 before you send one: feedback becomes a public GitHub issue.",
       "Sign-in activity — a timestamped record of each sign-in, kept so the maintainer can see how many people use FirstFinder and how often they come back.",
-      "Scanning and photo identification usage — a per-day count of how many scans and identifications your account has run, which is how the daily caps are enforced.",
+      "Photo identification usage — a per-day count of how many identifications your account has run, which is how the daily cap is enforced.",
       "Analytics — page views and in-app events (for example, opening the identification flow or exporting a report), collected through Google Analytics along with the technical data it gathers: a device or browser identifier, approximate location derived from IP address, referring page, and general device and browser details."
     ],
     closing: "We do not ask for and do not want your street address, your phone number, your date of birth, a government identifier, or a payment card number. If one of those turns up inside a note or on a receipt photo, it is there because you put it there."
@@ -4304,7 +4304,7 @@ const privacySections = [
       "To store and show your collection, your photos, your wishlist, and the totals and reports built from them.",
       "To produce the things you ask for: an identification suggestion, an estimated value, a CSV export, an insurance report, a shareable collection page.",
       "To answer feedback and support requests, and to fix what you tell us is broken.",
-      "To enforce the daily caps on scanning and photo identification and to protect FirstFinder from abuse, fraud, and attempts to reach other people's accounts.",
+      "To enforce the daily cap on photo identification and to protect FirstFinder from abuse, fraud, and attempts to reach other people's accounts.",
       "To understand, in aggregate, which parts of FirstFinder people actually use, so the effort goes where it helps.",
       "Only if you opt in, to email you now and then about new features. It is off unless you turn it on, at sign-up or in My account, and you can turn it off there at any time.",
       "To meet a legal obligation, including the reporting duties described in section 6 of the Terms."

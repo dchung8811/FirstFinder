@@ -6,13 +6,17 @@
 -- about a tenth of a cent -- while an identification is a reasoning model
 -- running live web searches. Sharing one counter would mean either a scan cap
 -- of two a day, which defeats the point of a cheap way in, or an
--- identification cap high enough to cost real money. The cap here is generous
--- and exists only so a script hammering the endpoint can't run up a bill.
+-- identification cap high enough to cost real money.
+--
+-- The cap is off unless SCAN_DAILY_LIMIT is set: by default scanning runs for
+-- as long as the OpenAI account has credit, and nothing here is written to.
+-- This exists so a cap can be switched on with an environment variable alone,
+-- if a script ever starts hammering the endpoint.
 --
 -- Run once in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 -- Safe to re-run: everything here is create-if-not-exists or create-or-replace.
--- Until it is run, the route falls back to a per-instance counter of the same
--- size and logs that it did.
+-- If a cap is set before this has been run, the route falls back to a
+-- per-instance counter of the same size and logs that it did.
 
 create table if not exists public.scan_usage (
   user_id uuid not null references auth.users (id) on delete cascade,

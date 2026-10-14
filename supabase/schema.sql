@@ -585,9 +585,9 @@ create policy "Anyone can read the banner while it is on"
 -- ---------------------------------------------------------------------------
 -- Scan-to-fill daily cap (patch: scan-daily-limit.sql)
 --
--- A generous per-user cap on app/api/scan-book, separate from photo
--- identification's because a scan costs a small fraction of what an
--- identification does. RLS on with no policies: only the service role reads
+-- An optional per-user cap on app/api/scan-book, used only when
+-- SCAN_DAILY_LIMIT is set, and separate from photo identification's because a
+-- scan costs a small fraction of what an identification does. RLS on with no policies: only the service role reads
 -- or writes it. See scan-daily-limit.sql for the reasoning.
 -- ---------------------------------------------------------------------------
 create table if not exists public.scan_usage (

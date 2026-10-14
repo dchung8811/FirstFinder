@@ -23,10 +23,14 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 12 * 1024 * 1024;
 
 const COOLDOWN_MS = 2000;
-// Generous on purpose: this cap is not what keeps the feature affordable, the
-// model choice is. It is here so a script looping on the endpoint can't run up
-// a bill. Enforced in Postgres (supabase/scan-daily-limit.sql).
-const DAILY_LIMIT = Number(process.env.SCAN_DAILY_LIMIT) || 25;
+// No daily cap by default: a scan costs about a tenth of a cent, so collectors
+// can scan as much as they like for as long as the OpenAI account has credit,
+// and running out is reported as its own error below. The cap is kept, off, for
+// the day it's needed -- set SCAN_DAILY_LIMIT to a number (0 switches scanning
+// off) and it is enforced in Postgres by supabase/scan-daily-limit.sql, which
+// is already applied in production. Unset, or not a whole number, means no cap.
+const parsedLimit = Number(process.env.SCAN_DAILY_LIMIT);
+const DAILY_LIMIT = process.env.SCAN_DAILY_LIMIT && Number.isInteger(parsedLimit) && parsedLimit >= 0 ? parsedLimit : null;
 const callLog = new Map();
 
 // In process memory, like identify-book's: it exists to stop a double-tap or a
@@ -77,10 +81,14 @@ async function claimDailyCall(supabaseAdmin, userId) {
   const limit = Number.isInteger(row?.day_limit) ? row.day_limit : DAILY_LIMIT;
   if (!row?.allowed) return { error: atLimitMessage(limit) };
 
-  const entry = callLog.get(userId) || { last: 0, day: new Date().toDateString(), count: 0 };
-  entry.last = Date.now();
-  callLog.set(userId, entry);
+  noteCall(userId);
   return { error: null, remaining: Math.max(0, limit - row.used), limit };
+}
+
+// With no cap set there is nothing to claim, but the cooldown still needs to
+// know when this caller last scanned.
+function noteCall(userId) {
+  callLog.set(userId, { ...(callLog.get(userId) || { day: new Date().toDateString(), count: 0 }), last: Date.now() });
 }
 
 const SCAN_SCHEMA = {
@@ -170,8 +178,14 @@ export async function POST(request) {
     return NextResponse.json({ error: "Those photos are too large together. Try fewer, or smaller ones." }, { status: 413 });
   }
 
-  // Claimed after every free check, immediately before the paid call.
-  const claim = await claimDailyCall(supabaseAdmin, userData.user.id);
+  // Claimed after every free check, immediately before the paid call -- and
+  // only when a cap is switched on.
+  let claim = { error: null, remaining: null, limit: null };
+  if (DAILY_LIMIT === null) {
+    noteCall(userData.user.id);
+  } else {
+    claim = await claimDailyCall(supabaseAdmin, userData.user.id);
+  }
   if (claim.error) {
     return NextResponse.json({ error: claim.error }, { status: 429 });
   }
@@ -210,10 +224,16 @@ export async function POST(request) {
       const detail = await response.text();
       console.error("OpenAI scan error:", response.status, detail.slice(0, 500));
       if (response.status === 429) {
+        // Running out of prepaid credit also comes back as a 429. With no cap,
+        // this is the limit collectors actually meet, so it gets its own,
+        // plain message rather than "try again", which wouldn't help.
         const outOfCredit = /insufficient_quota|exceeded your current quota|billing/i.test(detail);
+        if (outOfCredit) console.error("Scan refused: the OpenAI account is out of credit.");
         return NextResponse.json({
-          error: outOfCredit ? "Scanning has used up its budget for now. Quick Add still works by hand." : "Scanning is busy right now. Try again in a moment."
-        }, { status: 429 });
+          error: outOfCredit
+            ? "Snap a picture is paused because FirstFinder's AI budget has run out. It'll work again once the account is topped up — Quick Add still works by hand."
+            : "Scanning is busy right now. Try again in a moment."
+        }, { status: outOfCredit ? 503 : 429 });
       }
       return NextResponse.json({ error: "Couldn't read those photos right now. Please try again." }, { status: 502 });
     }

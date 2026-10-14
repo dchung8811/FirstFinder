@@ -193,11 +193,16 @@ always gives the same printing and the collector sees the reason.
 
 Because the job is narrow, a small model is enough: `OPENAI_SCAN_MODEL`
 defaults to `gpt-5.4-nano`, at roughly a tenth of a cent per two-photo scan. The route logs each call's token usage so the real cost can be read off
-the deployment's logs. `SCAN_DAILY_LIMIT` (default 25) caps scans per user per
-UTC day. That cap is there to stop a script from looping on the endpoint, not
-to ration the feature. It is persisted the same way as identification's: run
-`supabase/scan-daily-limit.sql` once, and until then the route falls back to a
-per-instance counter and logs that it did.
+the deployment's logs.
+
+There is no daily cap on scans by default. Collectors can scan as much as they
+like while the OpenAI account has credit; once it runs out, the route answers
+with a plain "the AI budget has run out" error (HTTP 503) instead of a
+misleading "try again". A cap is built in for the day it's needed: set
+`SCAN_DAILY_LIMIT` to a whole number of scans per user per UTC day (`0` turns
+scanning off), and it is enforced in Postgres the same way as identification's,
+by `supabase/scan-daily-limit.sql`. That SQL is already applied in production,
+so switching the cap on needs no migration, only the environment variable.
 
 ### Photo identification
 
