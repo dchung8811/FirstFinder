@@ -41,15 +41,16 @@ const NON_PRINT_FORMAT = /(audio|cassette|\bcd\b|mp3|e-?book|kindle|electronic|d
 // row with this too; it lives here so there is one list.
 export const PRINT_ON_DEMAND = /(independently published|createspace|lulu\.com|lulu press|bookrix|blurb|authorhouse|xlibris|iuniverse|outskirts press|dorrance|vdm publishing|alpha edition|sagwan|palala|wentworth press|trieste publishing|hansebooks|nabu press|forgotten books|bibliolife|bibliobazaar|kessinger|legare street|franklin classics|scholar select|creative media partners|cosimo|dodo press|start publishing|echo library|book jungle|wildside|digireads|aegypan|filiquarian|general books|rarebooksclub|sahara publisher|e-kitap|planet ebook|bibliotech press|benediction|arcturus|clydesdale)/i;
 
-// Audio and e-text publishers: real editions, never the first one.
-const NEVER_FIRST_PUBLISHER = /(standard ebooks|project gutenberg|librivox|recorded books|audible|blackstone|brilliance|tantor|caedmon|books on tape|random house audio|harperaudio|simon & schuster audio|listening library|^e-?book$)/i;
+// Audio and e-text publishers, and Peter Smith's library rebindings: real
+// editions, never the first one.
+const NEVER_FIRST_PUBLISHER = /(peter smith|\bp\. smith\b|standard ebooks|project gutenberg|librivox|recorded books|audible|blackstone|brilliance|tantor|caedmon|books on tape|random house audio|harperaudio|simon & schuster audio|listening library|^e-?book$)/i;
 
 // Paperback and classics lines that reissue other houses' books -- and in Open
 // Library, frequently date them by the original. They do publish the odd
 // original, so they are outranked rather than excluded: when they are the only
 // house claiming the oldest year, they win it. "penguin press" is the
 // hardcover imprint, which publishes firsts, so it is let past.
-const REPRINT_PUBLISHER = /(penguin(?! press)|signet|new american library|\bvintage\b|bantam|\bdell\b|\bpan\b|picador|perennial|modern library|everyman|wordsworth|dover|mariner|anchor books|turtleback|perfection learning|demco|longman|\bsfbc\b|book club)/i;
+const REPRINT_PUBLISHER = /(penguin(?! press)|signet|new american library|\bvintage\b|bantam|\bdell\b|\bdelta\b|\bpan\b|picador|perennial|modern library|everyman|wordsworth|dover|mariner|anchor books|turtleback|perfection learning|demco|longman|\bsfbc\b|book club)/i;
 
 // Words that say nothing about WHICH publisher, so "Doubleday & Company, Inc."
 // and "Doubleday Books" compare equal. "house" and "press" are here because
@@ -162,6 +163,13 @@ function mostCommon(names) {
 // Beautiful and Damned has a lone "1920" Scribner two years before the real
 // 1922 run. An obscure book whose next record is decades later has nothing to
 // outvote it, so its one record stands.
+//
+// Only the very next year is consulted. Widening that to "the next few years"
+// was tried, to catch Slaughterhouse-Five's stray 1956 Delta sitting ahead of
+// a lone 1968 rebinding and then the 1969 run -- and it threw out 90 genuine
+// firsts with it: Frankenstein's 1818 Lackington, Farewell, My Lovely's 1940
+// Knopf, Solar Lottery's 1955 Ace. Slaughterhouse-Five is fixed instead by
+// Peter Smith never counting as a first.
 const STRAY_GAP_YEARS = 2;
 
 // The first edition of a work: { year, publisher }, or null when the records
