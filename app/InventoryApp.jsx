@@ -69,6 +69,7 @@ import { syncAgeLabel } from "../src/utils/offlineCollection";
 import { mergeScanIntoItem, scanResultToFields } from "../src/utils/scanFill";
 import { EXPLORE_STRIP_LIMIT, SHARE_BLURB_MAX, collectionMonogram, interleaveShelfCovers, jacketTone, toggleExplorePick } from "../src/utils/explore";
 import { createSignedUrlBatcher } from "../src/utils/signedUrlBatch";
+import { SHELF_DRAG_THRESHOLD, SHELF_VELOCITY_WINDOW_MS, shelfReleaseVelocity, stepShelf, wrapShelfOffset } from "../src/utils/shelfDrift";
 import {
   createOperation,
   updateOperation,
@@ -4721,6 +4722,10 @@ const MARQUEE_MIN_COVERS = 12;
 // own reads as a glitch -- so the covers just sit in a row.
 const MARQUEE_MIN_TO_MOVE = 4;
 
+// After a tab has been in the background, the next animation frame arrives
+// seconds late. Counted in full, the strip would leap; capped, it resumes.
+const MARQUEE_MAX_FRAME_SECONDS = 0.1;
+
 function ShelfCover({ cover }) {
   const label = cover.name || "Untitled item";
   const credit = itemCredit(cover);
@@ -4728,10 +4733,12 @@ function ShelfCover({ cover }) {
     // Opens this book on its shelf, as /explore's covers do. Out of the tab
     // order like them too: a keyboard visitor reaches each shelf once through
     // the list below instead of a stop per book on a strip that won't sit still.
-    <a href={publicItemHref(cover.shelfSlug, cover.id)} tabIndex={-1} className="group block w-36 shrink-0 sm:w-40">
+    // Not draggable, link or image: the browser's own drag of either would
+    // take over from a visitor swiping the strip with a mouse.
+    <a href={publicItemHref(cover.shelfSlug, cover.id)} tabIndex={-1} draggable={false} className="group block w-36 shrink-0 sm:w-40">
       <div className="aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#d3c1a4] bg-[#efe4d2] shadow-[0_14px_30px_-20px_rgba(48,36,20,0.55)]">
         {cover.photoUrl ? (
-          <img src={cover.photoUrl} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:opacity-90" />
+          <img src={cover.photoUrl} alt="" loading="lazy" draggable={false} className="h-full w-full object-cover transition group-hover:opacity-90" />
         ) : (
           // Same jacket /explore draws for an unphotographed book, so a book
           // looks the same here as it does one click away.
@@ -4758,10 +4765,9 @@ function ShelfCover({ cover }) {
 function FeaturedShelves() {
   // null while loading; [] when there is nothing to show, which hides the strip.
   const [shelves, setShelves] = useState(null);
-  // Hover and focus pause the strip on their own (in CSS). This is the pause
-  // for everyone else -- touch screens have no hover, and anything that moves
-  // by itself for more than a few seconds needs a way to stop it.
-  const [paused, setPaused] = useState(false);
+  const viewportRef = useRef(null);
+  const trackRef = useRef(null);
+  const halfRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -4779,11 +4785,123 @@ function FeaturedShelves() {
   }, []);
 
   const covers = useMemo(() => interleaveShelfCovers(shelves), [shelves]);
-  if (shelves && covers.length === 0) return null;
-
   const moves = covers.length >= MARQUEE_MIN_TO_MOVE;
   const repeats = moves ? Math.ceil(MARQUEE_MIN_COVERS / covers.length) : 1;
   const loop = Array.from({ length: repeats }, () => covers).flat();
+
+  // Driven frame by frame rather than by a CSS animation, because a visitor
+  // can grab it: a drag moves the strip with the finger or mouse, a fling
+  // carries on under its own momentum, and either way it eases back into the
+  // drift afterwards (the physics is in src/utils/shelfDrift.js). Holding it
+  // still is how it is stopped. Positions live in this closure, not in state,
+  // so sixty frames a second never re-render the component.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const track = trackRef.current;
+    const half = halfRef.current;
+    if (!moves || !viewport || !track || !half) return undefined;
+    // The CSS turns the strip into a row to scroll by hand instead.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
+
+    // One half of the track; drifting across it takes the same time per
+    // cover however many covers there are.
+    let span = half.offsetWidth;
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => { span = half.offsetWidth; });
+    resizeObserver?.observe(half);
+    const secondsPerSpan = loop.length * MARQUEE_SECONDS_PER_COVER;
+    const cruiseVelocity = () => (span > 0 ? -span / secondsPerSpan : 0);
+
+    let offset = 0;
+    let velocity = null;
+    let lastFrame = null;
+    let frame = 0;
+    // The pointer holding the strip, if any. A press that hasn't moved past
+    // SHELF_DRAG_THRESHOLD is still a tap on a cover, so it isn't a drag yet.
+    let hold = null;
+    // A drag ends with a click on whichever cover it started on. That click
+    // has to be eaten, or every swipe would open a book.
+    let swallowClick = false;
+
+    const tick = (now) => {
+      const dt = lastFrame === null ? 0 : Math.min((now - lastFrame) / 1000, MARQUEE_MAX_FRAME_SECONDS);
+      lastFrame = now;
+      // Held -- dragging or just pressed down -- the strip stays where the
+      // pointer has it, which is also how a fling is caught.
+      if (!hold) {
+        const cruise = cruiseVelocity();
+        ({ offset, velocity } = stepShelf({ offset, velocity: velocity ?? cruise, cruise, dt, span }));
+      }
+      track.style.transform = `translate3d(${offset}px, 0, 0)`;
+      frame = requestAnimationFrame(tick);
+    };
+
+    const onPointerDown = (event) => {
+      if (hold || (event.pointerType === "mouse" && event.button !== 0)) return;
+      swallowClick = false;
+      hold = { id: event.pointerId, startX: event.clientX, startOffset: offset, dragging: false, samples: [{ t: event.timeStamp, x: event.clientX }] };
+    };
+
+    const onPointerMove = (event) => {
+      if (!hold || event.pointerId !== hold.id) return;
+      const dx = event.clientX - hold.startX;
+      if (!hold.dragging) {
+        if (Math.abs(dx) < SHELF_DRAG_THRESHOLD) return;
+        hold.dragging = true;
+        // Captured only once it is a drag. Capturing on press would retarget
+        // a plain tap's click to the strip and stop covers opening.
+        try {
+          viewport.setPointerCapture(event.pointerId);
+        } catch {
+          // The pointer is already gone; pointerup or pointercancel follows.
+        }
+      }
+      offset = wrapShelfOffset(hold.startOffset + dx, span);
+      hold.samples.push({ t: event.timeStamp, x: event.clientX });
+      if (hold.samples.length > 32) hold.samples.shift();
+    };
+
+    const release = (event, cancelled) => {
+      if (!hold || event.pointerId !== hold.id) return;
+      // Let go after a drag, the strip leaves at the speed it was thrown; let
+      // go after a press, it picks the drift back up from standing.
+      velocity = hold.dragging && !cancelled ? shelfReleaseVelocity(hold.samples, event.timeStamp, { windowMs: SHELF_VELOCITY_WINDOW_MS }) : 0;
+      swallowClick = hold.dragging;
+      hold = null;
+    };
+    const onPointerUp = (event) => release(event, false);
+    // Fired when the browser takes a touch over for scrolling the page.
+    const onPointerCancel = (event) => release(event, true);
+
+    const onClick = (event) => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const onDragStart = (event) => event.preventDefault();
+
+    viewport.addEventListener("pointerdown", onPointerDown);
+    viewport.addEventListener("pointermove", onPointerMove);
+    viewport.addEventListener("pointerup", onPointerUp);
+    viewport.addEventListener("pointercancel", onPointerCancel);
+    viewport.addEventListener("click", onClick, true);
+    viewport.addEventListener("dragstart", onDragStart);
+    frame = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      viewport.removeEventListener("pointerdown", onPointerDown);
+      viewport.removeEventListener("pointermove", onPointerMove);
+      viewport.removeEventListener("pointerup", onPointerUp);
+      viewport.removeEventListener("pointercancel", onPointerCancel);
+      viewport.removeEventListener("click", onClick, true);
+      viewport.removeEventListener("dragstart", onDragStart);
+      track.style.transform = "";
+    };
+  }, [moves, loop.length]);
+
+  if (shelves && covers.length === 0) return null;
 
   return (
     <div className="mt-14 md:mt-16">
@@ -4802,19 +4920,20 @@ function FeaturedShelves() {
           ))}
         </div>
       ) : moves ? (
-        // Two identical halves, and the track slides left by exactly one of
-        // them before starting over -- the second half is then where the
-        // first began, so the loop has no visible jump. Full-bleed, with the
-        // ends faded, so books drift in and out rather than being cut off at
-        // the edge of the column.
-        <div className="shelf-marquee mt-6 pb-2 [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)]">
-          <div
-            className="shelf-marquee-track flex w-max"
-            data-paused={paused || undefined}
-            style={{ "--shelf-marquee-duration": `${loop.length * MARQUEE_SECONDS_PER_COVER}s` }}
-          >
+        // Two identical halves, and the track wraps by exactly one of them
+        // -- the second half is then where the first began, so the loop has
+        // no visible jump in either direction. Full-bleed, with the ends
+        // faded, so books drift in and out rather than being cut off at the
+        // edge of the column.
+        <div ref={viewportRef} className="shelf-marquee mt-6 pb-2 [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)]">
+          <div ref={trackRef} className="shelf-marquee-track flex w-max">
             {[0, 1].map((half) => (
-              <div key={half} className={`flex gap-4 pr-4 ${half === 1 ? "shelf-marquee-copy" : ""}`} aria-hidden={half === 1 || undefined}>
+              <div
+                key={half}
+                ref={half === 0 ? halfRef : undefined}
+                className={`flex gap-4 pr-4 ${half === 1 ? "shelf-marquee-copy" : ""}`}
+                aria-hidden={half === 1 || undefined}
+              >
                 {loop.map((cover, index) => (
                   <ShelfCover key={`${cover.id}-${index}`} cover={cover} />
                 ))}
@@ -4850,16 +4969,6 @@ function FeaturedShelves() {
               </li>
             ))}
           </ul>
-          {moves && (
-            <button
-              type="button"
-              onClick={() => setPaused((value) => !value)}
-              aria-pressed={paused}
-              className="shelf-marquee-toggle ml-1 text-sm font-medium text-[#665746] underline underline-offset-4 hover:text-[#123f38]"
-            >
-              {paused ? "Play the shelf" : "Pause the shelf"}
-            </button>
-          )}
         </div>
       )}
     </div>

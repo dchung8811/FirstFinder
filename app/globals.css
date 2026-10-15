@@ -13,43 +13,43 @@ body {
   font-variant-numeric: tabular-nums;
 }
 /* The home page's strip of shared books (FeaturedShelves in InventoryApp).
-   Its track holds two identical halves and slides left by one half, so the
-   loop restarts on an identical frame. Written here rather than as Tailwind
-   arbitrary values because the keyframes, the hover pause and the
-   reduced-motion fallback have to agree with each other. */
-@keyframes shelf-marquee {
-  to {
-    transform: translateX(-50%);
-  }
+   It is moved from script, frame by frame, so it can be dragged and flung;
+   what lives here is how it answers a pointer. Written here rather than as
+   Tailwind utilities because the reduced-motion fallback below has to undo
+   it, and unlayered rules are the ones that reliably win over utilities.
+
+   touch-action leaves vertical swipes to the page, so a visitor scrolling
+   past on a phone still scrolls, and hands horizontal ones to the strip. */
+.shelf-marquee {
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.shelf-marquee:active {
+  cursor: grabbing;
 }
 
 .shelf-marquee-track {
-  animation: shelf-marquee var(--shelf-marquee-duration, 60s) linear infinite;
+  will-change: transform;
 }
 
-/* The pause button's state lives here too, not in a Tailwind class: utilities
-   sit in a cascade layer, and this unlayered animation shorthand would
-   override them. */
-.shelf-marquee:hover .shelf-marquee-track,
-.shelf-marquee:focus-within .shelf-marquee-track,
-.shelf-marquee-track[data-paused] {
-  animation-play-state: paused;
-}
-
-/* No drifting at all for anyone who has asked for less motion: the strip
-   becomes an ordinary row they can scroll themselves, the repeated half and
-   the pause control go, since there is nothing to pause. */
+/* No drifting at all for anyone who has asked for less motion: the script
+   leaves the strip alone, and it becomes an ordinary row they can scroll
+   themselves, without the repeated half. */
 @media (prefers-reduced-motion: reduce) {
   .shelf-marquee {
     overflow-x: auto;
+    cursor: auto;
+    touch-action: auto;
   }
 
   .shelf-marquee-track {
-    animation: none;
+    will-change: auto;
   }
 
-  .shelf-marquee-copy,
-  .shelf-marquee-toggle {
+  .shelf-marquee-copy {
     display: none;
   }
 }
