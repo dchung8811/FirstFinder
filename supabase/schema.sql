@@ -14,6 +14,21 @@
 --
 -- If you add a column or a policy, add it BOTH here and in a new patch file,
 -- so fresh setups and existing databases stay in step.
+--
+-- Every table also carries explicit grants, next to its policies. Supabase used
+-- to hand the anon, authenticated and service_role API roles every privilege on
+-- any new table in "public"; from 30 October 2026 it stops, and a table with no
+-- grant answers every supabase-js call with "permission denied" however correct
+-- its policies are. Grants decide which role may reach a table at all, RLS then
+-- decides which rows. So each table is granted only what the app does with it:
+-- anon reaches nothing but the site banner, authenticated gets the verbs its
+-- policies allow, and service_role gets all four everywhere -- it is the server,
+-- it bypasses RLS regardless, and narrowing it would only break the routes and
+-- scripts that hold it. A project created before that date still has the old
+-- blanket grants, and these add nothing there; that is expected.
+--
+-- If you add a table, add its grants in the same block, or it will be
+-- unreachable from the app on any project that does not have the old defaults.
 
 -- ---------------------------------------------------------------------------
 -- inventory_items: one row per collectible.
@@ -144,6 +159,9 @@ create policy "Users can delete their own inventory"
 on public.inventory_items for delete to authenticated
 using ((select auth.uid()) = user_id);
 
+grant select, insert, update, delete on public.inventory_items to authenticated;
+grant select, insert, update, delete on public.inventory_items to service_role;
+
 -- ---------------------------------------------------------------------------
 -- feedback: the in-app "Send feedback" form.
 -- ---------------------------------------------------------------------------
@@ -208,6 +226,11 @@ on public.feedback for update to authenticated
 using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);
 
+-- No delete: there is no delete policy either, and a sent message stays sent.
+-- Account deletion removes feedback through the service role.
+grant select, insert, update on public.feedback to authenticated;
+grant select, insert, update, delete on public.feedback to service_role;
+
 -- ---------------------------------------------------------------------------
 -- shared_collections: the settings behind a public /c/<slug> collection page.
 -- ---------------------------------------------------------------------------
@@ -257,6 +280,32 @@ create table if not exists public.shared_collections (
     check (coalesce(array_length(explore_item_ids, 1), 0) <= 8)
 );
 
+-- When the page first went live, for the admin dashboard's "new shares" count.
+-- Set by the trigger below on the first write that leaves it off 'off', and
+-- never cleared. See supabase/admin-metrics.sql. Added after the table rather
+-- than inside it so a database built from an older copy of this file picks it
+-- up on a re-run.
+alter table public.shared_collections
+  add column if not exists first_published_at timestamptz;
+
+create or replace function public.stamp_first_published()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.visibility <> 'off' and new.first_published_at is null then
+    new.first_published_at := now();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists shared_collections_stamp_first_published on public.shared_collections;
+create trigger shared_collections_stamp_first_published
+  before insert or update on public.shared_collections
+  for each row execute function public.stamp_first_published();
+
 create index if not exists shared_collections_visibility_idx
   on public.shared_collections (visibility)
   where visibility <> 'off';
@@ -287,6 +336,9 @@ drop policy if exists "Users can delete own share settings" on public.shared_col
 create policy "Users can delete own share settings"
 on public.shared_collections for delete to authenticated
 using ((select auth.uid()) = user_id);
+
+grant select, insert, update, delete on public.shared_collections to authenticated;
+grant select, insert, update, delete on public.shared_collections to service_role;
 
 -- ---------------------------------------------------------------------------
 -- Storage: item and receipt photos.
@@ -414,6 +466,11 @@ create policy "Signed-in users can read the catalog"
 on public.book_catalog for select to authenticated
 using (true);
 
+-- search_book_catalog below runs as its caller, so this select is also what
+-- lets autocomplete work at all.
+grant select on public.book_catalog to authenticated;
+grant select, insert, update, delete on public.book_catalog to service_role;
+
 -- ---------------------------------------------------------------------------
 -- search_book_catalog: the autocomplete lookup.
 -- ---------------------------------------------------------------------------
@@ -517,6 +574,10 @@ create index if not exists book_catalog_suggestions_status_idx
 -- to read this table would learn what other people are collecting.
 alter table public.book_catalog_suggestions enable row level security;
 
+-- Nothing for authenticated: queue_book_suggestion is security definer, so it
+-- writes as the table's owner and needs no grant from the caller.
+grant select, insert, update, delete on public.book_catalog_suggestions to service_role;
+
 -- ---------------------------------------------------------------------------
 -- queue_book_suggestion: called once per book saved.
 -- ---------------------------------------------------------------------------
@@ -586,6 +647,11 @@ create policy "Anyone can read the banner while it is on"
   to anon, authenticated
   using (enabled);
 
+-- The only table anon is granted anything on: the banner shows to signed-out
+-- visitors too. Writes go through /api/admin/banner.
+grant select on public.site_banner to anon, authenticated;
+grant select, insert, update, delete on public.site_banner to service_role;
+
 -- ---------------------------------------------------------------------------
 -- Scan-to-fill daily cap (patch: scan-daily-limit.sql)
 --
@@ -603,6 +669,8 @@ create table if not exists public.scan_usage (
 );
 
 alter table public.scan_usage enable row level security;
+
+grant select, insert, update, delete on public.scan_usage to service_role;
 
 create or replace function public.claim_scan_call(p_user_id uuid, p_limit integer)
 returns table (allowed boolean, used integer, day_limit integer)
@@ -639,3 +707,414 @@ $$;
 revoke all on function public.claim_scan_call(uuid, integer) from public;
 revoke all on function public.claim_scan_call(uuid, integer) from anon;
 revoke all on function public.claim_scan_call(uuid, integer) from authenticated;
+-- Explicit for the same reason the tables' grants are: after the revokes above,
+-- service_role can call this only if something grants it, and a fresh project
+-- should not depend on Supabase's defaults to do that.
+grant execute on function public.claim_scan_call(uuid, integer) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- wishlist_items: copies a collector is looking for but does not own
+-- (patch: wishlist.sql)
+-- ---------------------------------------------------------------------------
+-- A table rather than a status, because a want is a specification for a copy
+-- nobody has seen yet, not a fact about one in hand. See wishlist.sql for the
+-- reasoning, and for the retired "Wishlist" status this replaced.
+create table if not exists public.wishlist_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+
+  -- What, in the loosest terms. Category mirrors inventory_items so a want can
+  -- be a card or a piece of memorabilia, not only a book.
+  name text not null default '',
+  maker text not null default '',
+  category text not null default 'Book',
+
+  -- -------------------------------------------------------------------------
+  -- The specification: the copy that would actually be a yes.
+  -- -------------------------------------------------------------------------
+  -- Named wanted_* rather than reusing book_edition / book_printing so that
+  -- nothing here can be confused for a fact about a copy in hand -- these are
+  -- conditions on a copy nobody has seen yet.
+  wanted_edition text not null default '',
+  wanted_printing text not null default '',
+  publisher text not null default '',
+
+  -- The WORST acceptable grade, not the grade of anything. Values come from
+  -- conditionOptions in src/utils/constants.js, which is ordered best to worst,
+  -- so "acceptable" is an index comparison rather than a lookup table. Blank
+  -- means no condition floor.
+  min_condition text not null default '',
+
+  -- required  -- no jacket, no deal
+  -- preferred -- would rather have one
+  -- any       -- do not care
+  -- na        -- meaningless for this item (a card, a paperback original)
+  jacket_requirement text not null default 'any',
+
+  -- any | signed | inscribed | association. Ascending scarcity, but NOT a
+  -- threshold: someone hunting an association copy is not served by a merely
+  -- signed one, and someone who wants it signed is usually delighted by an
+  -- inscription. Treated as a preference to display, not a filter to enforce.
+  signature_requirement text not null default 'any',
+
+  -- -------------------------------------------------------------------------
+  -- Limits
+  -- -------------------------------------------------------------------------
+  -- The ceiling. Null (not 0) when there is no limit set, so "would pay
+  -- anything" stays distinguishable from "would pay nothing" -- the same
+  -- null-vs-zero rule inventory_items.estimated_value follows.
+  --
+  -- NEVER published. A maximum price is a negotiating position, and putting it
+  -- on a public page invites a dealer to price exactly at it. The public
+  -- wishlist omits this column entirely rather than gating it behind a toggle
+  -- someone could switch on without thinking about it.
+  max_price numeric,
+  preferred_source text not null default '',
+
+  -- -------------------------------------------------------------------------
+  -- Why, and what it is for
+  -- -------------------------------------------------------------------------
+  -- grail | hunting | someday. Sorted in that order in the app.
+  priority text not null default 'hunting',
+
+  -- The upgrade case: this want exists to replace a copy already owned. Set
+  -- null rather than deleted if that copy goes, because wanting a better one
+  -- outlives selling the worse one.
+  upgrade_for_item_id uuid references public.inventory_items(id) on delete set null,
+
+  notes text not null default '',
+
+  -- Keeps one want off a published wishlist while leaving the rest shared,
+  -- mirroring inventory_items.hidden_from_share.
+  hidden_from_share boolean not null default false,
+
+  -- -------------------------------------------------------------------------
+  -- The end of the hunt
+  -- -------------------------------------------------------------------------
+  -- A found want is kept rather than deleted: how long something was hunted,
+  -- and what was set out for, is the interesting half of collecting, and
+  -- deleting the row throws it away at the exact moment it becomes a story.
+  -- The list hides these by default -- found_at is null for anything still
+  -- being looked for.
+  found_at timestamptz,
+  found_item_id uuid references public.inventory_items(id) on delete set null,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint wishlist_items_priority_check
+    check (priority in ('grail', 'hunting', 'someday')),
+  constraint wishlist_items_jacket_check
+    check (jacket_requirement in ('required', 'preferred', 'any', 'na')),
+  constraint wishlist_items_signature_check
+    check (signature_requirement in ('any', 'signed', 'inscribed', 'association'))
+);
+
+-- Every read is "this user's wants, still open, best-first".
+create index if not exists wishlist_items_user_open_idx
+  on public.wishlist_items (user_id, created_at desc)
+  where found_at is null;
+
+-- The upgrade badge on an owned item reads the other way round: given this
+-- item, is anyone hunting a replacement for it?
+create index if not exists wishlist_items_upgrade_for_idx
+  on public.wishlist_items (upgrade_for_item_id)
+  where upgrade_for_item_id is not null;
+
+-- Owner-only, exactly like inventory_items. The public wishlist page is
+-- server-rendered through the service-role client for the same reason the
+-- collection page is: no anon-readable policy exists on this table, so a
+-- leaked anon key cannot reach one row -- least of all max_price.
+alter table public.wishlist_items enable row level security;
+
+drop policy if exists "Users can view own wants" on public.wishlist_items;
+create policy "Users can view own wants"
+on public.wishlist_items for select to authenticated
+using ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can insert own wants" on public.wishlist_items;
+create policy "Users can insert own wants"
+on public.wishlist_items for insert to authenticated
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can update own wants" on public.wishlist_items;
+create policy "Users can update own wants"
+on public.wishlist_items for update to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can delete own wants" on public.wishlist_items;
+create policy "Users can delete own wants"
+on public.wishlist_items for delete to authenticated
+using ((select auth.uid()) = user_id);
+
+grant select, insert, update, delete on public.wishlist_items to authenticated;
+grant select, insert, update, delete on public.wishlist_items to service_role;
+
+-- ---------------------------------------------------------------------------
+-- login_events: the login history Supabase does not keep for us
+-- (patch: admin-metrics.sql)
+-- ---------------------------------------------------------------------------
+-- One row per sign-in, written fire-and-forget by the client and read only by
+-- the admin dashboard through the service role. See admin-metrics.sql for why
+-- auth's own records cannot answer "how many logins".
+create table if not exists public.login_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists login_events_created_at_idx
+  on public.login_events (created_at desc);
+create index if not exists login_events_user_id_created_at_idx
+  on public.login_events (user_id, created_at desc);
+
+alter table public.login_events enable row level security;
+
+-- Insert-own and nothing else: a user reading this table would learn when
+-- other people signed in.
+drop policy if exists "Users can record own logins" on public.login_events;
+create policy "Users can record own logins"
+on public.login_events for insert to authenticated
+with check ((select auth.uid()) = user_id);
+
+-- Insert only, matching the policy. recordLogin in app/InventoryApp.jsx does
+-- not ask for the row back; adding .select() to that insert would need a
+-- select grant and a select policy, and neither should exist.
+grant insert on public.login_events to authenticated;
+grant select, insert, update, delete on public.login_events to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Photo identification daily cap (patch: identify-daily-limit.sql)
+-- ---------------------------------------------------------------------------
+-- The persisted per-user cap on app/api/identify-book, plus per-user overrides.
+-- RLS on with no policies: only the service role reads or writes these, and
+-- overrides are set by hand in the SQL editor. See identify-daily-limit.sql
+-- for the reasoning and the day-to-day queries.
+create table if not exists public.identify_usage (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  usage_date date not null,
+  call_count integer not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, usage_date)
+);
+
+-- daily_limit 0 switches identification off for that account entirely.
+create table if not exists public.identify_limits (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  daily_limit integer not null check (daily_limit >= 0),
+  note text,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.identify_usage enable row level security;
+alter table public.identify_limits enable row level security;
+
+grant select, insert, update, delete on public.identify_usage to service_role;
+grant select, insert, update, delete on public.identify_limits to service_role;
+
+create or replace function public.claim_identify_call(p_user_id uuid, p_limit integer)
+returns table (allowed boolean, used integer, day_limit integer)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_today date := (now() at time zone 'utc')::date;
+  v_limit integer;
+  v_used integer;
+begin
+  select limits.daily_limit into v_limit
+  from public.identify_limits as limits
+  where limits.user_id = p_user_id;
+
+  v_limit := coalesce(v_limit, p_limit);
+
+  if v_limit <= 0 then
+    return query select false, 0, v_limit;
+    return;
+  end if;
+
+  insert into public.identify_usage as usage (user_id, usage_date, call_count)
+  values (p_user_id, v_today, 1)
+  on conflict (user_id, usage_date) do update
+    set call_count = usage.call_count + 1,
+        updated_at = now()
+    where usage.call_count < v_limit
+  returning usage.call_count into v_used;
+
+  -- No row came back, so the ON CONFLICT guard refused: the user is already at
+  -- the cap. Read the current count for the message the route shows them.
+  if v_used is null then
+    select usage.call_count into v_used
+    from public.identify_usage as usage
+    where usage.user_id = p_user_id and usage.usage_date = v_today;
+
+    return query select false, coalesce(v_used, v_limit), v_limit;
+    return;
+  end if;
+
+  return query select true, v_used, v_limit;
+end;
+$$;
+
+-- Only the service role should be able to move someone's counter. Without this
+-- revoke, a logged-in user holding the anon key could call the function
+-- directly -- which would only ever spend their own allowance, but there is no
+-- reason to leave it reachable.
+revoke all on function public.claim_identify_call(uuid, integer) from public;
+revoke all on function public.claim_identify_call(uuid, integer) from anon;
+revoke all on function public.claim_identify_call(uuid, integer) from authenticated;
+grant execute on function public.claim_identify_call(uuid, integer) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- admin_platform_metrics: every admin dashboard number in one round trip
+-- (patches: admin-metrics.sql, then pause-activity-sessions.sql)
+-- ---------------------------------------------------------------------------
+-- Read only by app/api/admin/stats through the service role. This is the
+-- latest version, from pause-activity-sessions.sql; admin-metrics.sql explains
+-- why it is a database function at all.
+create or replace function public.admin_platform_metrics(p_exclude uuid[] default '{}')
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'generated_at', now(),
+
+    'users', (
+      select jsonb_build_object(
+        'total', count(*),
+        'excluding_admins', count(*) filter (where not (u.id = any(p_exclude))),
+        'new_7d', count(*) filter (where u.created_at > now() - interval '7 days' and not (u.id = any(p_exclude))),
+        'new_30d', count(*) filter (where u.created_at > now() - interval '30 days' and not (u.id = any(p_exclude))),
+        -- last_sign_in_at is a single overwritten timestamp, so this is "came
+        -- back at least once in the window", not a visit count. It is the one
+        -- activity figure that has history behind it today; the login_events
+        -- counts below only start from this migration.
+        'active_7d', count(*) filter (where u.last_sign_in_at > now() - interval '7 days' and not (u.id = any(p_exclude))),
+        'active_30d', count(*) filter (where u.last_sign_in_at > now() - interval '30 days' and not (u.id = any(p_exclude))),
+        -- Signed up and never came back: the clearest single signal of whether
+        -- the front door works. Counted as "one sign-in ever", since the
+        -- account-creating login itself sets last_sign_in_at.
+        'never_returned', count(*) filter (
+          where not (u.id = any(p_exclude))
+            and (u.last_sign_in_at is null or u.last_sign_in_at <= u.created_at + interval '5 minutes')
+        )
+      )
+      from auth.users u
+    ),
+
+    'items', (
+      select jsonb_build_object(
+        'total', count(*),
+        'excluding_admins', count(*) filter (where not (i.user_id = any(p_exclude))),
+        'new_7d', count(*) filter (where i.created_at > now() - interval '7 days' and not (i.user_id = any(p_exclude))),
+        'new_30d', count(*) filter (where i.created_at > now() - interval '30 days' and not (i.user_id = any(p_exclude))),
+        'with_photos', count(*) filter (where i.item_photo_count > 0 and not (i.user_id = any(p_exclude))),
+        -- Collectors who hold at least one item, which is the number that says
+        -- whether signups are turning into use.
+        'collectors', count(distinct i.user_id) filter (where not (i.user_id = any(p_exclude)))
+      )
+      from public.inventory_items i
+    ),
+
+    'shares', (
+      select jsonb_build_object(
+        'rows', count(*) filter (where not (s.user_id = any(p_exclude))),
+        'published', count(*) filter (where s.visibility <> 'off' and not (s.user_id = any(p_exclude))),
+        'listed', count(*) filter (where s.visibility = 'listed' and not (s.user_id = any(p_exclude))),
+        'unlisted', count(*) filter (where s.visibility = 'unlisted' and not (s.user_id = any(p_exclude))),
+        'new_30d', count(*) filter (where s.first_published_at > now() - interval '30 days' and not (s.user_id = any(p_exclude))),
+        -- Opened the dialog, saved, and left it off. A visible drop-off point.
+        'started_not_published', count(*) filter (where s.visibility = 'off' and not (s.user_id = any(p_exclude)))
+      )
+      from public.shared_collections s
+    ),
+
+    'feedback', (
+      select jsonb_build_object(
+        'total', count(*),
+        'new_7d', count(*) filter (where f.created_at > now() - interval '7 days'),
+        'filed_to_github', count(*) filter (where f.github_issue_number is not null),
+        -- Anything stuck in 'error' is feedback a person took the trouble to
+        -- write that never reached the tracker, so it is worth surfacing.
+        'errored', count(*) filter (where f.triage_status = 'error')
+      )
+      from public.feedback f
+    ),
+
+    'identify', (
+      select jsonb_build_object(
+        -- The only metric here attached to a per-call bill, which is why it is
+        -- on the dashboard at all: every identification is a paid, search-
+        -- grounded model call.
+        'calls_today', coalesce(sum(x.call_count) filter (where x.usage_date = (now() at time zone 'utc')::date), 0),
+        'calls_7d', coalesce(sum(x.call_count) filter (where x.usage_date > (now() at time zone 'utc')::date - 7), 0),
+        'calls_30d', coalesce(sum(x.call_count) filter (where x.usage_date > (now() at time zone 'utc')::date - 30), 0),
+        'users_today', count(distinct x.user_id) filter (where x.usage_date = (now() at time zone 'utc')::date),
+        'overrides', (select count(*) from public.identify_limits)
+      )
+      from public.identify_usage x
+    ),
+
+    'logins', (
+      select jsonb_build_object(
+        'total', count(*),
+        'd7', count(*) filter (where l.created_at > now() - interval '7 days'),
+        'd30', count(*) filter (where l.created_at > now() - interval '30 days'),
+        'users_7d', count(distinct l.user_id) filter (where l.created_at > now() - interval '7 days'),
+        -- Lets the UI say "since <date>" instead of quietly presenting a
+        -- partial count as a lifetime total. Null until the first login lands.
+        'tracked_since', min(l.created_at)
+      )
+      from public.login_events l
+      where not (l.user_id = any(p_exclude))
+    ),
+
+    -- The capacity half: what the free plan meters, read from the database
+    -- itself. Thresholds and plan limits live in application code
+    -- (src/utils/platformLimits.js), not here -- they are a published price
+    -- list that changes without warning, and editing a constant is a deploy
+    -- while editing this function is a migration.
+    'capacity', jsonb_build_object(
+      'db_bytes', pg_database_size(current_database()),
+      'storage_bytes', (select coalesce(sum((o.metadata->>'size')::bigint), 0) from storage.objects o),
+      'storage_objects', (select count(*) from storage.objects),
+      -- Supabase bills monthly active users across the whole project, so this
+      -- one is deliberately NOT owner-excluded: it must match what they meter.
+      'mau_30d', (select count(*) from auth.users where last_sign_in_at > now() - interval '30 days'),
+      -- Free projects can pause after a week of low activity, which for a
+      -- quiet project is a likelier outage than any quota. The most recent of
+      -- the things a real visit produces is the best proxy we have for it.
+      --
+      -- The session rows are what make it see visits. A collector who stays
+      -- signed in never produces a new last_sign_in_at or login_events row,
+      -- but the client refreshes its access token whenever it opens the app
+      -- with an expired one and hourly while it stays open, and every refresh
+      -- touches auth.sessions and mints a row in auth.refresh_tokens. Without
+      -- these the dashboard reported "idle 8 of 7 days" on a project that had
+      -- been used that same hour. Signing out deletes the session rows, which
+      -- is why they are added to the other signals rather than replacing them.
+      'last_activity_at', greatest(
+        (select max(created_at) from public.inventory_items),
+        (select max(updated_at) from public.inventory_items),
+        (select max(last_sign_in_at) from auth.users),
+        (select max(created_at) from public.login_events),
+        (select max(updated_at) from auth.sessions),
+        (select max(created_at) from auth.refresh_tokens)
+      )
+    )
+  );
+$$;
+
+-- security definer means this function runs as its owner and can read
+-- auth.users, so who may call it matters more than usual. Only the service
+-- role should -- revoke the default grant from everyone else. Without this, any
+-- holder of the anon key could call it directly and read the entire platform's
+-- shape, which is exactly the leak the whole design above is avoiding.
+revoke all on function public.admin_platform_metrics(uuid[]) from public;
+revoke all on function public.admin_platform_metrics(uuid[]) from anon;
+revoke all on function public.admin_platform_metrics(uuid[]) from authenticated;
+grant execute on function public.admin_platform_metrics(uuid[]) to service_role;
