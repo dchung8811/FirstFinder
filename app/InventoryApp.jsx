@@ -3204,6 +3204,9 @@ const roadmapCategoryStyles = {
   Community: { icon: "user", tone: "bg-[#f3e6ef] text-[#5c2c4d]" }
 };
 
+// Only what hasn't shipped. When something ships, add it to
+// src/content/features.js and delete it here: a roadmap still promising
+// shipped work reads as though nobody is minding it.
 const roadmapHorizons = [
   {
     id: "now",
@@ -3219,16 +3222,6 @@ const roadmapHorizons = [
         category: "Trust & Provenance",
         title: "Separate book & dust-jacket grades",
         text: "Grade the book and its dust jacket separately (e.g. VG/VG, NF/VG+), matching how booksellers actually describe first editions — the jacket wears differently and often carries most of the value."
-      },
-      {
-        category: "Community",
-        title: "Shareable collection page",
-        text: "A public, read-only link to show off a shelf or set — the same instinct that makes PSA's and PCGS's set registries so sticky. You pick what it shows: titles, editions and condition to start with, and money, provenance, or notes only if you switch them on."
-      },
-      {
-        category: "Discovery",
-        title: "A real want list",
-        text: "Give \"Wishlist\" its own view with a target price, instead of it being just another status buried in the collection tabs. Collecting is as much about the chase as the shelf, and right now FirstFinder only tracks the half you already own."
       }
     ]
   },
@@ -3237,11 +3230,6 @@ const roadmapHorizons = [
     label: "Next",
     framing: "Scoped, waiting on the Now list to clear.",
     items: [
-      {
-        category: "Trust & Provenance",
-        title: "First-edition identification helper",
-        text: "A per-book checklist for the points that actually prove a true first — number line, stated edition, issue points — the feature the FirstFinder name promises."
-      },
       {
         category: "Cataloging",
         title: "Physical location / storage",
@@ -3273,11 +3261,6 @@ const roadmapHorizons = [
         category: "Valuation",
         title: "Appraisal fields & re-appraisal reminders",
         text: "Track a professional appraisal separately from the self-entered estimate, with a reminder to refresh it every three to five years the way insurers expect."
-      },
-      {
-        category: "Cataloging",
-        title: "Offline support for fairs and shops",
-        text: "Keep adding and browsing items with no signal — the moments FirstFinder is most useful (a book fair, a shop basement, an estate sale) are exactly where connectivity is worst."
       },
       {
         category: "Cataloging",
