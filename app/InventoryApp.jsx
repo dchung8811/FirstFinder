@@ -6485,7 +6485,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
             type="search"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Title, author, maker or source"
+            placeholder="Search by title, author, maker, or source"
             className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
           />
         </label>
