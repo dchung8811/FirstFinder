@@ -1,5 +1,6 @@
 "use client";
 
+import { jacketTone } from "../../../src/utils/explore";
 import { formatCurrency } from "../../../src/utils/format";
 import { itemCredit } from "../../../src/utils/items";
 import { publicItemAnchor } from "../../../src/utils/publicCollection";
@@ -120,6 +121,50 @@ export function ItemCard({ item, onViewPhotos, marked = false }) {
           </div>
         )}
       </div>
+    </article>
+  );
+}
+
+// One cover in the Tiles view: Explore's search grid, laid over a whole shelf.
+//
+// The cover opens the photo viewer, as the card's photo does -- looking at the
+// copy is why a visitor is here. A book nobody photographed is drawn as
+// Explore's jacket and is not a button, since there is nothing to open.
+export function ItemTile({ item, onViewPhotos, marked = false }) {
+  const label = item.name || "Untitled item";
+  const credit = itemCredit(item);
+  const frame = `aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3] ${
+    marked ? "ring-2 ring-[#123f38] ring-offset-2 ring-offset-[#f6efe3]" : ""
+  }`;
+
+  return (
+    <article id={publicItemAnchor(item.id)} className="min-w-0 scroll-mt-6">
+      {item.photoUrl ? (
+        <button
+          type="button"
+          onClick={() => onViewPhotos?.(item)}
+          aria-label={`View photos of ${label}`}
+          className={`group block cursor-zoom-in ${frame}`}
+        >
+          {/* Lazy for the card's reason: one storage request per cover. */}
+          <img
+            src={item.photoUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover transition group-hover:opacity-90"
+          />
+        </button>
+      ) : (
+        <div className={frame}>
+          <div className={`flex h-full w-full flex-col justify-between p-3 text-[#fff7ea] ${jacketTone(item.id)}`}>
+            <div className="font-display line-clamp-5 text-sm font-semibold leading-snug">{label}</div>
+            {credit && <div className="line-clamp-2 text-[10px] uppercase tracking-[0.14em] text-[#fff7ea]/75">{credit}</div>}
+          </div>
+        </div>
+      )}
+      <h2 className="mt-2 truncate text-sm font-medium" title={label}>{label}</h2>
+      <div className="truncate text-xs text-[#7d6c5a]" title={credit}>{credit || "Unknown maker"}</div>
     </article>
   );
 }

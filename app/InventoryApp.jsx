@@ -787,7 +787,9 @@ export default function FirstFinderApp({ initialView = "home" }) {
   const [quickItemPhotos, setQuickItemPhotos] = useState([]);
   const [quickReceiptPhotos, setQuickReceiptPhotos] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [inventoryViewMode, setInventoryViewMode] = useState("cards");
+  // Tiles first: a wall of covers is how a shelf is recognised at a glance,
+  // and the full card is one tap away on any of them.
+  const [inventoryViewMode, setInventoryViewMode] = useState("tiles");
   const [inventoryStatusView, setInventoryStatusView] = useState("active");
   const [editingItem, setEditingItem] = useState(null);
   // The record a visitor asked to be shown, on their way to the collection --
@@ -3140,7 +3142,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onScanPhotos={handleScanPhotos} scanning={scanning} scanNotes={scanNotes} onDismissScanNotes={() => setScanNotes(null)} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} onAddPhotos={addIdentifyPhotos} onRemovePhoto={removeIdentifyPhoto} onReIdentify={reIdentify} identifying={identifying} />}
       {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} />}
-      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onShare={openShareDialog} shareVisibility={shareSettings?.visibility} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} onRecoverPhotos={recoverItemPhotos} userId={currentUser?.id} bulkMessage={bulkMessage} focusItemId={focusItemId} onFocusHandled={() => { focusItemRef.current = null; setFocusItemId(null); }} />}
+      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onShare={openShareDialog} shareVisibility={shareSettings?.visibility} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} onRecoverPhotos={recoverItemPhotos} userId={currentUser?.id} bulkMessage={bulkMessage} focusItemId={focusItemId} onFocusItem={(id) => { focusItemRef.current = id; setFocusItemId(id); }} onFocusHandled={() => { focusItemRef.current = null; setFocusItemId(null); }} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
@@ -6177,7 +6179,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   );
 }
 
-function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onShare, shareVisibility, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, onRecoverPhotos, userId, bulkMessage, focusItemId, onFocusHandled }) {
+function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onShare, shareVisibility, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, onRecoverPhotos, userId, bulkMessage, focusItemId, onFocusItem, onFocusHandled }) {
   const [photoViewer, setPhotoViewer] = useState(null);
   // Cover URL per item, for the card grid. Signed in one call for the whole
   // collection rather than one per card -- see signedUrlBatch.js for why that
@@ -6330,16 +6332,45 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
 
   const isSoldView = statusView === "sold";
 
+  function chooseView(mode) {
+    trackEvent("inventory_view_changed", { view_mode: mode });
+    setViewMode(mode);
+  }
+
+  // A tile is the cover and nothing else, so tapping one opens that item as a
+  // card -- where its edition, numbers, and the Edit and Sold buttons are --
+  // and scrolls to it through the same focus the dashboard's covers use.
+  function openTile(entry) {
+    trackEvent("inventory_tile_opened");
+    setViewMode("cards");
+    onFocusItem(entry.id);
+  }
+
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-5xl font-semibold tracking-tight">{statusView === "sold" ? "Sold collectibles" : "Your active collectibles"}</h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
             {statusView === "sold"
               ? "Sold items stay preserved here, with what you paid and what you got for them."
               : "Sold items move out of these counts and into the Sold tab."}
           </p>
+          {/* Up here, under the title, rather than below the totals: on a
+              phone the three stat cards pushed it a full screen down, and
+              looking something up is the most common reason to open this
+              page. Drawn like Explore's box so searching looks the same
+              everywhere; it filters as you type, so it needs no button. */}
+          <label className="mt-6 block max-w-2xl">
+            <span className="sr-only">Search your collection</span>
+            <input
+              type="search"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Title, author, maker or source"
+              className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+            />
+          </label>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           {/* Always the verb, never the status. This button used to read
@@ -6369,18 +6400,11 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
         <DashboardCard icon="search" label={isSoldView ? "Realized gain/loss" : "Change in value"} value={formatCurrency(totalGain)} />
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto_auto]">
-        <div className="rounded-2xl border border-[#d8c7ad] bg-[#fff8ee] p-3">
-          <div className="flex items-center gap-3 rounded-xl bg-white px-4 py-3">
-            <Icon name="search" size={18} className="text-[#746655]" />
-            <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search by item, category, author, maker, source, or status..." className="w-full bg-transparent outline-none" />
-          </div>
-        </div>
-
+      <div className="mt-6 grid gap-3 md:grid-cols-2">
         <select
           value={categoryFilter}
           onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "category", value: event.target.value }); setCategoryFilter(event.target.value); }}
-          className="mt-[10px] h-[48px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
+          className="h-[48px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
         >
           <option>All categories</option>
           {quickCategories.map((category) => (
@@ -6388,9 +6412,13 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
           ))}
         </select>
 
-        <div className="mt-[10px] flex h-[48px] items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
-          <TabButton active={viewMode === "cards"} onClick={() => { trackEvent("inventory_view_changed", { view_mode: "cards" }); setViewMode("cards"); }}>Cards</TabButton>
-          <TabButton active={viewMode === "records"} onClick={() => { trackEvent("inventory_view_changed", { view_mode: "records" }); setViewMode("records"); }}>Records</TabButton>
+        {/* Each option an equal share of the pill, so the control reads as
+            one switch with three positions rather than two words floating at
+            one end of an empty capsule. */}
+        <div className="flex h-[48px] items-center gap-1 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
+          <TabButton active={viewMode === "tiles"} onClick={() => chooseView("tiles")} className="h-full flex-1">Tiles</TabButton>
+          <TabButton active={viewMode === "cards"} onClick={() => chooseView("cards")} className="h-full flex-1">Cards</TabButton>
+          <TabButton active={viewMode === "records"} onClick={() => chooseView("records")} className="h-full flex-1">Records</TabButton>
         </div>
       </div>
 
@@ -6479,6 +6507,65 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
           <CardContent className="p-8 text-center"><h2 className="text-2xl font-semibold">No matches</h2><p className="mt-3 text-[#665746]">Try a different search term or filter.</p></CardContent>
         </Card>
+      ) : viewMode === "tiles" ? (
+        /* Explore's search grid, brought home: covers three to a row on a
+           phone, title and credit under each, nothing else. Signed from the
+           same cover URLs as the cards, so switching views fetches nothing. */
+        <div className="mt-8 grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 sm:gap-x-4 md:grid-cols-6">
+          {displayedInventory.map((entry) => {
+            const label = entry.name || "Untitled item";
+            const credit = itemCredit(entry);
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                id={`item-${entry.id}`}
+                onClick={() => openTile(entry)}
+                className="group min-w-0 scroll-mt-24 text-left"
+              >
+                <div
+                  className={`relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3] ${
+                    focusItemId === entry.id ? "ring-2 ring-[#123f38] ring-offset-2 ring-offset-[#f6efe3]" : ""
+                  }`}
+                >
+                  {coverPathById.has(entry.id) ? (
+                    <SignedPhoto
+                      path={coverPathById.get(entry.id)}
+                      src={coverUrls[entry.id]}
+                      alt=""
+                      frameClassName="h-full w-full"
+                      className="h-full w-full object-cover transition group-hover:opacity-90"
+                      allowRetry={false}
+                      quiet
+                    />
+                  ) : (
+                    /* The jacket Explore draws for an unphotographed book, so
+                       it reads as a book still to photograph rather than an
+                       image that failed to load. */
+                    <div className={`flex h-full w-full flex-col justify-between p-3 text-[#fff7ea] ${jacketTone(entry.id)}`}>
+                      <div className="font-display line-clamp-5 text-sm font-semibold leading-snug">{label}</div>
+                      {credit && <div className="line-clamp-2 text-[10px] uppercase tracking-[0.14em] text-[#fff7ea]/75">{credit}</div>}
+                    </div>
+                  )}
+                  {/* An icon rather than the cards' chip: "Waiting to sync"
+                      does not fit across a tile a third of a phone wide, and
+                      an unsaved change is not something to hide. */}
+                  {entry.pendingSync && (
+                    <span
+                      title={entry.pendingError || "Waiting to sync"}
+                      className={`absolute left-1.5 top-1.5 rounded-full p-1 ${entry.pendingError ? "bg-[#fbe4e0] text-[#8a3527]" : "bg-[#fff3d8] text-[#6d5526]"}`}
+                    >
+                      <Icon name="wifiOff" size={12} />
+                      <span className="sr-only">{entry.pendingError ? "Not saved" : "Waiting to sync"}</span>
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 truncate text-sm font-medium" title={label}>{label}</div>
+                <div className="truncate text-xs text-[#7d6c5a]" title={credit}>{credit || "Unknown maker"}</div>
+              </button>
+            );
+          })}
+        </div>
       ) : viewMode === "records" ? (
         <div className="mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
           <div className="border-b border-[#e0d2bc] px-5 py-3 text-xs text-[#8a7a64]">

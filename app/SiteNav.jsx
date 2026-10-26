@@ -81,7 +81,7 @@ function NavTabs({ items, activeView, onSelect, containerRef, measureRef, visibl
 }
 
 
-export function TabButton({ active, children, onClick }) { return <button onClick={onClick} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
+export function TabButton({ active, children, onClick, className = "" }) { return <button onClick={onClick} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"} ${className}`}>{children}</button>; }
 function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 
 function MenuIcon({ open }) {
