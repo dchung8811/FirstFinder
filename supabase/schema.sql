@@ -853,10 +853,10 @@ grant select, insert, update, delete on public.wishlist_items to service_role;
 
 -- ---------------------------------------------------------------------------
 -- login_events: the login history Supabase does not keep for us
--- (patch: admin-metrics.sql)
+-- (patches: admin-metrics.sql, login-events-trigger.sql)
 -- ---------------------------------------------------------------------------
--- One row per sign-in, written fire-and-forget by the client and read only by
--- the admin dashboard through the service role. See admin-metrics.sql for why
+-- One row per sign-in, written by a trigger on auth.users and read only by the
+-- admin dashboard through the service role. See admin-metrics.sql for why
 -- auth's own records cannot answer "how many logins".
 create table if not exists public.login_events (
   id uuid primary key default gen_random_uuid(),
@@ -869,20 +869,68 @@ create index if not exists login_events_created_at_idx
 create index if not exists login_events_user_id_created_at_idx
   on public.login_events (user_id, created_at desc);
 
+-- RLS on with no policies: the API keys can neither read nor write this table.
+-- Reading it would tell a user when other people signed in, and since the
+-- trigger below writes every row, nothing in the browser needs to write one.
 alter table public.login_events enable row level security;
 
--- Insert-own and nothing else: a user reading this table would learn when
--- other people signed in.
+-- The browser used to insert these rows itself. Dropped and revoked rather
+-- than just left out, so a database built from an older copy of this file
+-- loses them on a re-run.
 drop policy if exists "Users can record own logins" on public.login_events;
-create policy "Users can record own logins"
-on public.login_events for insert to authenticated
-with check ((select auth.uid()) = user_id);
-
--- Insert only, matching the policy. recordLogin in app/InventoryApp.jsx does
--- not ask for the row back; adding .select() to that insert would need a
--- select grant and a select policy, and neither should exist.
-grant insert on public.login_events to authenticated;
+revoke insert on public.login_events from authenticated;
 grant select, insert, update, delete on public.login_events to service_role;
+
+-- Logins are recorded where Supabase completes them, not in the browser.
+-- Sign-ins that come back through a redirect -- Google, and the email
+-- confirmation link every new collector's first sign-in goes through --
+-- finish before the app's auth listener can tell them apart from a restored
+-- session, so the old client-side insert missed nearly all of them.
+-- last_sign_in_at moves on every real sign-in and never on a token refresh,
+-- which is exactly the line the login count needs.
+--
+-- The insert must never fail the sign-in itself: this runs inside the
+-- auth.users update that completes it, so an error here would lock a
+-- collector out over a missing metric. The exception handler trades that for
+-- one lost row.
+create or replace function public.record_login_event()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.last_sign_in_at is null then
+    return new;
+  end if;
+  -- Nested rather than one OR: OLD has no row on insert, and an OR is not
+  -- guaranteed to skip reading it.
+  if tg_op = 'UPDATE' then
+    if new.last_sign_in_at is not distinct from old.last_sign_in_at then
+      return new;
+    end if;
+  end if;
+
+  begin
+    insert into public.login_events (user_id, created_at)
+    values (new.id, new.last_sign_in_at);
+  exception when others then
+    raise warning 'login event not recorded for %: %', new.id, sqlerrm;
+  end;
+  return new;
+end;
+$$;
+
+-- Fired only by the trigger. Revoked so it is not left callable through the
+-- API keys like every other function in public.
+revoke all on function public.record_login_event() from public;
+revoke all on function public.record_login_event() from anon;
+revoke all on function public.record_login_event() from authenticated;
+
+drop trigger if exists on_auth_user_sign_in on auth.users;
+create trigger on_auth_user_sign_in
+  after insert or update of last_sign_in_at on auth.users
+  for each row execute function public.record_login_event();
 
 -- ---------------------------------------------------------------------------
 -- Photo identification daily cap (patch: identify-daily-limit.sql)
