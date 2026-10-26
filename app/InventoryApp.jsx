@@ -6349,28 +6349,13 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="min-w-0 flex-1">
+        <div>
           <h1 className="text-5xl font-semibold tracking-tight">{statusView === "sold" ? "Sold collectibles" : "Your active collectibles"}</h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
             {statusView === "sold"
               ? "Sold items stay preserved here, with what you paid and what you got for them."
               : "Sold items move out of these counts and into the Sold tab."}
           </p>
-          {/* Up here, under the title, rather than below the totals: on a
-              phone the three stat cards pushed it a full screen down, and
-              looking something up is the most common reason to open this
-              page. Drawn like Explore's box so searching looks the same
-              everywhere; it filters as you type, so it needs no button. */}
-          <label className="mt-6 block max-w-2xl">
-            <span className="sr-only">Search your collection</span>
-            <input
-              type="search"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Title, author, maker or source"
-              className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
-            />
-          </label>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           {/* Always the verb, never the status. This button used to read
@@ -6469,21 +6454,33 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
         </div>
       )}
 
-      {/* flex-wrap + shrink-0 on the toggle: TabButton is shrink-0, so when
-          this row ran out of width the toggle's own box was squeezed narrower
-          than the buttons inside it and they spilled past its rounded border.
-          Now the toggle keeps its natural width and drops to its own line
-          instead, and min-w-0 lets the label wrap rather than forcing the
-          overflow in the first place. */}
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff8ee] px-4 py-3">
+      {/* The switch runs the full width, each half centred in its share, the
+          same as the view switch above it. Its own line under the label, so
+          it can never be squeezed narrower than the buttons inside it. */}
+      <div className="mt-5 flex flex-col gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff8ee] px-4 py-3">
         <div className="min-w-0 text-sm text-[#665746]">
           Showing {statusView === "sold" ? "sold records" : "your active collection"}
         </div>
-        <div className="flex shrink-0 items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
-          <TabButton active={statusView === "active"} onClick={() => setStatusView("active")}>Active ({activeCount})</TabButton>
-          <TabButton active={statusView === "sold"} onClick={() => setStatusView("sold")}>Sold ({soldCount})</TabButton>
+        <div className="flex w-full items-center gap-1 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
+          <TabButton active={statusView === "active"} onClick={() => setStatusView("active")} className="flex-1">Active ({activeCount})</TabButton>
+          <TabButton active={statusView === "sold"} onClick={() => setStatusView("sold")} className="flex-1">Sold ({soldCount})</TabButton>
         </div>
       </div>
+
+      {/* Directly above the results it filters, so typing and watching the
+          list narrow happen in the same glance. Drawn like Explore's box so
+          searching looks the same everywhere; it filters as you type, so it
+          needs no button. */}
+      <label className="mt-3 block">
+        <span className="sr-only">Search your collection</span>
+        <input
+          type="search"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+          placeholder="Title, author, maker or source"
+          className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+        />
+      </label>
 
       {inventory.length === 0 && loading ? (
         /* Same flash as the dashboard: an unfetched collection and an empty
