@@ -10,6 +10,14 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # ESLint 10 is held until eslint-config-next supports it. The plugins it
+      # pulls in (import, jsx-a11y, react) still declare eslint <= 9, and the
+      # lint run is what CI's no-undef gate rests on -- a plugin that breaks
+      # under 10 would take that gate with it, for no gain to anyone using the
+      # app. Delete this once eslint-config-next accepts eslint 10 (see #224).
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
