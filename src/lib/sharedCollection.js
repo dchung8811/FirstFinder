@@ -24,7 +24,7 @@
 
 import { createSupabaseAdminClient } from "./supabaseAdmin";
 import { isValidShareSlug } from "../utils/publicCollection";
-import { buildExploreCollection, normalizeExplorePicks, sortExploreCollections } from "../utils/explore";
+import { buildExploreCollection, capExploreSearch, normalizeExplorePicks, sortExploreCollections } from "../utils/explore";
 
 const PHOTO_BUCKET = "item-photos";
 
@@ -417,9 +417,10 @@ const EXPLORE_ITEM_COLUMNS = [
 // passes featuredShelves so it pays for the covers it shows and no others.
 //
 // `query` searches the shelves rather than paging through them: every shelf
-// is still read, but only its matching items make the strip, and only those
-// get signed. It searches the same EXPLORE_COLLECTION_LIMIT shelves Explore
-// shows, which is all of Explore for now.
+// is still read, and every matching item is returned, up to
+// EXPLORE_SEARCH_LIMIT across all shelves -- the only ones that get signed. It
+// searches the same EXPLORE_COLLECTION_LIMIT shelves Explore shows, which is
+// all of Explore for now.
 export async function loadExploreCollections({ pick = (collections) => collections, query = "" } = {}) {
   try {
     const admin = createSupabaseAdminClient();
@@ -492,7 +493,8 @@ export async function loadExploreCollections({ pick = (collections) => collectio
       })
     );
 
-    const collections = pick(sortExploreCollections(rows.filter(Boolean)));
+    const sorted = pick(sortExploreCollections(rows.filter(Boolean)));
+    const collections = query ? capExploreSearch(sorted) : sorted;
 
     // Signed last, and only for the covers that will actually be on screen --
     // at most EXPLORE_STRIP_LIMIT per row. Same one-hour TTL as the collection

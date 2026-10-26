@@ -16,11 +16,11 @@ export const metadata = {
   alternates: { canonical: "/explore" }
 };
 
-function Cover({ cover, href }) {
+function Cover({ cover, href, className = "w-28 shrink-0 sm:w-32" }) {
   const label = cover.name || "Untitled item";
   const credit = itemCredit(cover);
   return (
-    <Link href={href} className="group w-28 shrink-0 sm:w-32" tabIndex={-1}>
+    <Link href={href} className={`group ${className}`} tabIndex={-1}>
       <div className="aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3]">
         {cover.photoUrl ? (
           <img src={cover.photoUrl} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:opacity-90" />
@@ -85,15 +85,34 @@ function Shelf({ collection }) {
       {/* Each tile opens its own book on the shelf page, scrolled to and
           marked -- someone who clicked one cover wants that book, not the top
           of a shelf of two hundred. Covers stay out of the tab order so a
-          keyboard visitor gets one stop per shelf (the title) instead of nine. */}
-      <div className="-mx-4 mt-5 flex gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+          keyboard visitor gets one stop per shelf (the title) instead of nine.
+
+          A search lays the matches out as a grid rather than a strip: they are
+          the answer, every one of them, and a row that scrolls sideways hides
+          all but the first few. */}
+      <div
+        className={
+          searching
+            ? "mt-5 grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 sm:gap-x-4 md:grid-cols-6"
+            : "-mx-4 mt-5 flex gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0"
+        }
+      >
         {collection.covers.map((cover) => (
-          <Cover key={cover.id} cover={cover} href={publicItemHref(collection.slug, cover.id)} />
+          <Cover
+            key={cover.id}
+            cover={cover}
+            href={publicItemHref(collection.slug, cover.id)}
+            className={searching ? "min-w-0" : undefined}
+          />
         ))}
         {collection.moreCount > 0 && (
           /* Sits where the eye already is after scrolling the strip, and
              doubles as the sign that the strip scrolls at all. */
-          <Link href={href} className="w-28 shrink-0 sm:w-32" aria-label={`See all ${collection.itemCount} items in ${collection.title}`}>
+          <Link
+            href={href}
+            className={searching ? "min-w-0" : "w-28 shrink-0 sm:w-32"}
+            aria-label={`See all ${collection.itemCount} items in ${collection.title}`}
+          >
             <div className="flex aspect-[3/4] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-[#cdbb9d] bg-[#fff9f0] text-[#123f38] transition hover:bg-white">
               <span className="text-2xl font-semibold">+{collection.moreCount}</span>
               <span className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">more</span>
