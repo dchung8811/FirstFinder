@@ -9,6 +9,7 @@
 // figures side by side is a leaderboard, and a list of targets.
 
 import { buildPublicCollection } from "./publicCollection";
+import { matchesQuery } from "./publicCollectionBrowse";
 
 // Covers per strip. Each one is a signed image a first-time visitor downloads,
 // so this is the number that sets what Explore costs in egress. Mirrored by a
@@ -19,6 +20,39 @@ export const EXPLORE_STRIP_LIMIT = 8;
 // letting one description swallow the Explore page. The page clamps it to
 // three lines anyway; this keeps the full text readable on /c/<slug>.
 export const SHARE_BLURB_MAX = 280;
+
+// Explore's search box, in ?q=. Long enough for a title and an author; a query
+// past this is pasted text, and every character is matched against every
+// public item on every shelf.
+export const EXPLORE_QUERY_MAX = 100;
+
+// What ?q= arrived as, made safe to search with and to print back. Next hands
+// a repeated parameter over as an array; the first one wins.
+export function cleanExploreQuery(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, EXPLORE_QUERY_MAX);
+}
+
+// The fields an Explore search can match: the ones Explore itself shows on a
+// cover or the shelf pages it links to, and no others. Not the item as
+// buildPublicCollection returns it -- that carries notes and provenance when
+// the owner shows them on their own page, and a search that matched them here
+// would answer "whose notes mention this address" one shelf at a time,
+// without ever displaying the notes. Same reasoning as the forced-off flags
+// in loadExploreCollections, applied again so neither has to be trusted alone.
+function searchableExploreItem(item) {
+  return {
+    name: item.name,
+    author: item.author,
+    maker: item.maker,
+    category: item.category,
+    edition: item.edition,
+    bookEdition: item.bookEdition,
+    bookPrinting: item.bookPrinting,
+    bookGenre: item.bookGenre,
+    status: item.status
+  };
+}
 
 // The owner's picks, cleaned: strings only, no repeats, at most the limit, in
 // the order given. Used on the way into the database and on the way out of it,
@@ -81,15 +115,24 @@ function newestDate(values) {
 // their share settings. The cover keeps its photo *path* only -- the server
 // signs the paths of the covers that are actually shown and swaps in the URL,
 // so nothing past the eighth item is ever signed.
-export function buildExploreCollection({ slug, settings, items, ownerName = "", updatedAt = null, createdAtById = {} }) {
+//
+// With a `query`, the strip is the shelf's matches instead -- still the
+// owner's picks first among them, then photographed ones -- and matchCount
+// says how many there are. Without one, matchCount is null, which is how the
+// page tells "not searching" from "searching and found nothing here".
+export function buildExploreCollection({ slug, settings, items, ownerName = "", updatedAt = null, createdAtById = {}, query = "" }) {
   const collection = buildPublicCollection(items, settings, { ownerName });
-  const strip = selectExploreItems(collection.items, settings?.exploreItemIds);
+  const candidates = query
+    ? collection.items.filter((item) => matchesQuery(searchableExploreItem(item), query))
+    : collection.items;
+  const strip = selectExploreItems(candidates, settings?.exploreItemIds);
 
   return {
     slug,
     title: collection.title,
     blurb: collection.blurb,
     itemCount: collection.summary.itemCount,
+    matchCount: query ? candidates.length : null,
     firstEditionCount: collection.summary.firstEditionCount,
     // "Recently updated" means the shelf changed, not that the share settings
     // were last saved: a collector adding a book a week should rise even if
@@ -103,17 +146,22 @@ export function buildExploreCollection({ slug, settings, items, ownerName = "", 
       category: item.category,
       photoPath: item.photos[0]?.path || null
     })),
-    moreCount: Math.max(0, collection.summary.itemCount - strip.length)
+    moreCount: Math.max(0, candidates.length - strip.length)
   };
 }
 
 // Most recently active first. An active collector is more interesting to
 // browse than a large dormant one. Collections with nothing shared are dropped:
 // an empty row on a browse page is just noise.
+//
+// Search results drop shelves with no match and put the most matches first:
+// someone looking for Steinbeck is better served by the shelf with twelve of
+// them than by whichever shelf was touched last. Activity breaks ties.
 export function sortExploreCollections(collections) {
+  const activity = (collection) => Date.parse(collection.lastActivity || 0) || 0;
   return (Array.isArray(collections) ? collections : [])
-    .filter((collection) => collection.itemCount > 0)
-    .sort((a, b) => (Date.parse(b.lastActivity || 0) || 0) - (Date.parse(a.lastActivity || 0) || 0));
+    .filter((collection) => collection.itemCount > 0 && collection.matchCount !== 0)
+    .sort((a, b) => (b.matchCount ?? 0) - (a.matchCount ?? 0) || activity(b) - activity(a));
 }
 
 // The home page's preview of Explore: the first few shelves, each cut to a

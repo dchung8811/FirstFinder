@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   EXPLORE_STRIP_LIMIT,
+  EXPLORE_QUERY_MAX,
   buildExploreCollection,
+  cleanExploreQuery,
   collectionMonogram,
   featuredShelves,
   interleaveShelfCovers,
@@ -134,7 +136,79 @@ describe("buildExploreCollection", () => {
   });
 });
 
+describe("buildExploreCollection with a search", () => {
+  const items = [
+    item("a", { name: "East of Eden", author: "John Steinbeck", bookEdition: "First Edition" }),
+    item("b", { name: "Cannery Row", author: "John Steinbeck", itemPhotos: [] }),
+    item("c", { name: "Beloved", author: "Toni Morrison" }),
+    item("d", { name: "Jane Eyre", author: "Charlotte Brontë" })
+  ];
+
+  it("fills the strip with the shelf's matches and counts them", () => {
+    const row = buildExploreCollection({ slug: "s", settings, items, query: "steinbeck" });
+    expect(ids(row.covers)).toEqual(["a", "b"]);
+    expect(row.matchCount).toBe(2);
+    expect(row.itemCount).toBe(4);
+    expect(row.moreCount).toBe(0);
+  });
+
+  it("matches every term across fields, and ignores accents", () => {
+    expect(ids(buildExploreCollection({ slug: "s", settings, items, query: "steinbeck first" }).covers)).toEqual(["a"]);
+    expect(ids(buildExploreCollection({ slug: "s", settings, items, query: "bronte" }).covers)).toEqual(["d"]);
+  });
+
+  it("keeps the owner's picks first among the matches", () => {
+    const picked = { ...settings, exploreItemIds: ["b", "c"] };
+    expect(ids(buildExploreCollection({ slug: "s", settings: picked, items, query: "steinbeck" }).covers)).toEqual(["b"]);
+  });
+
+  it("counts matches past the strip as more", () => {
+    const many = Array.from({ length: EXPLORE_STRIP_LIMIT + 3 }, (_, index) => item(`m${index}`, { author: "Ray Bradbury" }));
+    const row = buildExploreCollection({ slug: "s", settings, items: many, query: "bradbury" });
+    expect(row.covers).toHaveLength(EXPLORE_STRIP_LIMIT);
+    expect(row.moreCount).toBe(3);
+  });
+
+  it("never matches notes or provenance, even when the owner's page shows them", () => {
+    const generous = { ...settings, showNotes: true, showProvenance: true };
+    const row = buildExploreCollection({
+      slug: "s",
+      settings: generous,
+      items: [item("a", { source: "Estate sale on Elm Street" })],
+      query: "private seller"
+    });
+    expect(row.matchCount).toBe(0);
+    expect(buildExploreCollection({ slug: "s", settings: generous, items: [item("a", { source: "Estate sale on Elm Street" })], query: "elm" }).matchCount).toBe(0);
+  });
+
+  it("reports matchCount as null when nobody searched", () => {
+    expect(buildExploreCollection({ slug: "s", settings, items }).matchCount).toBeNull();
+  });
+});
+
+describe("cleanExploreQuery", () => {
+  it("trims, collapses whitespace, and takes the first of repeated parameters", () => {
+    expect(cleanExploreQuery("  east   of\teden ")).toBe("east of eden");
+    expect(cleanExploreQuery(["first", "second"])).toBe("first");
+    expect(cleanExploreQuery(undefined)).toBe("");
+  });
+
+  it("caps the length", () => {
+    expect(cleanExploreQuery("x".repeat(500))).toHaveLength(EXPLORE_QUERY_MAX);
+  });
+});
+
 describe("sortExploreCollections", () => {
+  it("puts the most matches first when searching, and drops shelves with none", () => {
+    const sorted = sortExploreCollections([
+      { slug: "one", itemCount: 9, matchCount: 1, lastActivity: "2026-10-01T00:00:00.000Z" },
+      { slug: "none", itemCount: 9, matchCount: 0, lastActivity: "2026-10-02T00:00:00.000Z" },
+      { slug: "many", itemCount: 9, matchCount: 5, lastActivity: "2026-01-01T00:00:00.000Z" },
+      { slug: "one-newer", itemCount: 9, matchCount: 1, lastActivity: "2026-10-05T00:00:00.000Z" }
+    ]);
+    expect(sorted.map((row) => row.slug)).toEqual(["many", "one-newer", "one"]);
+  });
+
   it("puts the most recently active first and drops empty shelves", () => {
     const sorted = sortExploreCollections([
       { slug: "old", itemCount: 4, lastActivity: "2026-01-01T00:00:00.000Z" },
