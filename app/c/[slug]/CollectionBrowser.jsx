@@ -12,7 +12,7 @@ import {
 import { formatCurrency } from "../../../src/utils/format";
 import { itemCredit } from "../../../src/utils/items";
 import { publicItemAnchor } from "../../../src/utils/publicCollection";
-import { ItemCard } from "./ItemCard";
+import { ItemCard, ItemTile } from "./ItemCard";
 import PhotoViewer from "./PhotoViewer";
 
 // The interactive half of a shared collection page.
@@ -31,6 +31,7 @@ import PhotoViewer from "./PhotoViewer";
 // the database nothing.
 
 const VIEW_STORAGE_KEY = "ff-collection-view";
+const VIEWS = ["tiles", "cards", "records"];
 
 // Below this, the controls are noise. A shelf of six is faster to read than to
 // filter, and a search box over it makes a small collection look like it is
@@ -57,9 +58,10 @@ const viewStore = {
   },
   read() {
     try {
-      return window.localStorage.getItem(VIEW_STORAGE_KEY) === "records" ? "records" : "cards";
+      const stored = window.localStorage.getItem(VIEW_STORAGE_KEY);
+      return VIEWS.includes(stored) ? stored : "tiles";
     } catch {
-      return "cards";
+      return "tiles";
     }
   },
   write(next) {
@@ -73,8 +75,10 @@ const viewStore = {
   }
 };
 
-// Cards is what the server renders, so it is what hydration must agree on.
-const serverView = () => "cards";
+// Tiles is what the server renders, so it is what hydration must agree on.
+// A visitor who picked Cards or Records before Tiles existed still has that
+// choice stored, and keeps it.
+const serverView = () => "tiles";
 
 // The Records view, matching the table on the owner's own Collection tab.
 //
@@ -169,7 +173,7 @@ function ToggleButton({ active, onClick, children }) {
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+      className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
         active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"
       }`}
     >
@@ -186,7 +190,12 @@ export default function CollectionBrowser({ items }) {
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("added");
-  const view = useSyncExternalStore(viewStore.subscribe, viewStore.read, serverView);
+  const storedView = useSyncExternalStore(viewStore.subscribe, viewStore.read, serverView);
+  const showControls = items.length >= MIN_ITEMS_FOR_CONTROLS;
+  // A shelf too small for the toolbar has no toggle to reach the cards, so it
+  // gets them outright: six covers with no way to an edition line would hide
+  // the details a small shelf is easy to read in full.
+  const view = showControls ? storedView : "cards";
   // One viewer for the whole page, opened from either layout, rather than a
   // lightbox per card.
   const [viewing, setViewing] = useState(null);
@@ -202,9 +211,9 @@ export default function CollectionBrowser({ items }) {
   //
   // The browser's own jump to the fragment can't be relied on here: the page
   // streams in behind loading.js, so the card may not exist yet when the
-  // browser looks for it, and a visitor who last chose Records gets the cards
+  // browser looks for it, and a visitor who last chose Records gets the tiles
   // the server rendered swapped for a table after hydration, which leaves them
-  // scrolled to where a card used to be. So once the view this visitor will
+  // scrolled to where a tile used to be. So once the view this visitor will
   // actually see has rendered, scroll to the book once. Only once: toggling
   // the view later shouldn't yank them back to it.
   //
@@ -214,7 +223,9 @@ export default function CollectionBrowser({ items }) {
   const arrived = useRef(false);
   const [markedId, setMarkedId] = useState(null);
   useEffect(() => {
-    if (arrived.current || view !== viewStore.read()) return;
+    // Hydrated once the stored choice agrees with the browser's; `view`
+    // itself can't be compared, since a small shelf overrides it.
+    if (arrived.current || storedView !== viewStore.read()) return;
     arrived.current = true;
     // Compared raw, not decoded: the anchors are plain ids that never need
     // escaping, and decodeURIComponent throws on a hand-mangled fragment like
@@ -224,7 +235,7 @@ export default function CollectionBrowser({ items }) {
     if (!item) return;
     setMarkedId(item.id);
     document.getElementById(anchor)?.scrollIntoView({ block: "start" });
-  }, [view, items]);
+  }, [view, storedView, items]);
 
   const options = useMemo(() => collectFilterOptions(items), [items]);
 
@@ -234,7 +245,6 @@ export default function CollectionBrowser({ items }) {
   );
 
   const filtering = Boolean(query || category || status);
-  const showControls = items.length >= MIN_ITEMS_FOR_CONTROLS;
 
   return (
     <>
@@ -315,7 +325,12 @@ export default function CollectionBrowser({ items }) {
             )}
           </p>
 
-          <div className="flex items-center gap-1 rounded-full border border-[#d8c7ad] bg-[#fffdf8] p-1">
+          {/* Full width on a phone, each option an equal share of it, so the
+              three read as one switch rather than a cluster at one end. */}
+          <div className="flex w-full items-center gap-1 rounded-full border border-[#d8c7ad] bg-[#fffdf8] p-1 sm:w-auto">
+            <ToggleButton active={view === "tiles"} onClick={() => viewStore.write("tiles")}>
+              Tiles
+            </ToggleButton>
             <ToggleButton active={view === "cards"} onClick={() => viewStore.write("cards")}>
               Cards
             </ToggleButton>
@@ -333,6 +348,12 @@ export default function CollectionBrowser({ items }) {
           <p className="mx-auto mt-2 max-w-md leading-7 text-[#665746]">
             There is nothing in this collection matching that. Try a different search, or clear the filters.
           </p>
+        </div>
+      ) : view === "tiles" ? (
+        <div className="mt-8 grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 sm:gap-x-4 md:grid-cols-6">
+          {visible.map((item) => (
+            <ItemTile key={item.id} item={item} onViewPhotos={openPhotos} marked={item.id === markedId} />
+          ))}
         </div>
       ) : view === "cards" ? (
         <div className={`${showControls ? "mt-8" : "mt-10"} grid gap-6 sm:grid-cols-2 lg:grid-cols-3`}>
