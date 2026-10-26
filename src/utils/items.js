@@ -145,6 +145,45 @@ export function formatGain(gain) {
   return gain === null ? "—" : formatCurrency(gain);
 }
 
+// The orders My Collection can be put in. "Value" rather than "price"
+// because the figure is the one on the Value column and the totals --
+// realized price once sold, the estimate before -- not what was paid.
+export const inventorySortOptions = [
+  { value: "added", label: "Recently added" },
+  { value: "name", label: "Title A–Z" },
+  { value: "valueAsc", label: "Value: low to high" },
+  { value: "valueDesc", label: "Value: high to low" }
+];
+
+// Sorts a copy, so "Recently added" can always get back to the order the
+// collection arrived in. Items with nothing to sort on go last in every
+// direction: an unappraised book is unknown, not worth $0, and putting it
+// first in "low to high" would bury the cheap ones under the unvalued ones.
+export function sortInventory(items, sort) {
+  const sorted = [...(items || [])];
+
+  if (sort === "name") {
+    sorted.sort((a, b) => {
+      const left = String(a.name || "").trim();
+      const right = String(b.name || "").trim();
+      if (!left || !right) return (left ? 0 : 1) - (right ? 0 : 1);
+      return left.localeCompare(right, undefined, { sensitivity: "base", numeric: true });
+    });
+  }
+
+  if (sort === "valueAsc" || sort === "valueDesc") {
+    const direction = sort === "valueAsc" ? 1 : -1;
+    sorted.sort((a, b) => {
+      const left = itemValueForTotals(a);
+      const right = itemValueForTotals(b);
+      if (left === null || right === null) return (left === null ? 1 : 0) - (right === null ? 1 : 0);
+      return (left - right) * direction;
+    });
+  }
+
+  return sorted;
+}
+
 export function makeSavedItem(item, itemPhotos = [], receiptPhotos = []) {
   const itemPhotoList = Array.isArray(itemPhotos) ? itemPhotos : [];
   const receiptPhotoList = Array.isArray(receiptPhotos) ? receiptPhotos : [];

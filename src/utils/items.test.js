@@ -14,7 +14,8 @@ import {
   formatGain,
   getActiveInventory,
   toValueRange,
-  firstCollectible
+  firstCollectible,
+  sortInventory
 } from "./items";
 
 const book = (over = {}) => ({
@@ -359,5 +360,37 @@ describe("firstCollectible", () => {
   it("returns null for an empty collection", () => {
     expect(firstCollectible([])).toBeNull();
     expect(firstCollectible(undefined)).toBeNull();
+  });
+});
+
+describe("sortInventory", () => {
+  const items = [
+    book({ id: "a", name: "Dune", estimatedValue: "300" }),
+    book({ id: "b", name: "", estimatedValue: "50" }),
+    book({ id: "c", name: "carrie", estimatedValue: "" }),
+    book({ id: "d", name: "Blood Meridian", status: "Sold", soldPrice: "900", estimatedValue: "10" })
+  ];
+  const ids = (sort) => sortInventory(items, sort).map((row) => row.id);
+
+  it("leaves the arrival order alone for Recently added, without touching the original", () => {
+    expect(ids("added")).toEqual(["a", "b", "c", "d"]);
+    sortInventory(items, "name");
+    expect(items.map((row) => row.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("sorts titles A-Z ignoring case, untitled last", () => {
+    expect(ids("name")).toEqual(["d", "c", "a", "b"]);
+  });
+
+  // Sold items sort on what they sold for, matching the Value column.
+  it("sorts by value both ways, using the sold price once sold", () => {
+    expect(ids("valueAsc")).toEqual(["b", "a", "d", "c"]);
+    expect(ids("valueDesc")).toEqual(["d", "a", "b", "c"]);
+  });
+
+  // Unknown is not $0: an unappraised item never leads "low to high".
+  it("puts items with no value last in either direction", () => {
+    expect(ids("valueAsc").pop()).toBe("c");
+    expect(ids("valueDesc").pop()).toBe("c");
   });
 });

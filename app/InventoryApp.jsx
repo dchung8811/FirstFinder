@@ -62,7 +62,9 @@ import {
   formatGain,
   getActiveInventory,
   toValueRange,
-  firstCollectible
+  firstCollectible,
+  inventorySortOptions,
+  sortInventory
 } from "../src/utils/items";
 import { csvUpdateRow, storedEdition, toDbItem, fromDbItem, fromDbShareSettings, toDbShareRow, fromDbWant, toDbWant } from "../src/utils/mapping";
 import { syncAgeLabel } from "../src/utils/offlineCollection";
@@ -6194,6 +6196,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
   const [genreFilter, setGenreFilter] = useState("All genres");
   const [editionFilter, setEditionFilter] = useState("All editions");
   const [printingFilter, setPrintingFilter] = useState("All printings");
+  const [sortOrder, setSortOrder] = useState("added");
 
   const genreOptions = useMemo(
     () => Array.from(new Set(inventory.map((entry) => entry.bookGenre).filter(Boolean))).sort(),
@@ -6286,11 +6289,14 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coverPathKey]);
 
-  const displayedInventory = filteredInventory
-    .filter((entry) => categoryFilter === "All categories" || entry.category === categoryFilter)
-    .filter((entry) => genreFilter === "All genres" || entry.bookGenre === genreFilter)
-    .filter((entry) => editionFilter === "All editions" || entry.bookEdition === editionFilter)
-    .filter((entry) => printingFilter === "All printings" || entry.bookPrinting === printingFilter);
+  const displayedInventory = sortInventory(
+    filteredInventory
+      .filter((entry) => categoryFilter === "All categories" || entry.category === categoryFilter)
+      .filter((entry) => genreFilter === "All genres" || entry.bookGenre === genreFilter)
+      .filter((entry) => editionFilter === "All editions" || entry.bookEdition === editionFilter)
+      .filter((entry) => printingFilter === "All printings" || entry.bookPrinting === printingFilter),
+    sortOrder
+  );
 
   const activeFilters = [
     categoryFilter !== "All categories" && { label: categoryFilter, clear: () => setCategoryFilter("All categories") },
@@ -6470,17 +6476,32 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
       {/* Directly above the results it filters, so typing and watching the
           list narrow happen in the same glance. Drawn like Explore's box so
           searching looks the same everywhere; it filters as you type, so it
-          needs no button. */}
-      <label className="mt-3 block">
-        <span className="sr-only">Search your collection</span>
-        <input
-          type="search"
-          value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Title, author, maker or source"
-          className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
-        />
-      </label>
+          needs no button. Sort sits beside it: the two together decide what
+          the list below shows and in what order. */}
+      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+        <label className="block">
+          <span className="sr-only">Search your collection</span>
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Title, author, maker or source"
+            className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+          />
+        </label>
+        <label className="block">
+          <span className="sr-only">Sort</span>
+          <select
+            value={sortOrder}
+            onChange={(event) => { trackEvent("inventory_sort_changed", { sort: event.target.value }); setSortOrder(event.target.value); }}
+            className="h-full w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 text-sm font-medium text-[#201a14] outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+          >
+            {inventorySortOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       {inventory.length === 0 && loading ? (
         /* Same flash as the dashboard: an unfetched collection and an empty
