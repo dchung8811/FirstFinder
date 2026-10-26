@@ -415,7 +415,12 @@ const EXPLORE_ITEM_COLUMNS = [
 //
 // `pick` narrows the sorted rows before anything is signed -- the home page
 // passes featuredShelves so it pays for the covers it shows and no others.
-export async function loadExploreCollections({ pick = (collections) => collections } = {}) {
+//
+// `query` searches the shelves rather than paging through them: every shelf
+// is still read, but only its matching items make the strip, and only those
+// get signed. It searches the same EXPLORE_COLLECTION_LIMIT shelves Explore
+// shows, which is all of Explore for now.
+export async function loadExploreCollections({ pick = (collections) => collections, query = "" } = {}) {
   try {
     const admin = createSupabaseAdminClient();
 
@@ -481,7 +486,8 @@ export async function loadExploreCollections({ pick = (collections) => collectio
           items,
           ownerName: await ownerNamePromise,
           updatedAt: shareRow.updated_at,
-          createdAtById
+          createdAtById,
+          query
         });
       })
     );
