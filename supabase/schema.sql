@@ -877,8 +877,14 @@ alter table public.login_events enable row level security;
 -- The browser used to insert these rows itself. Dropped and revoked rather
 -- than just left out, so a database built from an older copy of this file
 -- loses them on a re-run.
+--
+-- Revoked from anon too, and every privilege rather than just insert: a
+-- project created while Supabase still granted new public tables to the API
+-- roles by default holds grants nothing here ever made. RLS with no policies
+-- already refuses them, but a grant that does nothing is one policy away from
+-- doing something.
 drop policy if exists "Users can record own logins" on public.login_events;
-revoke insert on public.login_events from authenticated;
+revoke all on public.login_events from anon, authenticated;
 grant select, insert, update, delete on public.login_events to service_role;
 
 -- Logins are recorded where Supabase completes them, not in the browser.
