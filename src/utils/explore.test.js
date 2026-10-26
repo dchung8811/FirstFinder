@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   EXPLORE_STRIP_LIMIT,
   EXPLORE_QUERY_MAX,
+  EXPLORE_SEARCH_LIMIT,
   buildExploreCollection,
+  capExploreSearch,
   cleanExploreQuery,
   collectionMonogram,
   featuredShelves,
   interleaveShelfCovers,
   normalizeExplorePicks,
+  orderExploreMatches,
   selectExploreItems,
   sortExploreCollections,
   toggleExplorePick,
@@ -157,16 +160,21 @@ describe("buildExploreCollection with a search", () => {
     expect(ids(buildExploreCollection({ slug: "s", settings, items, query: "bronte" }).covers)).toEqual(["d"]);
   });
 
-  it("keeps the owner's picks first among the matches", () => {
+  it("puts the owner's picks first but still shows every other match", () => {
     const picked = { ...settings, exploreItemIds: ["b", "c"] };
-    expect(ids(buildExploreCollection({ slug: "s", settings: picked, items, query: "steinbeck" }).covers)).toEqual(["b"]);
+    expect(ids(buildExploreCollection({ slug: "s", settings: picked, items, query: "steinbeck" }).covers)).toEqual(["b", "a"]);
   });
 
-  it("counts matches past the strip as more", () => {
+  it("is not cut to the eight-cover strip", () => {
     const many = Array.from({ length: EXPLORE_STRIP_LIMIT + 3 }, (_, index) => item(`m${index}`, { author: "Ray Bradbury" }));
     const row = buildExploreCollection({ slug: "s", settings, items: many, query: "bradbury" });
-    expect(row.covers).toHaveLength(EXPLORE_STRIP_LIMIT);
-    expect(row.moreCount).toBe(3);
+    expect(row.covers).toHaveLength(EXPLORE_STRIP_LIMIT + 3);
+    expect(row.moreCount).toBe(0);
+  });
+
+  it("still cuts the strip to the picks when nobody searched", () => {
+    const picked = { ...settings, exploreItemIds: ["b"] };
+    expect(ids(buildExploreCollection({ slug: "s", settings: picked, items }).covers)).toEqual(["b"]);
   });
 
   it("never matches notes or provenance, even when the owner's page shows them", () => {
@@ -183,6 +191,54 @@ describe("buildExploreCollection with a search", () => {
 
   it("reports matchCount as null when nobody searched", () => {
     expect(buildExploreCollection({ slug: "s", settings, items }).matchCount).toBeNull();
+  });
+});
+
+describe("orderExploreMatches", () => {
+  const withPhoto = (id) => ({ id, photos: [{ path: `p/${id}` }] });
+  const bare = (id) => ({ id, photos: [] });
+
+  it("leads with surviving picks, then photographed, then the rest, dropping nothing", () => {
+    const matches = [bare("n1"), withPhoto("p1"), bare("n2"), withPhoto("p2")];
+    expect(ids(orderExploreMatches(matches, ["n2", "gone"]))).toEqual(["n2", "p1", "p2", "n1"]);
+  });
+
+  it("handles no picks and no matches", () => {
+    expect(ids(orderExploreMatches([bare("a"), withPhoto("b")], []))).toEqual(["b", "a"]);
+    expect(orderExploreMatches(undefined, ["a"])).toEqual([]);
+  });
+});
+
+describe("capExploreSearch", () => {
+  const shelf = (slug, count) => ({
+    slug,
+    itemCount: 100,
+    matchCount: count,
+    covers: Array.from({ length: count }, (_, index) => ({ id: `${slug}${index}` }))
+  });
+
+  it("shares the cap across shelves instead of letting the biggest take it all", () => {
+    const capped = capExploreSearch([shelf("big", 204), shelf("small", 5), shelf("one", 1)], 60);
+    expect(capped.map((row) => row.covers.length)).toEqual([54, 5, 1]);
+    expect(capped.map((row) => row.moreCount)).toEqual([150, 0, 0]);
+  });
+
+  it("deals in shelf order when the cap runs out mid-round", () => {
+    const capped = capExploreSearch([shelf("a", 5), shelf("b", 4), shelf("c", 2)], 7);
+    expect(capped.map((row) => row.covers.length)).toEqual([3, 2, 2]);
+    expect(capped.map((row) => ids(row.covers))).toEqual([["a0", "a1", "a2"], ["b0", "b1"], ["c0", "c1"]]);
+  });
+
+  it("keeps every shelf, so a shelf past the cap still shows its count", () => {
+    const capped = capExploreSearch([shelf("a", 3), shelf("b", 3), shelf("c", 3)], 2);
+    expect(capped.map((row) => row.slug)).toEqual(["a", "b", "c"]);
+    expect(capped.map((row) => row.moreCount)).toEqual([2, 2, 3]);
+  });
+
+  it("defaults to EXPLORE_SEARCH_LIMIT", () => {
+    const capped = capExploreSearch([shelf("a", EXPLORE_SEARCH_LIMIT + 10)]);
+    expect(capped[0].covers).toHaveLength(EXPLORE_SEARCH_LIMIT);
+    expect(capped[0].moreCount).toBe(10);
   });
 });
 

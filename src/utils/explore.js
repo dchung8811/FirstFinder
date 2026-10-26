@@ -26,6 +26,13 @@ export const SHARE_BLURB_MAX = 280;
 // public item on every shelf.
 export const EXPLORE_QUERY_MAX = 100;
 
+// Covers one Explore search shows, across every shelf. A search shows each
+// match rather than an eight-cover strip -- someone looking for Stephen King
+// wants the King books, not a sample of them -- so the ceiling moves from the
+// shelf to the search. It bounds how many URLs one request signs; the covers
+// load lazily, so egress follows what a visitor actually scrolls to.
+export const EXPLORE_SEARCH_LIMIT = 60;
+
 // What ?q= arrived as, made safe to search with and to print back. Next hands
 // a repeated parameter over as an array; the first one wins.
 export function cleanExploreQuery(value) {
@@ -80,6 +87,14 @@ export function toggleExplorePick(ids, id, limit = EXPLORE_STRIP_LIMIT) {
   return [...picks, id];
 }
 
+const hasPhoto = (item) => Array.isArray(item.photos) && item.photos.length > 0;
+
+// The owner's picks that are still in `items`, in the owner's order.
+function survivingPicks(items, picks) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return normalizeExplorePicks(picks).map((id) => byId.get(id)).filter(Boolean);
+}
+
 // Which public items lead the strip.
 //
 // Picks come first, in the owner's order, but only those still in the public
@@ -95,13 +110,57 @@ export function toggleExplorePick(ids, id, limit = EXPLORE_STRIP_LIMIT) {
 // whatever was added last would undo the choice.
 export function selectExploreItems(publicItems, picks, limit = EXPLORE_STRIP_LIMIT) {
   const items = Array.isArray(publicItems) ? publicItems : [];
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const chosen = normalizeExplorePicks(picks, limit).map((id) => byId.get(id)).filter(Boolean);
+  const chosen = survivingPicks(items, picks).slice(0, limit);
   if (chosen.length > 0) return chosen;
   // publicItems arrive newest first, the order the server queries them in;
   // the partition keeps that order within each half.
-  const hasPhoto = (item) => Array.isArray(item.photos) && item.photos.length > 0;
   return [...items.filter(hasPhoto), ...items.filter((item) => !hasPhoto(item))].slice(0, limit);
+}
+
+// A shelf's search matches, every one of them, in the order a search shows
+// them: the owner's surviving picks first, then photographed items, then the
+// rest, each group newest first.
+//
+// Unlike selectExploreItems, picks lead here but never stand in for the rest.
+// That rule is right for a strip -- three chosen books are a statement -- but
+// a search answering 54 books with the 2 that happened to be picked, and a
+// "+52 more" that opens the whole unfiltered shelf, hides the answer.
+export function orderExploreMatches(matches, picks) {
+  const items = Array.isArray(matches) ? matches : [];
+  const chosen = survivingPicks(items, picks);
+  const chosenIds = new Set(chosen.map((item) => item.id));
+  const rest = items.filter((item) => !chosenIds.has(item.id));
+  return [...chosen, ...rest.filter(hasPhoto), ...rest.filter((item) => !hasPhoto(item))];
+}
+
+// Trims a search's shelves to EXPLORE_SEARCH_LIMIT covers in all, before
+// anything is signed, and its "+N more" says how many matches each shelf holds
+// that are not drawn.
+//
+// Dealt one cover per shelf per round rather than filled shelf by shelf. Taken
+// in order, a broad search gives all sixty to the biggest shelf and leaves
+// every other collector's matches as a bare count -- the opposite of searching
+// everyone's books. Dealt, a shelf with five matches shows all five and the
+// big shelf takes what is left.
+export function capExploreSearch(collections, limit = EXPLORE_SEARCH_LIMIT) {
+  const list = Array.isArray(collections) ? collections : [];
+  const counts = list.map(() => 0);
+  let remaining = limit;
+  let dealt = true;
+  while (remaining > 0 && dealt) {
+    dealt = false;
+    list.forEach((collection, index) => {
+      if (remaining > 0 && counts[index] < collection.covers.length) {
+        counts[index] += 1;
+        remaining -= 1;
+        dealt = true;
+      }
+    });
+  }
+  return list.map((collection, index) => {
+    const covers = collection.covers.slice(0, counts[index]);
+    return { ...collection, covers, moreCount: Math.max(0, (collection.matchCount ?? collection.itemCount) - covers.length) };
+  });
 }
 
 function newestDate(values) {
@@ -116,16 +175,19 @@ function newestDate(values) {
 // signs the paths of the covers that are actually shown and swaps in the URL,
 // so nothing past the eighth item is ever signed.
 //
-// With a `query`, the strip is the shelf's matches instead -- still the
-// owner's picks first among them, then photographed ones -- and matchCount
-// says how many there are. Without one, matchCount is null, which is how the
-// page tells "not searching" from "searching and found nothing here".
+// With a `query`, the covers are every match on the shelf instead, ordered by
+// orderExploreMatches, and matchCount says how many there are. The caller caps
+// them across shelves with capExploreSearch. Without a query, matchCount is
+// null, which is how the page tells "not searching" from "searching and found
+// nothing here".
 export function buildExploreCollection({ slug, settings, items, ownerName = "", updatedAt = null, createdAtById = {}, query = "" }) {
   const collection = buildPublicCollection(items, settings, { ownerName });
   const candidates = query
     ? collection.items.filter((item) => matchesQuery(searchableExploreItem(item), query))
     : collection.items;
-  const strip = selectExploreItems(candidates, settings?.exploreItemIds);
+  const strip = query
+    ? orderExploreMatches(candidates, settings?.exploreItemIds)
+    : selectExploreItems(candidates, settings?.exploreItemIds);
 
   return {
     slug,
