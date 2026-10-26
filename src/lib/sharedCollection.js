@@ -450,7 +450,7 @@ export async function loadExploreCollections({ pick = (collections) => collectio
           showNotes: false
         };
 
-        let query = admin
+        let itemsQuery = admin
           .from("inventory_items")
           .select(EXPLORE_ITEM_COLUMNS.join(", "))
           .eq("user_id", shareRow.user_id)
@@ -463,14 +463,14 @@ export async function loadExploreCollections({ pick = (collections) => collectio
           ...(settings.showWishlist ? [] : ["Wishlist"])
         ];
         if (excludedStatuses.length > 0) {
-          query = query.not("status", "in", `(${excludedStatuses.join(",")})`);
+          itemsQuery = itemsQuery.not("status", "in", `(${excludedStatuses.join(",")})`);
         }
 
         const ownerNamePromise = settings.title.trim()
           ? Promise.resolve("")
           : fetchOwnerName(admin, shareRow.user_id).catch(() => "");
 
-        const { data: itemRows, error: itemsError } = await query.order("created_at", { ascending: false });
+        const { data: itemRows, error: itemsError } = await itemsQuery.order("created_at", { ascending: false });
         if (itemsError) {
           console.error("Explore items error:", itemsError.message);
           await ownerNamePromise;
