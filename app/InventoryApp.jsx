@@ -172,6 +172,22 @@ function Icon({ name, size = 20, className = "" }) {
       </>
     ),
     x: <path d="M18 6 6 18M6 6l12 12" />,
+    // Two corner arrows pulling apart: "this opens bigger".
+    expand: (
+      <>
+        <path d="M15 3h6v6" />
+        <path d="M9 21H3v-6" />
+        <path d="M21 3l-7 7" />
+        <path d="M3 21l7-7" />
+      </>
+    ),
+    // A frame with another behind it: more than one photo.
+    images: (
+      <>
+        <rect x="7" y="7" width="14" height="14" rx="2" />
+        <path d="M3 15V5a2 2 0 0 1 2-2h10" />
+      </>
+    ),
     search: (
       <>
         <circle cx="11" cy="11" r="7" />
@@ -10115,7 +10131,14 @@ function CollectionCard({ entry, coverPath, coverUrl, focused = false, anchor = 
           do nothing. A picture of a book invites a tap on its own,
           and cursor-zoom-in says what the tap does. Same shape as the
           card on a shared collection page, deliberately: it is the
-          same object, and there is no reason to draw it twice. */}
+          same object, and there is no reason to draw it twice.
+
+          A phone has no zoom cursor, so the photo says so itself: an
+          enlarge mark in the corner on every photo, and, when there are
+          more, a light "View 4 photos" that reads as a button rather than
+          the dark caption it used to be -- which looked like information,
+          not something to press. Both are decoration inside the one
+          button; its label already says what it does. */}
       {coverPath ? (
         <button
           type="button"
@@ -10131,9 +10154,14 @@ function CollectionCard({ entry, coverPath, coverUrl, focused = false, anchor = 
             className="h-56 w-full object-cover transition group-hover:opacity-95"
             allowRetry={false}
           />
+          <span aria-hidden="true" className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-[#fff9f0]/90 text-[#201a14] shadow-sm transition group-hover:bg-white">
+            <Icon name="expand" size={16} />
+          </span>
           {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0) > 1 && (
-            <span className="absolute bottom-3 right-3 rounded-full bg-[#201a14]/70 px-2.5 py-1 text-xs font-medium text-[#fff7ea]">
-              {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0)} photos
+            <span aria-hidden="true" className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full bg-[#fff9f0]/95 px-3 py-1.5 text-xs font-semibold text-[#123f38] shadow-sm transition group-hover:bg-white">
+              <Icon name="images" size={14} />
+              View {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0)} photos
+              <span className="text-sm leading-none">›</span>
             </span>
           )}
         </button>
