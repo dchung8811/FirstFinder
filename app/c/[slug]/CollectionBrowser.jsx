@@ -162,31 +162,67 @@ function RecordTable({ items, onViewPhotos, markedId }) {
   );
 }
 
-function ToggleButton({ active, onClick, children }) {
+// The few icons this page draws, in the same strokes as the app's Icon set so
+// the toolbar here and on My Collection look like one product.
+const GLYPHS = {
+  x: <path d="M18 6 6 18M6 6l12 12" />,
+  sliders: (
+    <>
+      <path d="M4 6h10M18 6h2" />
+      <circle cx="16" cy="6" r="2" />
+      <path d="M4 12h4M12 12h8" />
+      <circle cx="10" cy="12" r="2" />
+      <path d="M4 18h12" />
+      <circle cx="18" cy="18" r="2" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  cards: (
+    <>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M4 11h16" />
+      <path d="M8 15h8" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="M8 6h13M8 12h13M8 18h13" />
+      <path d="M3 6h.01M3 12h.01M3 18h.01" />
+    </>
+  )
+};
+
+function Glyph({ name, size = 16 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
-        active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"
-      }`}
-    >
-      {children}
-    </button>
+    <svg aria-hidden="true" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {GLYPHS[name]}
+    </svg>
   );
 }
 
-// One item's card, laid over the Tiles view on a dark backdrop.
+const VIEW_OPTIONS = [
+  { mode: "tiles", glyph: "grid", label: "Tiles" },
+  { mode: "cards", glyph: "cards", label: "Cards" },
+  { mode: "records", glyph: "list", label: "Records" }
+];
+
+// A dialog over the shelf: Escape, a tap on the backdrop, or the caller's own
+// close button shut it, and the page underneath holds still while it is open.
 //
-// Tapping a cover asks about that one book, so the answer comes to the
-// visitor rather than sending them to the Cards view and losing their place
-// in the wall. Closing it -- the button, the backdrop, or Escape -- leaves
-// them exactly where they were.
+// `bare` is for content that is already its own card -- an item opened from
+// the Tiles view -- and darkens the backdrop so it stands out. Without it, the
+// content sits on a panel, as the Filters do.
 //
-// The photo viewer opens on top of it (z-50 over z-40), and while it does,
-// Escape belongs to the viewer: `paused` stops this one closing underneath.
-function CardOverlay({ item, onClose, onViewPhotos, paused }) {
+// The photo viewer opens on top of an item (z-50 over z-40), and while it
+// does, Escape belongs to the viewer: `paused` stops this closing underneath.
+function Overlay({ label, onClose, paused = false, bare = false, children }) {
   const panelRef = useRef(null);
 
   useEffect(() => {
@@ -198,7 +234,7 @@ function CardOverlay({ item, onClose, onViewPhotos, paused }) {
   }, [onClose, paused]);
 
   // Same reason as the photo viewer: a phone must not drag the shelf around
-  // underneath the card.
+  // underneath.
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -210,7 +246,7 @@ function CardOverlay({ item, onClose, onViewPhotos, paused }) {
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-[#201a14]/75 p-4"
+      className={`fixed inset-0 z-40 flex items-center justify-center p-4 ${bare ? "bg-[#201a14]/75" : "bg-black/40"}`}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -220,35 +256,48 @@ function CardOverlay({ item, onClose, onViewPhotos, paused }) {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={item.name || "Untitled item"}
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto outline-none"
+        aria-label={label}
+        className={`max-h-[90vh] w-full max-w-md overflow-y-auto outline-none ${bare ? "" : "rounded-[2rem] bg-[#fff9f0] p-6 shadow-2xl"}`}
       >
-        <div className="mb-3 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-full bg-[#fff9f0] p-2 text-[#201a14] shadow-sm transition hover:bg-white"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <ItemCard item={item} onViewPhotos={onViewPhotos} anchor={false} />
+        {children}
       </div>
     </div>
   );
 }
 
-const selectClass =
-  "rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 py-2.5 text-sm text-[#3f352a] outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15";
+// One item's card, laid over the Tiles view on a dark backdrop.
+//
+// Tapping a cover asks about that one book, so the answer comes to the
+// visitor rather than sending them to the Cards view and losing their place
+// in the wall. Closing it leaves them exactly where they were.
+function CardOverlay({ item, onClose, onViewPhotos, paused }) {
+  return (
+    <Overlay label={item.name || "Untitled item"} onClose={onClose} paused={paused} bare>
+      <div className="mb-3 flex justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded-full bg-[#fff9f0] p-2 text-[#201a14] shadow-sm transition hover:bg-white"
+        >
+          <Glyph name="x" size={18} />
+        </button>
+      </div>
+      <ItemCard item={item} onViewPhotos={onViewPhotos} anchor={false} />
+    </Overlay>
+  );
+}
+
+// The toolbar's controls, drawn exactly as on My Collection.
+const controlClass =
+  "h-11 rounded-full border border-[#d8c7ad] bg-[#fffdf8] text-sm font-medium text-[#201a14] outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15";
 
 export default function CollectionBrowser({ items }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("added");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   // Every shelf gets the toolbar and the same views, however small. A page of
   // five that looked nothing like a page of two hundred read as a different
   // product, and a visitor coming from one to the other lost their bearings.
@@ -309,30 +358,121 @@ export default function CollectionBrowser({ items }) {
   );
 
   const filtering = Boolean(query || category || status);
+  const canFilter = options.categories.length > 1 || options.statuses.length > 1;
+  // What is being filtered on, as chips that each clear themselves.
+  const filterChips = [
+    category && { label: category, clear: () => setCategory("") },
+    status && { label: statusLabel(status), clear: () => setStatus("") }
+  ].filter(Boolean);
 
   return (
     <>
-      <div className="mt-10 flex flex-col gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <label className="relative flex-1">
-            <span className="sr-only">Search this collection</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by title, author, maker, edition…"
-              className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
-            />
+      {/* The same toolbar as My Collection (#264): search, Filters, sort,
+          and the layout as three small icons. On a phone the icons sit beside
+          search and Filters and sort share the second line -- all four on one
+          line left sort too narrow to read its own label. */}
+      <div className="mt-10 grid grid-cols-[1fr_auto] gap-2 sm:flex sm:items-center">
+        <label className="block min-w-0 sm:flex-1">
+          <span className="sr-only">Search this collection</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by title, author, maker, edition…"
+            className={`${controlClass} w-full px-5 font-normal`}
+          />
+        </label>
+        <div className="flex h-11 shrink-0 items-center rounded-full border border-[#d8c7ad] bg-[#fffdf8] p-1 sm:order-last">
+          {VIEW_OPTIONS.map((option) => (
+            <button
+              key={option.mode}
+              type="button"
+              onClick={() => viewStore.write(option.mode)}
+              aria-pressed={view === option.mode}
+              aria-label={`${option.label} view`}
+              title={option.label}
+              className={`flex h-full w-9 items-center justify-center rounded-full transition ${
+                view === option.mode ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"
+              }`}
+            >
+              <Glyph name={option.glyph} />
+            </button>
+          ))}
+        </div>
+        <div className="col-span-2 flex items-center gap-2">
+          {/* Only when there is something to choose between -- a filter with a
+              single possible value is a control that can only disappoint. */}
+          {canFilter && (
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(true)}
+              className={`${controlClass} flex shrink-0 items-center gap-2 px-4 hover:bg-white`}
+            >
+              <Glyph name="sliders" /> Filters
+              {filterChips.length > 0 && (
+                <span className="rounded-full bg-[#123f38] px-2 py-0.5 text-xs text-[#fff7ea]">{filterChips.length}</span>
+              )}
+            </button>
+          )}
+          <label className="block min-w-0 flex-1 sm:flex-none">
+            <span className="sr-only">Sort</span>
+            <select value={sort} onChange={(event) => setSort(event.target.value)} className={`${controlClass} w-full px-4`}>
+              {sortOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
+        </div>
+      </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Only rendered when the collection actually holds more than one
-                value -- a dropdown with a single choice is a control that can
-                only disappoint. */}
+      {filterChips.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {filterChips.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              onClick={chip.clear}
+              aria-label={`Remove filter: ${chip.label}`}
+              className="flex items-center gap-1.5 rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38] transition hover:bg-[#dceae5]"
+            >
+              {chip.label} <Glyph name="x" size={12} />
+            </button>
+          ))}
+        </div>
+      )}
+
+      <p className="mt-5 text-sm text-[#665746]" aria-live="polite">
+        {resultSummary(visible.length, items.length)}
+        {filtering && (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setCategory("");
+              setStatus("");
+            }}
+            className="ml-3 font-medium text-[#123f38] underline underline-offset-4"
+          >
+            Clear
+          </button>
+        )}
+      </p>
+
+      {filtersOpen && (
+        <Overlay label="Filters" onClose={() => setFiltersOpen(false)}>
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">Filters</h2>
+            <button type="button" onClick={() => setFiltersOpen(false)} aria-label="Close" className="rounded-full p-2 text-[#665746] hover:bg-[#f0e2cf]">
+              <Glyph name="x" size={18} />
+            </button>
+          </div>
+          <div className="mt-5 grid gap-4">
             {options.categories.length > 1 && (
-              <label>
-                <span className="sr-only">Filter by category</span>
-                <select value={category} onChange={(event) => setCategory(event.target.value)} className={selectClass}>
+              <label className="block">
+                <div className="mb-1.5 text-sm font-medium text-[#665746]">Category</div>
+                <select value={category} onChange={(event) => setCategory(event.target.value)} className={`${controlClass} w-full px-4`}>
                   <option value="">All categories</option>
                   {options.categories.map((value) => (
                     <option key={value} value={value}>
@@ -342,11 +482,10 @@ export default function CollectionBrowser({ items }) {
                 </select>
               </label>
             )}
-
             {options.statuses.length > 1 && (
-              <label>
-                <span className="sr-only">Filter by status</span>
-                <select value={status} onChange={(event) => setStatus(event.target.value)} className={selectClass}>
+              <label className="block">
+                <div className="mb-1.5 text-sm font-medium text-[#665746]">Status</div>
+                <select value={status} onChange={(event) => setStatus(event.target.value)} className={`${controlClass} w-full px-4`}>
                   <option value="">Any status</option>
                   {options.statuses.map((value) => (
                     <option key={value} value={value}>
@@ -356,53 +495,31 @@ export default function CollectionBrowser({ items }) {
                 </select>
               </label>
             )}
-
-            <label>
-              <span className="sr-only">Sort</span>
-              <select value={sort} onChange={(event) => setSort(event.target.value)} className={selectClass}>
-                {sortOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[#665746]" aria-live="polite">
-            {resultSummary(visible.length, items.length)}
-            {filtering && (
-              <button
-                type="button"
-                onClick={() => {
-                  setQuery("");
-                  setCategory("");
-                  setStatus("");
-                }}
-                className="ml-3 font-medium text-[#123f38] underline underline-offset-4"
-              >
-                Clear
-              </button>
-            )}
-          </p>
-
-          {/* Full width on a phone, each option an equal share of it, so the
-              three read as one switch rather than a cluster at one end. */}
-          <div className="flex w-full items-center gap-1 rounded-full border border-[#d8c7ad] bg-[#fffdf8] p-1 sm:w-auto">
-            <ToggleButton active={view === "tiles"} onClick={() => viewStore.write("tiles")}>
-              Tiles
-            </ToggleButton>
-            <ToggleButton active={view === "cards"} onClick={() => viewStore.write("cards")}>
-              Cards
-            </ToggleButton>
-            <ToggleButton active={view === "records"} onClick={() => viewStore.write("records")}>
-              Records
-            </ToggleButton>
+          {/* Filters apply as they are chosen, so the count is live and the
+              main button is simply the way back to the shelf. */}
+          <div className="mt-6 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setCategory("");
+                setStatus("");
+              }}
+              disabled={filterChips.length === 0}
+              className="text-sm font-medium text-[#123f38] underline underline-offset-4 disabled:text-[#b3a48e] disabled:no-underline"
+            >
+              Clear all
+            </button>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(false)}
+              className="h-11 rounded-full bg-[#123f38] px-6 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
+            >
+              Show {visible.length} {visible.length === 1 ? "item" : "items"}
+            </button>
           </div>
-        </div>
-      </div>
+        </Overlay>
+      )}
 
       {visible.length === 0 ? (
         <div className="mt-8 rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-8 text-center shadow-sm">
