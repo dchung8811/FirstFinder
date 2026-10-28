@@ -152,7 +152,12 @@ export const inventorySortOptions = [
   { value: "added", label: "Recently added" },
   { value: "name", label: "Title A–Z" },
   { value: "valueAsc", label: "Value: low to high" },
-  { value: "valueDesc", label: "Value: high to low" }
+  { value: "valueDesc", label: "Value: high to low" },
+  // When the collector got it -- the purchase date, the card's "Acquired"
+  // row -- as against "Recently added", which is when it was catalogued.
+  // The two part ways for anyone who catalogued an existing shelf in one go.
+  { value: "acquiredDesc", label: "Acquired: newest first" },
+  { value: "acquiredAsc", label: "Acquired: oldest first" }
 ];
 
 // Sorts a copy, so "Recently added" can always get back to the order the
@@ -178,6 +183,18 @@ export function sortInventory(items, sort) {
       const right = itemValueForTotals(b);
       if (left === null || right === null) return (left === null ? 1 : 0) - (right === null ? 1 : 0);
       return (left - right) * direction;
+    });
+  }
+
+  // Purchase dates are stored as YYYY-MM-DD, which sorts correctly as text.
+  // Undated items go last both ways, like unvalued ones above.
+  if (sort === "acquiredAsc" || sort === "acquiredDesc") {
+    const direction = sort === "acquiredAsc" ? 1 : -1;
+    sorted.sort((a, b) => {
+      const left = String(a.purchaseDate || "").trim();
+      const right = String(b.purchaseDate || "").trim();
+      if (!left || !right) return (left ? 0 : 1) - (right ? 0 : 1);
+      return left.localeCompare(right) * direction;
     });
   }
 
