@@ -388,6 +388,17 @@ describe("sortInventory", () => {
     expect(ids("valueDesc")).toEqual(["d", "a", "b", "c"]);
   });
 
+  it("sorts by when it was acquired both ways, undated last", () => {
+    const dated = [
+      book({ id: "mid", purchaseDate: "2023-06-08" }),
+      book({ id: "none", purchaseDate: "" }),
+      book({ id: "new", purchaseDate: "2025-10-08" }),
+      book({ id: "old", purchaseDate: "2009-01-30" })
+    ];
+    expect(sortInventory(dated, "acquiredDesc").map((row) => row.id)).toEqual(["new", "mid", "old", "none"]);
+    expect(sortInventory(dated, "acquiredAsc").map((row) => row.id)).toEqual(["old", "mid", "new", "none"]);
+  });
+
   // Unknown is not $0: an unappraised item never leads "low to high".
   it("puts items with no value last in either direction", () => {
     expect(ids("valueAsc").pop()).toBe("c");
