@@ -6544,10 +6544,11 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
       </div>
 
       {/* Search, Filters, sort and layout in one toolbar, directly above the
-          results they shape. On a phone, search takes the first line and the
-          rest share the second. */}
-      <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <label className="block min-w-0 flex-1">
+          results they shape. On a phone the icons sit beside
+          search and Filters and sort share the second line -- all four on one
+          line left sort too narrow to read its own label. */}
+      <div className="mt-6 grid grid-cols-[1fr_auto] gap-2 sm:flex sm:items-center">
+        <label className="block min-w-0 sm:flex-1">
           <span className="sr-only">Search your collection</span>
           <input
             type="search"
@@ -6557,7 +6558,31 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
             className="h-11 w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
           />
         </label>
-        <div className="flex items-center gap-2">
+        {/* Icons rather than words: most people never change the layout,
+            so it should cost almost no room -- but still be there for those
+            who do. Named for screen readers and on hover. */}
+        <div className="flex h-11 shrink-0 items-center rounded-full border border-[#d8c7ad] bg-[#fffdf8] p-1 sm:order-last">
+          {[
+            { mode: "tiles", icon: "grid", label: "Tiles" },
+            { mode: "cards", icon: "cards", label: "Cards" },
+            { mode: "records", icon: "list", label: "Records" }
+          ].map((option) => (
+            <button
+              key={option.mode}
+              type="button"
+              onClick={() => chooseView(option.mode)}
+              aria-pressed={viewMode === option.mode}
+              aria-label={`${option.label} view`}
+              title={option.label}
+              className={`flex h-full w-9 items-center justify-center rounded-full transition ${
+                viewMode === option.mode ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"
+              }`}
+            >
+              <Icon name={option.icon} size={16} />
+            </button>
+          ))}
+        </div>
+        <div className="col-span-2 flex items-center gap-2">
           <button
             type="button"
             onClick={() => setFiltersOpen(true)}
@@ -6580,30 +6605,6 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
               ))}
             </select>
           </label>
-          {/* Icons rather than words: most people never change the layout,
-              so it should cost almost no room -- but still be there for those
-              who do. Named for screen readers and on hover. */}
-          <div className="flex h-11 shrink-0 items-center rounded-full border border-[#d8c7ad] bg-[#fffdf8] p-1">
-            {[
-              { mode: "tiles", icon: "grid", label: "Tiles" },
-              { mode: "cards", icon: "cards", label: "Cards" },
-              { mode: "records", icon: "list", label: "Records" }
-            ].map((option) => (
-              <button
-                key={option.mode}
-                type="button"
-                onClick={() => chooseView(option.mode)}
-                aria-pressed={viewMode === option.mode}
-                aria-label={`${option.label} view`}
-                title={option.label}
-                className={`flex h-full w-9 items-center justify-center rounded-full transition ${
-                  viewMode === option.mode ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"
-                }`}
-              >
-                <Icon name={option.icon} size={16} />
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
