@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
-import SiteNav, { TabButton } from "./SiteNav";
+import SiteNav from "./SiteNav";
 import { appNavItems, documentTitle, landingView, pathForView, viewForPath } from "../src/utils/appNav";
 import { forgetAccountOnDevice } from "../src/lib/forgetAccountOnDevice";
 import {
@@ -172,6 +172,46 @@ function Icon({ name, size = 20, className = "" }) {
       </>
     ),
     x: <path d="M18 6 6 18M6 6l12 12" />,
+    // Three sliders: the Filters button.
+    sliders: (
+      <>
+        <path d="M4 6h10M18 6h2" />
+        <circle cx="16" cy="6" r="2" />
+        <path d="M4 12h4M12 12h8" />
+        <circle cx="10" cy="12" r="2" />
+        <path d="M4 18h12M20 18h0" />
+        <circle cx="18" cy="18" r="2" />
+      </>
+    ),
+    // The three layouts: a grid of covers, one card, rows of a table.
+    grid: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </>
+    ),
+    cards: (
+      <>
+        <rect x="4" y="3" width="16" height="18" rx="2" />
+        <path d="M4 11h16" />
+        <path d="M8 15h8" />
+      </>
+    ),
+    list: (
+      <>
+        <path d="M8 6h13M8 12h13M8 18h13" />
+        <path d="M3 6h.01M3 12h.01M3 18h.01" />
+      </>
+    ),
+    more: (
+      <>
+        <circle cx="5" cy="12" r="1" />
+        <circle cx="12" cy="12" r="1" />
+        <circle cx="19" cy="12" r="1" />
+      </>
+    ),
     // Two corner arrows pulling apart: "this opens bigger".
     expand: (
       <>
@@ -6226,6 +6266,8 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
   const [editionFilter, setEditionFilter] = useState("All editions");
   const [printingFilter, setPrintingFilter] = useState("All printings");
   const [sortOrder, setSortOrder] = useState("added");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [openTileId, setOpenTileId] = useState(null);
 
   // A cover tapped on the dashboard asks for one item. In the Tiles view that
@@ -6419,22 +6461,28 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      {/* Issue #257: this page had grown six rows of controls before the
+          first book. What stays in view is what gets used on most visits --
+          adding, sharing, searching, sorting -- and the rest is one tap away:
+          the four filters behind Filters, the layout as three small icons,
+          Sold as a link on the count line, and Export in the ⋯ menu. */}
+      <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-5xl font-semibold tracking-tight">{statusView === "sold" ? "Sold collectibles" : "Your active collectibles"}</h1>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">
-            {statusView === "sold"
-              ? "Sold items stay preserved here, with what you paid and what you got for them."
-              : "Sold items move out of these counts and into the Sold tab."}
-          </p>
+          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">{isSoldView ? "Sold collectibles" : "Your collectibles"}</h1>
+          {isSoldView && (
+            <p className="mt-3 max-w-2xl leading-7 text-[#665746]">
+              Sold items stay preserved here, with what you paid and what you got for them.
+            </p>
+          )}
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="flex items-center gap-2">
+          <Button onClick={onAdd} className="h-11 flex-1 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d] sm:flex-none">Add to collection</Button>
           {/* Always the verb, never the status. This button used to read
               "Sharing on" once a page was live, which describes a state
               rather than offering a way in -- so the one thing people came
               for, the link, looked like a label they could not press. The dot
               carries the status instead. */}
-          <Button variant="outline" onClick={onShare} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white">
+          <Button variant="outline" onClick={onShare} className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
             <Icon name="link" size={16} className="mr-2" /> Share
             {shareVisibility && shareVisibility !== "off" && (
               <>
@@ -6443,130 +6491,197 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
               </>
             )}
           </Button>
-          <Button variant="outline" onClick={() => { trackEvent("insurance_export_viewed"); onExport(); }} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-6 hover:bg-white"><Icon name="file" size={16} className="mr-2" /> Export for insurance</Button>
-          <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">Add to collection</Button>
+          {/* The occasional errands. Export is something a collector does
+              once a year for an insurer; Sold is a record most people never
+              need to show anyone. Both are still a tap away. */}
+          <div className="relative" onKeyDown={(event) => { if (event.key === "Escape") setMenuOpen(false); }}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="More"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-[#cdbb9d] bg-[#fff8ee] text-[#201a14] transition hover:bg-white"
+            >
+              <Icon name="more" size={18} />
+            </button>
+            {menuOpen && (
+              <>
+                {/* Catches the tap outside that closes the menu. */}
+                <button type="button" aria-hidden="true" tabIndex={-1} onClick={() => setMenuOpen(false)} className="fixed inset-0 z-30 cursor-default" />
+                <div role="menu" className="absolute right-0 top-full z-40 mt-2 w-60 rounded-2xl border border-[#d8c7ad] bg-[#fff9f0] p-1.5 shadow-lg">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); trackEvent("insurance_export_viewed"); onExport(); }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[#201a14] hover:bg-white"
+                  >
+                    <Icon name="file" size={16} /> Export for insurance
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); setStatusView(isSoldView ? "active" : "sold"); }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[#201a14] hover:bg-white"
+                  >
+                    <Icon name="receipt" size={16} /> {isSoldView ? `Back to your collection (${activeCount})` : `View sold items (${soldCount})`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       {bulkMessage && <div className="mt-6 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}
 
-      <div className="mt-8 grid gap-4 md:grid-cols-3">
-        <DashboardCard icon="receipt" label="What you paid" value={formatCurrency(totalCostBasis)} />
-        <DashboardCard icon="dollar" label={isSoldView ? "Sold for (total)" : "Estimated value"} value={formatCurrency(totalEstimatedValue)} />
-        <DashboardCard icon="search" label={isSoldView ? "Realized gain/loss" : "Change in value"} value={formatCurrency(totalGain)} />
+      {/* One strip rather than three cards: the three big cards took most of
+          a phone screen before the first book. The numbers are the same. */}
+      <div className="mt-6 grid grid-cols-3 divide-x divide-[#e0d2bc] rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] py-4 shadow-sm">
+        <StatStripItem label={isSoldView ? "You paid" : "Paid"} value={formatCurrency(totalCostBasis)} />
+        <StatStripItem label={isSoldView ? "Sold for" : "Value"} value={formatCurrency(totalEstimatedValue)} />
+        <StatStripItem label={isSoldView ? "Gain/loss" : "Change"} value={formatCurrency(totalGain)} />
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-2">
-        <select
-          value={categoryFilter}
-          onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "category", value: event.target.value }); setCategoryFilter(event.target.value); }}
-          className="h-[48px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
-        >
-          <option>All categories</option>
-          {quickCategories.map((category) => (
-            <option key={category} value={category}>{category}</option>
-          ))}
-        </select>
-
-        {/* Each option an equal share of the pill, so the control reads as
-            one switch with three positions rather than two words floating at
-            one end of an empty capsule. */}
-        <div className="flex h-[48px] items-center gap-1 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
-          <TabButton active={viewMode === "tiles"} onClick={() => chooseView("tiles")} className="h-full flex-1">Tiles</TabButton>
-          <TabButton active={viewMode === "cards"} onClick={() => chooseView("cards")} className="h-full flex-1">Cards</TabButton>
-          <TabButton active={viewMode === "records"} onClick={() => chooseView("records")} className="h-full flex-1">Records</TabButton>
-        </div>
-      </div>
-
-      {(genreOptions.length > 0 || editionOptions.length > 0 || printingOptions.length > 0) && (
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          {genreOptions.length > 0 && (
-            <select
-              value={genreFilter}
-              onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "genre", value: event.target.value }); setGenreFilter(event.target.value); }}
-              className="h-[44px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
-            >
-              <option>All genres</option>
-              {genreOptions.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
-            </select>
-          )}
-          {editionOptions.length > 0 && (
-            <select
-              value={editionFilter}
-              onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "edition", value: event.target.value }); setEditionFilter(event.target.value); }}
-              className="h-[44px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
-            >
-              <option>All editions</option>
-              {editionOptions.map((edition) => <option key={edition} value={edition}>{edition}</option>)}
-            </select>
-          )}
-          {printingOptions.length > 0 && (
-            <select
-              value={printingFilter}
-              onChange={(event) => { trackEvent("inventory_filter_changed", { filter: "printing", value: event.target.value }); setPrintingFilter(event.target.value); }}
-              className="h-[44px] rounded-full border border-[#d8c7ad] bg-[#fff8ee] px-4 text-sm font-medium text-[#201a14] outline-none"
-            >
-              <option>All printings</option>
-              {printingOptions.map((printing) => <option key={printing} value={printing}>{printing}</option>)}
-            </select>
-          )}
-        </div>
-      )}
-
-      {activeFilters.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[#665746]">
-          Filtering by
-          {activeFilters.map((filter) => (
-            <span key={filter.label} className="flex items-center gap-2 rounded-full bg-[#f0e2cf] px-3 py-1 font-medium text-[#665746]">
-              {filter.label}
-              <button type="button" onClick={filter.clear} className="text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">Clear</button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* The switch runs the full width, each half centred in its share, the
-          same as the view switch above it. Its own line under the label, so
-          it can never be squeezed narrower than the buttons inside it. */}
-      <div className="mt-5 flex flex-col gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff8ee] px-4 py-3">
-        <div className="min-w-0 text-sm text-[#665746]">
-          Showing {statusView === "sold" ? "sold records" : "your active collection"}
-        </div>
-        <div className="flex w-full items-center gap-1 rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
-          <TabButton active={statusView === "active"} onClick={() => setStatusView("active")} className="flex-1">Active ({activeCount})</TabButton>
-          <TabButton active={statusView === "sold"} onClick={() => setStatusView("sold")} className="flex-1">Sold ({soldCount})</TabButton>
-        </div>
-      </div>
-
-      {/* Directly above the results it filters, so typing and watching the
-          list narrow happen in the same glance. Drawn like Explore's box so
-          searching looks the same everywhere; it filters as you type, so it
-          needs no button. Sort sits beside it: the two together decide what
-          the list below shows and in what order. */}
-      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
-        <label className="block">
+      {/* Search, Filters, sort and layout in one toolbar, directly above the
+          results they shape. On a phone, search takes the first line and the
+          rest share the second. */}
+      <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label className="block min-w-0 flex-1">
           <span className="sr-only">Search your collection</span>
           <input
             type="search"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
             placeholder="Search by title, author, maker, or source"
-            className="w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 py-3 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+            className="h-11 w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-5 text-sm outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
           />
         </label>
-        <label className="block">
-          <span className="sr-only">Sort</span>
-          <select
-            value={sortOrder}
-            onChange={(event) => { trackEvent("inventory_sort_changed", { sort: event.target.value }); setSortOrder(event.target.value); }}
-            className="h-full w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 text-sm font-medium text-[#201a14] outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setFiltersOpen(true)}
+            className="flex h-11 shrink-0 items-center gap-2 rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 text-sm font-medium text-[#201a14] transition hover:bg-white"
           >
-            {inventorySortOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+            <Icon name="sliders" size={16} /> Filters
+            {activeFilters.length > 0 && (
+              <span className="rounded-full bg-[#123f38] px-2 py-0.5 text-xs text-[#fff7ea]">{activeFilters.length}</span>
+            )}
+          </button>
+          <label className="block min-w-0 flex-1 sm:flex-none">
+            <span className="sr-only">Sort</span>
+            <select
+              value={sortOrder}
+              onChange={(event) => { trackEvent("inventory_sort_changed", { sort: event.target.value }); setSortOrder(event.target.value); }}
+              className="h-11 w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 text-sm font-medium text-[#201a14] outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+            >
+              {inventorySortOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          {/* Icons rather than words: most people never change the layout,
+              so it should cost almost no room -- but still be there for those
+              who do. Named for screen readers and on hover. */}
+          <div className="flex h-11 shrink-0 items-center rounded-full border border-[#d8c7ad] bg-[#fffdf8] p-1">
+            {[
+              { mode: "tiles", icon: "grid", label: "Tiles" },
+              { mode: "cards", icon: "cards", label: "Cards" },
+              { mode: "records", icon: "list", label: "Records" }
+            ].map((option) => (
+              <button
+                key={option.mode}
+                type="button"
+                onClick={() => chooseView(option.mode)}
+                aria-pressed={viewMode === option.mode}
+                aria-label={`${option.label} view`}
+                title={option.label}
+                className={`flex h-full w-9 items-center justify-center rounded-full transition ${
+                  viewMode === option.mode ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"
+                }`}
+              >
+                <Icon name={option.icon} size={16} />
+              </button>
             ))}
-          </select>
-        </label>
+          </div>
+        </div>
       </div>
+
+      {activeFilters.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {activeFilters.map((filter) => (
+            <button
+              key={filter.label}
+              type="button"
+              onClick={filter.clear}
+              aria-label={`Remove filter: ${filter.label}`}
+              className="flex items-center gap-1.5 rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38] transition hover:bg-[#dceae5]"
+            >
+              {filter.label} <Icon name="x" size={12} />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* How many are showing, and the way to the sold ones. Sold used to be a
+          full-width switch of its own; most collectors never open it, and
+          the ones who do find it here, beside the count it would change. */}
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-sm text-[#665746]">
+        <span aria-live="polite">
+          {displayedInventory.length === inventory.length
+            ? `${inventory.length} ${isSoldView ? "sold " : ""}${inventory.length === 1 ? "item" : "items"}`
+            : `${displayedInventory.length} of ${inventory.length} ${isSoldView ? "sold " : ""}items`}
+        </span>
+        {isSoldView ? (
+          <button type="button" onClick={() => setStatusView("active")} className="font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+            ‹ Back to your collection
+          </button>
+        ) : (
+          soldCount > 0 && (
+            <button type="button" onClick={() => setStatusView("sold")} className="font-medium text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]">
+              View {soldCount} sold ›
+            </button>
+          )
+        )}
+      </div>
+
+      {filtersOpen && (
+        <ModalShell onClose={() => setFiltersOpen(false)} label="Filters" contentClassName="max-w-md">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">Filters</h2>
+            <button type="button" onClick={() => setFiltersOpen(false)} aria-label="Close" className="rounded-full p-2 text-[#665746] hover:bg-[#f0e2cf]">
+              <Icon name="x" size={18} />
+            </button>
+          </div>
+          <div className="mt-5 grid gap-4">
+            <FilterSelect label="Category" value={categoryFilter} allLabel="All categories" options={quickCategories} onChange={(value) => { trackEvent("inventory_filter_changed", { filter: "category", value }); setCategoryFilter(value); }} />
+            {genreOptions.length > 0 && (
+              <FilterSelect label="Genre" value={genreFilter} allLabel="All genres" options={genreOptions} onChange={(value) => { trackEvent("inventory_filter_changed", { filter: "genre", value }); setGenreFilter(value); }} />
+            )}
+            {editionOptions.length > 0 && (
+              <FilterSelect label="Edition" value={editionFilter} allLabel="All editions" options={editionOptions} onChange={(value) => { trackEvent("inventory_filter_changed", { filter: "edition", value }); setEditionFilter(value); }} />
+            )}
+            {printingOptions.length > 0 && (
+              <FilterSelect label="Printing" value={printingFilter} allLabel="All printings" options={printingOptions} onChange={(value) => { trackEvent("inventory_filter_changed", { filter: "printing", value }); setPrintingFilter(value); }} />
+            )}
+          </div>
+          {/* Filters apply as they are chosen, so the count is live and the
+              main button is simply the way back to the results. */}
+          <div className="mt-6 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => activeFilters.forEach((filter) => filter.clear())}
+              disabled={activeFilters.length === 0}
+              className="text-sm font-medium text-[#123f38] underline underline-offset-4 disabled:text-[#b3a48e] disabled:no-underline"
+            >
+              Clear all
+            </button>
+            <Button onClick={() => setFiltersOpen(false)} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+              Show {displayedInventory.length} {displayedInventory.length === 1 ? "item" : "items"}
+            </Button>
+          </div>
+        </ModalShell>
+      )}
 
       {inventory.length === 0 && loading ? (
         /* Same flash as the dashboard: an unfetched collection and an empty
@@ -10270,6 +10385,34 @@ function CollectionCard({ entry, coverPath, coverUrl, focused = false, anchor = 
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// One figure in My Collection's stats strip.
+function StatStripItem({ label, value }) {
+  return (
+    <div className="min-w-0 px-3 text-center sm:px-6 sm:text-left">
+      <div className="text-[11px] uppercase tracking-[0.14em] text-[#8a7a64]">{label}</div>
+      <div className="mt-1 truncate text-lg font-semibold tabular-nums sm:text-2xl">{value}</div>
+    </div>
+  );
+}
+
+// A labelled dropdown in the Filters panel, with an "All …" first option
+// that means "not filtering on this".
+function FilterSelect({ label, value, allLabel, options, onChange }) {
+  return (
+    <label className="block">
+      <div className="mb-1.5 text-sm font-medium text-[#665746]">{label}</div>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 w-full rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 text-sm font-medium text-[#201a14] outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+      >
+        <option>{allLabel}</option>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
   );
 }
 
