@@ -33,11 +33,6 @@ import PhotoViewer from "./PhotoViewer";
 const VIEW_STORAGE_KEY = "ff-collection-view";
 const VIEWS = ["tiles", "cards", "records"];
 
-// Below this, the controls are noise. A shelf of six is faster to read than to
-// filter, and a search box over it makes a small collection look like it is
-// hiding something. The grid still renders; only the toolbar waits.
-const MIN_ITEMS_FOR_CONTROLS = 8;
-
 // The remembered view, read through useSyncExternalStore rather than restored
 // in an effect.
 //
@@ -190,12 +185,10 @@ export default function CollectionBrowser({ items }) {
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("added");
-  const storedView = useSyncExternalStore(viewStore.subscribe, viewStore.read, serverView);
-  const showControls = items.length >= MIN_ITEMS_FOR_CONTROLS;
-  // A shelf too small for the toolbar has no toggle to reach the cards, so it
-  // gets them outright: six covers with no way to an edition line would hide
-  // the details a small shelf is easy to read in full.
-  const view = showControls ? storedView : "cards";
+  // Every shelf gets the toolbar and the same views, however small. A page of
+  // five that looked nothing like a page of two hundred read as a different
+  // product, and a visitor coming from one to the other lost their bearings.
+  const view = useSyncExternalStore(viewStore.subscribe, viewStore.read, serverView);
   // One viewer for the whole page, opened from either layout, rather than a
   // lightbox per card.
   const [viewing, setViewing] = useState(null);
@@ -223,9 +216,7 @@ export default function CollectionBrowser({ items }) {
   const arrived = useRef(false);
   const [markedId, setMarkedId] = useState(null);
   useEffect(() => {
-    // Hydrated once the stored choice agrees with the browser's; `view`
-    // itself can't be compared, since a small shelf overrides it.
-    if (arrived.current || storedView !== viewStore.read()) return;
+    if (arrived.current || view !== viewStore.read()) return;
     arrived.current = true;
     // Compared raw, not decoded: the anchors are plain ids that never need
     // escaping, and decodeURIComponent throws on a hand-mangled fragment like
@@ -235,7 +226,7 @@ export default function CollectionBrowser({ items }) {
     if (!item) return;
     setMarkedId(item.id);
     document.getElementById(anchor)?.scrollIntoView({ block: "start" });
-  }, [view, storedView, items]);
+  }, [view, items]);
 
   const options = useMemo(() => collectFilterOptions(items), [items]);
 
@@ -248,7 +239,6 @@ export default function CollectionBrowser({ items }) {
 
   return (
     <>
-      {showControls && (
       <div className="mt-10 flex flex-col gap-3 rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <label className="relative flex-1">
@@ -340,7 +330,6 @@ export default function CollectionBrowser({ items }) {
           </div>
         </div>
       </div>
-      )}
 
       {visible.length === 0 ? (
         <div className="mt-8 rounded-[2rem] border border-[#d8c7ad] bg-[#fff9f0] p-8 text-center shadow-sm">
@@ -356,7 +345,7 @@ export default function CollectionBrowser({ items }) {
           ))}
         </div>
       ) : view === "cards" ? (
-        <div className={`${showControls ? "mt-8" : "mt-10"} grid gap-6 sm:grid-cols-2 lg:grid-cols-3`}>
+        <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((item) => (
             <ItemCard key={item.id} item={item} onViewPhotos={openPhotos} marked={item.id === markedId} />
           ))}
