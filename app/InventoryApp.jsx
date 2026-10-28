@@ -637,7 +637,11 @@ function FirstFinderLogoMark({ className = "h-6 w-6" }) {
 // Shared modal chrome: closes on Escape or a backdrop click, locks page
 // scroll while open, and moves focus into the dialog with basic Tab
 // cycling so keyboard users don't fall through to the page behind it.
-function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
+//
+// `bare` drops the panel -- background, padding, rounding -- for content that
+// is already its own card, and darkens the backdrop so that card stands out
+// against the page it was opened from.
+function ModalShell({ onClose, children, contentClassName = "max-w-3xl", bare = false, label }) {
   const containerRef = useRef(null);
   // Keeps handlers below reading the *current* onClose (e.g. respecting a
   // saving-guarded no-op) without putting onClose in the mount effect's
@@ -653,6 +657,14 @@ function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
     document.body.style.overflow = "hidden";
 
     function handleKeyDown(event) {
+      // Only the dialog on top answers the keyboard. A card opened from the
+      // Tiles view can have Delete or the photo viewer stacked over it, and
+      // every open shell hears the same keydown: without this, one Escape
+      // closed the whole stack. Dialogs render in the order they open, so the
+      // last one in the document is the top.
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      if (dialogs[dialogs.length - 1] !== containerRef.current) return;
+
       if (event.key === "Escape") {
         onCloseRef.current();
         return;
@@ -699,13 +711,14 @@ function ModalShell({ onClose, children, contentClassName = "max-w-3xl" }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={handleBackdropClick}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${bare ? "bg-[#201a14]/75" : "bg-black/40"}`} onClick={handleBackdropClick}>
       <div
         ref={containerRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className={`max-h-[90vh] w-full overflow-y-auto rounded-[2rem] bg-[#fff9f0] p-6 shadow-2xl outline-none ${contentClassName}`}
+        aria-label={label}
+        className={`max-h-[90vh] w-full overflow-y-auto outline-none ${bare ? "" : "rounded-[2rem] bg-[#fff9f0] p-6 shadow-2xl"} ${contentClassName}`}
       >
         {children}
       </div>
@@ -3144,7 +3157,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
       {activeView === "addItems" && isLoggedIn && <AddItemsPage quickItem={quickItem} setQuickItem={setQuickItem} quickItemPhotos={quickItemPhotos} quickReceiptPhotos={quickReceiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveQuickItem} saving={saving} onScanPhotos={handleScanPhotos} scanning={scanning} scanNotes={scanNotes} onDismissScanNotes={() => setScanNotes(null)} onIdentifyPhoto={handleIdentifyPhoto} identifying={identifying} onFullAdd={() => setActiveView("tutorial")} onInventory={() => setActiveView("inventory")} inventory={activeInventory} totalCostBasis={totalCostBasis} totalEstimatedValue={totalEstimatedValue} totalGain={totalGain} onDownloadTemplate={downloadTemplate} onBulkUpload={handleBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />}
       {activeView === "identify" && isLoggedIn && identifyDraft && <IdentifyReviewPage draft={identifyDraft} setDraft={setIdentifyDraft} onSubmit={saveIdentifiedItem} onDiscard={discardIdentifyDraft} saving={saving} onAddPhotos={addIdentifyPhotos} onRemovePhoto={removeIdentifyPhoto} onReIdentify={reIdentify} identifying={identifying} />}
       {activeView === "tutorial" && isLoggedIn && <FullAddPage item={item} setItem={setItem} itemPhotos={itemPhotos} receiptPhotos={receiptPhotos} onUpload={handlePhotoUpload} onRemove={removePhoto} onSave={saveItem} saving={saving} onReset={resetFullForm} onLoadSample={loadSample} />}
-      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onShare={openShareDialog} shareVisibility={shareSettings?.visibility} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} onRecoverPhotos={recoverItemPhotos} userId={currentUser?.id} bulkMessage={bulkMessage} focusItemId={focusItemId} onFocusItem={(id) => { focusItemRef.current = id; setFocusItemId(id); }} onFocusHandled={() => { focusItemRef.current = null; setFocusItemId(null); }} />}
+      {activeView === "inventory" && isLoggedIn && <InventoryPage inventory={visibleInventory} loading={inventoryLoading} filteredInventory={filteredInventory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} viewMode={inventoryViewMode} setViewMode={setInventoryViewMode} statusView={inventoryStatusView} setStatusView={setInventoryStatusView} activeCount={activeInventory.length} soldCount={soldInventory.length} totalCostBasis={viewTotalCostBasis} totalEstimatedValue={viewTotalEstimatedValue} totalGain={viewTotalGain} onAdd={() => setActiveView("addItems")} onExport={() => setActiveView("insuranceExport")} onShare={openShareDialog} shareVisibility={shareSettings?.visibility} onDelete={deleteItem} onMarkSold={markSold} onRestoreSold={restoreSold} onEdit={setEditingItem} onInlineSave={updateItemFields} onRecoverPhotos={recoverItemPhotos} userId={currentUser?.id} bulkMessage={bulkMessage} focusItemId={focusItemId} onFocusHandled={() => { focusItemRef.current = null; setFocusItemId(null); }} />}
       {activeView === "insuranceExport" && isLoggedIn && <InsuranceExportPage items={activeInventory} onBack={() => setActiveView("inventory")} />}
       {activeView === "feedback" && isLoggedIn && <FeedbackPage currentUser={currentUser} pushToast={pushToast} />}
       {activeView === "account" && isLoggedIn && <MyAccountPage currentUser={currentUser} inventory={inventory} pushToast={pushToast} />}
@@ -6181,7 +6194,7 @@ function FullAddPage({ item, setItem, itemPhotos, receiptPhotos, onUpload, onRem
   );
 }
 
-function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onShare, shareVisibility, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, onRecoverPhotos, userId, bulkMessage, focusItemId, onFocusItem, onFocusHandled }) {
+function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setSearchTerm, viewMode, setViewMode, statusView, setStatusView, activeCount, soldCount, totalCostBasis, totalEstimatedValue, totalGain, onAdd, onExport, onShare, shareVisibility, onDelete, onMarkSold, onRestoreSold, onEdit, onInlineSave, onRecoverPhotos, userId, bulkMessage, focusItemId, onFocusHandled }) {
   const [photoViewer, setPhotoViewer] = useState(null);
   // Cover URL per item, for the card grid. Signed in one call for the whole
   // collection rather than one per card -- see signedUrlBatch.js for why that
@@ -6197,6 +6210,21 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
   const [editionFilter, setEditionFilter] = useState("All editions");
   const [printingFilter, setPrintingFilter] = useState("All printings");
   const [sortOrder, setSortOrder] = useState("added");
+  const [openTileId, setOpenTileId] = useState(null);
+
+  // A cover tapped on the dashboard asks for one item. In the Tiles view that
+  // means its card, opened over the tiles, the same as tapping it here --
+  // a ring around one cover in a grid of two hundred is easy to miss. The
+  // scroll effect below still brings its tile into view behind the card.
+  //
+  // Adjusted during render rather than in an effect, the documented way to
+  // respond to a changed prop without a second render; the remembered id
+  // keeps it to once per request.
+  const [handledFocusId, setHandledFocusId] = useState(null);
+  if (focusItemId !== handledFocusId) {
+    setHandledFocusId(focusItemId);
+    if (focusItemId && viewMode === "tiles") setOpenTileId(focusItemId);
+  }
 
   const genreOptions = useMemo(
     () => Array.from(new Set(inventory.map((entry) => entry.bookGenre).filter(Boolean))).sort(),
@@ -6343,14 +6371,35 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
     setViewMode(mode);
   }
 
-  // A tile is the cover and nothing else, so tapping one opens that item as a
-  // card -- where its edition, numbers, and the Edit and Sold buttons are --
-  // and scrolls to it through the same focus the dashboard's covers use.
+  // Everything a card needs from this page, for the grid and the overlay alike.
+  function cardProps(entry) {
+    return {
+      entry,
+      coverPath: coverPathById.get(entry.id),
+      coverUrl: coverUrls[entry.id],
+      focused: focusItemId === entry.id,
+      onViewPhotos: (kind) => setPhotoViewer({ entry, kind }),
+      onEdit,
+      onMarkSold: () => setPendingMarkSold(entry),
+      onRestore: () => handleRestoreSold(entry.id),
+      restoring: busyId === entry.id,
+      onDelete: () => setPendingDelete(entry)
+    };
+  }
+
+  // A tile is the cover and nothing else, so tapping one lays that item's card
+  // over the tiles, on a dark backdrop -- the edition, the numbers and the
+  // Edit and Sold buttons, without leaving the wall of covers. Closing it puts
+  // the collector back exactly where they were.
+  //
+  // Held as an id and looked up in the collection on every render, so the card
+  // shows edits as they land, and closes by itself when its item leaves this
+  // view -- deleted, or marked sold out of the active list.
   function openTile(entry) {
     trackEvent("inventory_tile_opened");
-    setViewMode("cards");
-    onFocusItem(entry.id);
+    setOpenTileId(entry.id);
   }
+  const openTileEntry = openTileId ? inventory.find((entry) => entry.id === openTileId) : null;
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
@@ -6677,149 +6726,28 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
           {displayedInventory.map((entry) => (
-            <Card
-              key={entry.id}
-              id={`item-${entry.id}`}
-              className={`scroll-mt-24 overflow-hidden rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm transition ${
-                focusItemId === entry.id ? "ring-2 ring-[#123f38] ring-offset-2 ring-offset-[#f6efe3]" : ""
-              }`}
-            >
-              {/* The photo leads the card, and the photo is the control.
-                  It used to be a text pill down among the chips, which is
-                  what made "these open" impossible to guess -- it looked
-                  exactly like the status and category chips beside it, which
-                  do nothing. A picture of a book invites a tap on its own,
-                  and cursor-zoom-in says what the tap does. Same shape as the
-                  card on a shared collection page, deliberately: it is the
-                  same object, and there is no reason to draw it twice. */}
-              {coverPathById.has(entry.id) ? (
-                <button
-                  type="button"
-                  onClick={() => setPhotoViewer({ entry, kind: "all" })}
-                  aria-label={`View photos of ${entry.name || "this item"}`}
-                  className="group relative block w-full cursor-zoom-in"
-                >
-                  <SignedPhoto
-                    path={coverPathById.get(entry.id)}
-                    src={coverUrls[entry.id]}
-                    alt={entry.name || "Collection item"}
-                    frameClassName="h-56 w-full"
-                    className="h-56 w-full object-cover transition group-hover:opacity-95"
-                    allowRetry={false}
-                  />
-                  {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0) > 1 && (
-                    <span className="absolute bottom-3 right-3 rounded-full bg-[#201a14]/70 px-2.5 py-1 text-xs font-medium text-[#fff7ea]">
-                      {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0)} photos
-                    </span>
-                  )}
-                </button>
-              ) : (
-                /* Not a button: there is nothing to open, and a control that
-                   does nothing when pressed is worse than an honest blank. */
-                <div className="flex h-56 w-full items-center justify-center bg-[#f0e2cf] text-sm text-[#8a7a64]">No photo yet</div>
-              )}
-
-              <CardContent className="p-6">
-                <h2 className="text-2xl font-semibold leading-tight">{entry.name || "Untitled item"}</h2>
-                <p className="mt-1 text-[#665746]">{itemCredit(entry) || "Unknown maker"}</p>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {/* Edition first and in green, the way the shared card leads
-                      with it: on a shelf of first editions it is the line
-                      worth reading before any other. */}
-                  {cardEditionLine(entry) && (
-                    <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">{cardEditionLine(entry)}</span>
-                  )}
-                  {entry.condition && <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.condition}</span>}
-                  {entry.bookGenre && <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.bookGenre}</span>}
-                  {/* Only when it is not the ordinary case. "Owned" on every
-                      card in a collection of owned things is a chip that never
-                      varies, and a chip that never varies is furniture. */}
-                  {entry.status !== "Owned" && (
-                    <span className="rounded-full bg-[#fff3d8] px-3 py-1 text-xs font-medium text-[#6d5526]">{entry.status}</span>
-                  )}
-                  {/* Books carry a genre chip that already says what they are;
-                      a card, a programme or a record has nothing else naming
-                      it, so the category earns its place there and not here. */}
-                  {!entry.bookGenre && entry.category && entry.category !== "Book" && (
-                    <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.category}</span>
-                  )}
-                  {/* A button, not a badge. Reaching a receipt is its own
-                      errand -- proving what you paid, for insurance or a
-                      sale -- and going by way of the cover photo and then
-                      scrolling past every shot of the book is the long way
-                      round to a document you asked for by name. */}
-                  {entry.receiptPhotoCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setPhotoViewer({ entry, kind: "receipt" })}
-                      aria-label={`View the receipt for ${entry.name || "this item"}`}
-                      className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38] underline decoration-[#123f38]/30 underline-offset-4 transition hover:bg-[#dceae5] hover:decoration-[#123f38]"
-                    >
-                      <Icon name="receipt" size={12} className="mr-1 inline align-[-1px]" />
-                      {entry.receiptPhotoCount === 1 ? "Receipt on file" : `${entry.receiptPhotoCount} receipts on file`}
-                    </button>
-                  )}
-                  {entry.pendingSync && <PendingChip error={entry.pendingError} />}
-                </div>
-
-                {/* Label left, figure right, hairline between -- the shared
-                    card's rows. They read as a ledger, which is what this is,
-                    and they collapse to nothing on an item that has no
-                    numbers yet rather than printing a row of blanks. */}
-                <div className="mt-5 flex flex-col gap-2">
-                  {hasEstimate(entry) && <DetailRow label="Est. value">{formatEstimatedValue(entry)}</DetailRow>}
-                  {hasValue(entry.purchasePrice) && <DetailRow label="Paid">{formatCurrency(entry.purchasePrice)}</DetailRow>}
-                  {/* Private to the owner: the shared card never shows what a
-                      copy has done since it was bought. */}
-                  {calculateGain(entry) !== null && <DetailRow label="Change">{formatGain(calculateGain(entry))}</DetailRow>}
-                  {entry.status === "Sold" && hasValue(entry.soldPrice) && (
-                    <DetailRow label="Sold for">
-                      {formatCurrency(entry.soldPrice)}{entry.soldDate ? ` · ${entry.soldDate}` : ""}
-                    </DetailRow>
-                  )}
-                  {entry.purchaseDate && <DetailRow label="Acquired">{entry.purchaseDate}</DetailRow>}
-                  {entry.source && <DetailRow label="Source">{entry.source}</DetailRow>}
-                  {entry.notes && (
-                    <div className="border-t border-[#eadfcd] pt-2">
-                      <div className="text-xs uppercase tracking-[0.14em] text-[#8a7a64]">Notes</div>
-                      <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#3f352a]">{entry.notes}</p>
-                    </div>
-                  )}
-                </div>
-
-                {buildSimilarCopyLinks(entry) && (
-                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#eadfcd] pt-3 text-xs">
-                    <span className="text-[#7d6c5a]">Find similar copies:</span>
-                    <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "abebooks" })} className="font-medium text-[#123f38] underline underline-offset-4">AbeBooks</a>
-                    <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "ebay" })} className="font-medium text-[#123f38] underline underline-offset-4">eBay</a>
-                  </div>
-                )}
-
-                {/* Delete sits with the other actions now rather than as an
-                    icon in the top corner: that corner is the photo, and an
-                    irreversible control floating over a tap target is a
-                    mis-tap waiting to happen. */}
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => onEdit(entry)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Edit</Button>
-                  {entry.status === "Sold" ? (
-                    <Button variant="outline" disabled={busyId === entry.id} onClick={() => handleRestoreSold(entry.id)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Restore</Button>
-                  ) : (
-                    <Button variant="outline" onClick={() => setPendingMarkSold(entry)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Mark sold</Button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(entry)}
-                    className="ml-auto rounded-full bg-[#f0e2cf] p-2.5 text-[#665746] transition hover:bg-[#ead8bf]"
-                    aria-label={`Delete ${entry.name || "this item"}`}
-                  >
-                    <Icon name="trash" size={17} />
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
+            <CollectionCard key={entry.id} {...cardProps(entry)} />
           ))}
         </div>
+      )}
+
+      {/* Before the other dialogs, so the photo viewer, Mark sold and Delete
+          all open on top of it -- ModalShell gives the keyboard to whichever
+          dialog is last in the document. */}
+      {openTileEntry && (
+        <ModalShell onClose={() => setOpenTileId(null)} bare label={openTileEntry.name || "Untitled item"} contentClassName="max-w-md">
+          <div className="mb-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setOpenTileId(null)}
+              aria-label="Close"
+              className="rounded-full bg-[#fff9f0] p-2 text-[#201a14] shadow-sm transition hover:bg-white"
+            >
+              <Icon name="x" size={18} />
+            </button>
+          </div>
+          <CollectionCard {...cardProps(openTileEntry)} anchor={false} focused={false} />
+        </ModalShell>
       )}
 
       {photoViewer && <PhotoViewerModal entry={photoViewer.entry} kind={photoViewer.kind} userId={userId} onRecovered={onRecoverPhotos} onClose={() => setPhotoViewer(null)} />}
@@ -10165,6 +10093,158 @@ function SignedPhoto({ path, src, alt = "", className = "", frameClassName = "",
 
 function PhotoGrid({ photos, onRemove, compact = false }) { return <div className={`mt-4 grid gap-3 ${compact ? "grid-cols-3" : "sm:grid-cols-2"}`}>{photos.map((photo) => <div key={photo.id} className="group relative overflow-hidden rounded-2xl border border-[#e0d2bc] bg-white shadow-sm"><img src={photo.url} alt={photo.name} className={`${compact ? "h-20" : "h-32"} w-full object-cover`} /><button type="button" onClick={() => onRemove(photo.id)} className="absolute right-2 top-2 rounded-full bg-[#201a14]/75 p-2 text-white opacity-100 transition hover:bg-[#201a14] sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove ${photo.name}`}><Icon name="x" size={15} /></button>{!compact && <div className="truncate px-3 py-2 text-xs text-[#665746]">{photo.name}</div>}</div>)}</div>; }
 function SummaryPill({ label, value }) { return <div className="rounded-2xl bg-[#f7efe3] p-4"><div className="text-xs uppercase tracking-[0.16em] text-[#7d6c5a]">{label}</div><div className="mt-1 text-lg font-semibold">{value}</div></div>; }
+// One item as a full card: the photo, the edition and condition chips, the
+// ledger of numbers, and the Edit / Sold / Delete actions.
+//
+// Pulled out of InventoryPage for one reason: the same card is drawn in two
+// places now -- the Cards grid, and on its own over the Tiles view when a
+// tile is tapped -- and two copies of this much markup would drift apart. The
+// page still owns every action; the card only says which was pressed.
+function CollectionCard({ entry, coverPath, coverUrl, focused = false, anchor = true, className = "", onViewPhotos, onEdit, onMarkSold, onRestore, restoring = false, onDelete }) {
+  return (
+    <Card
+      id={anchor ? `item-${entry.id}` : undefined}
+      className={`scroll-mt-24 overflow-hidden rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm transition ${
+        focused ? "ring-2 ring-[#123f38] ring-offset-2 ring-offset-[#f6efe3]" : ""
+      } ${className}`}
+    >
+      {/* The photo leads the card, and the photo is the control.
+          It used to be a text pill down among the chips, which is
+          what made "these open" impossible to guess -- it looked
+          exactly like the status and category chips beside it, which
+          do nothing. A picture of a book invites a tap on its own,
+          and cursor-zoom-in says what the tap does. Same shape as the
+          card on a shared collection page, deliberately: it is the
+          same object, and there is no reason to draw it twice. */}
+      {coverPath ? (
+        <button
+          type="button"
+          onClick={() => onViewPhotos("all")}
+          aria-label={`View photos of ${entry.name || "this item"}`}
+          className="group relative block w-full cursor-zoom-in"
+        >
+          <SignedPhoto
+            path={coverPath}
+            src={coverUrl}
+            alt={entry.name || "Collection item"}
+            frameClassName="h-56 w-full"
+            className="h-56 w-full object-cover transition group-hover:opacity-95"
+            allowRetry={false}
+          />
+          {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0) > 1 && (
+            <span className="absolute bottom-3 right-3 rounded-full bg-[#201a14]/70 px-2.5 py-1 text-xs font-medium text-[#fff7ea]">
+              {(entry.itemPhotoCount || 0) + (entry.receiptPhotoCount || 0)} photos
+            </span>
+          )}
+        </button>
+      ) : (
+        /* Not a button: there is nothing to open, and a control that
+           does nothing when pressed is worse than an honest blank. */
+        <div className="flex h-56 w-full items-center justify-center bg-[#f0e2cf] text-sm text-[#8a7a64]">No photo yet</div>
+      )}
+
+      <CardContent className="p-6">
+        <h2 className="text-2xl font-semibold leading-tight">{entry.name || "Untitled item"}</h2>
+        <p className="mt-1 text-[#665746]">{itemCredit(entry) || "Unknown maker"}</p>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {/* Edition first and in green, the way the shared card leads
+              with it: on a shelf of first editions it is the line
+              worth reading before any other. */}
+          {cardEditionLine(entry) && (
+            <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38]">{cardEditionLine(entry)}</span>
+          )}
+          {entry.condition && <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.condition}</span>}
+          {entry.bookGenre && <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.bookGenre}</span>}
+          {/* Only when it is not the ordinary case. "Owned" on every
+              card in a collection of owned things is a chip that never
+              varies, and a chip that never varies is furniture. */}
+          {entry.status !== "Owned" && (
+            <span className="rounded-full bg-[#fff3d8] px-3 py-1 text-xs font-medium text-[#6d5526]">{entry.status}</span>
+          )}
+          {/* Books carry a genre chip that already says what they are;
+              a card, a programme or a record has nothing else naming
+              it, so the category earns its place there and not here. */}
+          {!entry.bookGenre && entry.category && entry.category !== "Book" && (
+            <span className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs font-medium text-[#665746]">{entry.category}</span>
+          )}
+          {/* A button, not a badge. Reaching a receipt is its own
+              errand -- proving what you paid, for insurance or a
+              sale -- and going by way of the cover photo and then
+              scrolling past every shot of the book is the long way
+              round to a document you asked for by name. */}
+          {entry.receiptPhotoCount > 0 && (
+            <button
+              type="button"
+              onClick={() => onViewPhotos("receipt")}
+              aria-label={`View the receipt for ${entry.name || "this item"}`}
+              className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs font-medium text-[#123f38] underline decoration-[#123f38]/30 underline-offset-4 transition hover:bg-[#dceae5] hover:decoration-[#123f38]"
+            >
+              <Icon name="receipt" size={12} className="mr-1 inline align-[-1px]" />
+              {entry.receiptPhotoCount === 1 ? "Receipt on file" : `${entry.receiptPhotoCount} receipts on file`}
+            </button>
+          )}
+          {entry.pendingSync && <PendingChip error={entry.pendingError} />}
+        </div>
+
+        {/* Label left, figure right, hairline between -- the shared
+            card's rows. They read as a ledger, which is what this is,
+            and they collapse to nothing on an item that has no
+            numbers yet rather than printing a row of blanks. */}
+        <div className="mt-5 flex flex-col gap-2">
+          {hasEstimate(entry) && <DetailRow label="Est. value">{formatEstimatedValue(entry)}</DetailRow>}
+          {hasValue(entry.purchasePrice) && <DetailRow label="Paid">{formatCurrency(entry.purchasePrice)}</DetailRow>}
+          {/* Private to the owner: the shared card never shows what a
+              copy has done since it was bought. */}
+          {calculateGain(entry) !== null && <DetailRow label="Change">{formatGain(calculateGain(entry))}</DetailRow>}
+          {entry.status === "Sold" && hasValue(entry.soldPrice) && (
+            <DetailRow label="Sold for">
+              {formatCurrency(entry.soldPrice)}{entry.soldDate ? ` · ${entry.soldDate}` : ""}
+            </DetailRow>
+          )}
+          {entry.purchaseDate && <DetailRow label="Acquired">{entry.purchaseDate}</DetailRow>}
+          {entry.source && <DetailRow label="Source">{entry.source}</DetailRow>}
+          {entry.notes && (
+            <div className="border-t border-[#eadfcd] pt-2">
+              <div className="text-xs uppercase tracking-[0.14em] text-[#8a7a64]">Notes</div>
+              <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#3f352a]">{entry.notes}</p>
+            </div>
+          )}
+        </div>
+
+        {buildSimilarCopyLinks(entry) && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#eadfcd] pt-3 text-xs">
+            <span className="text-[#7d6c5a]">Find similar copies:</span>
+            <a href={buildSimilarCopyLinks(entry).abebooks} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "abebooks" })} className="font-medium text-[#123f38] underline underline-offset-4">AbeBooks</a>
+            <a href={buildSimilarCopyLinks(entry).ebay} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("find_similar_copies", { site: "ebay" })} className="font-medium text-[#123f38] underline underline-offset-4">eBay</a>
+          </div>
+        )}
+
+        {/* Delete sits with the other actions now rather than as an
+            icon in the top corner: that corner is the photo, and an
+            irreversible control floating over a tap target is a
+            mis-tap waiting to happen. */}
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => onEdit(entry)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Edit</Button>
+          {entry.status === "Sold" ? (
+            <Button variant="outline" disabled={restoring} onClick={() => onRestore()} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Restore</Button>
+          ) : (
+            <Button variant="outline" onClick={() => onMarkSold()} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Mark sold</Button>
+          )}
+          <button
+            type="button"
+            onClick={() => onDelete()}
+            className="ml-auto rounded-full bg-[#f0e2cf] p-2.5 text-[#665746] transition hover:bg-[#ead8bf]"
+            aria-label={`Delete ${entry.name || "this item"}`}
+          >
+            <Icon name="trash" size={17} />
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function DashboardCard({ icon, label, value }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="flex items-center gap-4 p-6"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name={icon} size={22} /></div><div><div className="text-sm text-[#665746]">{label}</div><div className="text-2xl font-semibold">{value}</div></div></CardContent></Card>; }
 // The shared card's ledger row: label left, figure right, hairline above.
 function DetailRow({ label, children }) {
