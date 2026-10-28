@@ -66,7 +66,9 @@ export function ItemCard({ item, onViewPhotos, marked = false, anchor = true }) 
       {item.photoUrl ? (
         /* A card photo is a thumbnail of a book, which is mostly a guess about
            its condition -- so it opens. A button rather than a wrapping div,
-           because this is a real control and has to be reachable by keyboard. */
+           because this is a real control and has to be reachable by keyboard.
+           The enlarge mark and "View N photos" say so on a phone, which has no
+           zoom cursor -- the same marks as the owner's card in the app. */
         <button
           type="button"
           onClick={() => onViewPhotos?.(item)}
@@ -80,9 +82,19 @@ export function ItemCard({ item, onViewPhotos, marked = false, anchor = true }) 
             decoding="async"
             className="h-56 w-full bg-[#f0e2cf] object-cover"
           />
+          <span aria-hidden="true" className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-[#fff9f0]/90 text-[#201a14] shadow-sm transition group-hover:bg-white">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+            </svg>
+          </span>
           {item.photoUrls?.length > 1 && (
-            <span className="absolute bottom-3 right-3 rounded-full bg-[#201a14]/70 px-2.5 py-1 text-xs font-medium text-[#fff7ea]">
-              {item.photoUrls.length} photos
+            <span aria-hidden="true" className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full bg-[#fff9f0]/95 px-3 py-1.5 text-xs font-semibold text-[#123f38] shadow-sm transition group-hover:bg-white">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="7" y="7" width="14" height="14" rx="2" />
+                <path d="M3 15V5a2 2 0 0 1 2-2h10" />
+              </svg>
+              View {item.photoUrls.length} photos
+              <span className="text-sm leading-none">›</span>
             </span>
           )}
         </button>
