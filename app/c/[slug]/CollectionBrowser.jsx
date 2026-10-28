@@ -177,6 +177,70 @@ function ToggleButton({ active, onClick, children }) {
   );
 }
 
+// One item's card, laid over the Tiles view on a dark backdrop.
+//
+// Tapping a cover asks about that one book, so the answer comes to the
+// visitor rather than sending them to the Cards view and losing their place
+// in the wall. Closing it -- the button, the backdrop, or Escape -- leaves
+// them exactly where they were.
+//
+// The photo viewer opens on top of it (z-50 over z-40), and while it does,
+// Escape belongs to the viewer: `paused` stops this one closing underneath.
+function CardOverlay({ item, onClose, onViewPhotos, paused }) {
+  const panelRef = useRef(null);
+
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key === "Escape" && !paused) onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose, paused]);
+
+  // Same reason as the photo viewer: a phone must not drag the shelf around
+  // underneath the card.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    panelRef.current?.focus({ preventScroll: true });
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-[#201a14]/75 p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={item.name || "Untitled item"}
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto outline-none"
+      >
+        <div className="mb-3 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-full bg-[#fff9f0] p-2 text-[#201a14] shadow-sm transition hover:bg-white"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <ItemCard item={item} onViewPhotos={onViewPhotos} anchor={false} />
+      </div>
+    </div>
+  );
+}
+
 const selectClass =
   "rounded-full border border-[#d8c7ad] bg-[#fffdf8] px-4 py-2.5 text-sm text-[#3f352a] outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15";
 
@@ -200,6 +264,9 @@ export default function CollectionBrowser({ items }) {
     setPhotoIndex(0);
   }
 
+  // The item whose card is open over the Tiles view.
+  const [openItem, setOpenItem] = useState(null);
+
   // Arriving from a cover on Explore or the home page, at /c/<slug>#item-<id>.
   //
   // The browser's own jump to the fragment can't be relied on here: the page
@@ -209,6 +276,11 @@ export default function CollectionBrowser({ items }) {
   // scrolled to where a tile used to be. So once the view this visitor will
   // actually see has rendered, scroll to the book once. Only once: toggling
   // the view later shouldn't yank them back to it.
+  //
+  // In the Tiles view the book's card also opens over the wall, the same as
+  // tapping its cover -- a ring around one tile in a grid of two hundred is
+  // easy to miss. Its tile is scrolled to underneath, so closing the card
+  // leaves the visitor beside it.
   //
   // The book is marked from state rather than with :target, which only
   // tracks full page loads -- Explore's links are client-side navigations,
@@ -225,6 +297,7 @@ export default function CollectionBrowser({ items }) {
     const item = anchor && items.find((candidate) => publicItemAnchor(candidate.id) === anchor);
     if (!item) return;
     setMarkedId(item.id);
+    if (view === "tiles") setOpenItem(item);
     document.getElementById(anchor)?.scrollIntoView({ block: "start" });
   }, [view, items]);
 
@@ -341,7 +414,7 @@ export default function CollectionBrowser({ items }) {
       ) : view === "tiles" ? (
         <div className="mt-8 grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 sm:gap-x-4 md:grid-cols-6">
           {visible.map((item) => (
-            <ItemTile key={item.id} item={item} onViewPhotos={openPhotos} marked={item.id === markedId} />
+            <ItemTile key={item.id} item={item} onOpen={setOpenItem} marked={item.id === markedId} />
           ))}
         </div>
       ) : view === "cards" ? (
@@ -352,6 +425,10 @@ export default function CollectionBrowser({ items }) {
         </div>
       ) : (
         <RecordTable items={visible} onViewPhotos={openPhotos} markedId={markedId} />
+      )}
+
+      {openItem && (
+        <CardOverlay item={openItem} onClose={() => setOpenItem(null)} onViewPhotos={openPhotos} paused={Boolean(viewing)} />
       )}
 
       {viewing && (
