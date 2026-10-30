@@ -15,7 +15,7 @@ struct MainTabView: View {
                 .tabItem { Label("Dashboard", systemImage: "chart.bar") }
                 .tag(Tab.dashboard)
 
-            NavigationStack { ScreenPlaceholder(view: .inventory) }
+            NavigationStack { InventoryPage() }
                 .tabItem { Label(countLabel("Collection", app.inventoryCount), systemImage: "books.vertical") }
                 .tag(Tab.collection)
 

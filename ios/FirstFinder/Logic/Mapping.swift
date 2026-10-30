@@ -333,3 +333,58 @@ enum Mapping {
         return id.isEmpty || id != dismissedId
     }
 }
+
+// MARK: csvUpdateRow
+
+extension Mapping {
+    // Text columns a CSV-style update maps straight across (csvFieldToColumn).
+    nonisolated(unsafe) static let csvTextFields: [String: WritableKeyPath<InventoryRow, String?>] = [
+        "name": \.name, "category": \.category, "author": \.author, "maker": \.maker, "edition": \.edition,
+        "bookGenre": \.bookGenre, "bookEdition": \.bookEdition, "bookPrinting": \.bookPrinting,
+        "status": \.status, "condition": \.condition, "source": \.source, "notes": \.notes,
+    ]
+
+    // Port of csvUpdateRow, applied to the row rather than returned as a
+    // patch: only the columns whose field is present change, the photo
+    // columns never do, and the sale fields stay consistent with whichever
+    // status wins. Used for the records view's inline edits, as on the web,
+    // and for CSV updates.
+    static func csvUpdatedRow(_ row: InventoryRow, fields: [String: String], now: Date = Date()) -> InventoryRow {
+        let existing = fromDbItem(row)
+        var out = row
+
+        for (field, column) in csvTextFields {
+            if let value = fields[field] { out[keyPath: column] = value }
+        }
+
+        let mergedCategory = fields["category"] ?? existing.category
+        if fields["edition"] != nil || fields["category"] != nil {
+            var merged = existing
+            merged.category = mergedCategory
+            merged.edition = fields["edition"] ?? existing.edition
+            out.edition = storedEdition(merged)
+        }
+
+        if let date = fields["purchaseDate"] { out.purchaseDate = date.isEmpty ? nil : date }
+        if let price = fields["purchasePrice"] { out.purchasePrice = Format.toNumber(price) }
+        if let estimate = fields["estimatedValue"] { out.estimatedValue = Format.optionalAmount(estimate) }
+
+        if fields["status"] != nil || fields["soldPrice"] != nil || fields["soldDate"] != nil {
+            let mergedStatus = fields["status"] ?? existing.status
+            let mergedSoldPrice = fields["soldPrice"] ?? Format.amountText(existing.soldPrice)
+            let mergedSoldDate = fields["soldDate"] ?? existing.soldDate
+            let isNowSold = mergedStatus == "Sold"
+            let wasSold = existing.status == "Sold"
+            out.previousStatus = !isNowSold ? nil : wasSold ? orDefault(existing.previousStatus, "Owned") : orDefault(existing.status, "Owned")
+            out.soldPrice = isNowSold ? Format.optionalAmount(mergedSoldPrice) : nil
+            out.soldDate = isNowSold && !mergedSoldDate.isEmpty ? mergedSoldDate : nil
+        }
+
+        out.updatedAt = ISO8601DateFormatter().string(from: now)
+        return out
+    }
+
+    private static func orDefault(_ value: String, _ fallback: String) -> String {
+        value.isEmpty ? fallback : value
+    }
+}

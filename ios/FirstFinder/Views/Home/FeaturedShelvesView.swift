@@ -312,7 +312,7 @@ private struct ShelfChips: View {
     let onOpen: (FeaturedShelf) -> Void
 
     var body: some View {
-        FlowLayout(spacing: 12) {
+        FlowLayout(spacing: 12, centered: true) {
             ForEach(shelves) { shelf in
                 Button { onOpen(shelf) } label: {
                     HStack(spacing: 10) {
@@ -343,6 +343,9 @@ private struct ShelfChips: View {
 // Wraps its children onto centred rows, like the web's flex-wrap.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 8
+    // Rows start at the left, like the web's flex-wrap; the home page's shelf
+    // list centres them, as its justify-center does.
+    var centered = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(subviews, width: proposal.width ?? .infinity)
@@ -354,7 +357,7 @@ struct FlowLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var y = bounds.minY
         for row in arrange(subviews, width: bounds.width) {
-            var x = bounds.minX + (bounds.width - row.width) / 2
+            var x = bounds.minX + (centered ? (bounds.width - row.width) / 2 : 0)
             for index in row.indices {
                 let size = subviews[index].sizeThatFits(.unspecified)
                 subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(size))

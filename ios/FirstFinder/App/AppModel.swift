@@ -40,6 +40,9 @@ final class AppModel {
     // the reader to another.
     var selectedTab: AppTab = .dashboard
     var focusItemId: String?
+    // A page another tab asked More to open (the collection's "Export for
+    // insurance" lives under More on the phone).
+    var pendingMoreRoute: AppView?
 
     private(set) var auth: AuthState = .unknown
     private(set) var isAdmin = false
@@ -131,12 +134,12 @@ final class AppModel {
     // Counts stay nil until their fetch has landed, as on the web:
     // "My Collection (0)" while loading reads as an empty collection.
     var inventoryCount: Int? {
-        if case .loaded = inventoryLoad { return inventory.count }
+        if case .loaded = inventoryLoad { return inventory.filter { $0.status != "Sold" }.count }
         return nil
     }
 
     var wishlistCount: Int? {
-        if case .loaded = wishlistLoad { return wishlist.count }
+        if case .loaded = wishlistLoad { return wishlist.filter { $0.foundAt.isEmpty }.count }
         return nil
     }
 

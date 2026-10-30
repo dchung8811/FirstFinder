@@ -54,6 +54,13 @@ struct MoreView: View {
                 case .developer: DeveloperView()
                 }
             }
+            // Another tab asked for a page that lives under More.
+            .onChange(of: app.pendingMoreRoute, initial: true) { _, route in
+                guard let route else { return }
+                path = NavigationPath()
+                path.append(Destination.view(route))
+                app.pendingMoreRoute = nil
+            }
             .confirmationDialog("Sign out of FirstFinder on this phone?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
                 Button("Sign out", role: .destructive) { Task { await app.signOut() } }
             } message: {
