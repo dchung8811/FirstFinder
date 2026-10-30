@@ -157,6 +157,11 @@ final class LocalOverlay {
         return Photo(path: path, name: name)
     }
 
+    // Photos picked for a draft that was then thrown away.
+    func forgetPhotos(_ paths: [String]) {
+        for path in paths { localPhotos[path] = nil }
+    }
+
     // MARK: Undoing
 
     // Puts one entity back exactly as the store read it, dropping every local

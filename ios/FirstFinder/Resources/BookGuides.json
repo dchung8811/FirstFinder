@@ -1,0 +1,92 @@
+{
+  "works": [
+    {
+      "slug": "dune",
+      "title": "Dune",
+      "author": "Frank Herbert",
+      "publisher": "Chilton Books",
+      "year": 1965,
+      "guidePath": "/books/dune/first-edition"
+    },
+    {
+      "slug": "east-of-eden",
+      "title": "East of Eden",
+      "author": "John Steinbeck",
+      "publisher": "The Viking Press",
+      "year": 1952,
+      "guidePath": "/books/east-of-eden/first-edition"
+    },
+    {
+      "slug": "the-great-gatsby",
+      "title": "The Great Gatsby",
+      "author": "F. Scott Fitzgerald",
+      "publisher": "Charles Scribner's Sons",
+      "year": 1925,
+      "guidePath": "/books/the-great-gatsby/first-edition"
+    },
+    {
+      "slug": "gone-with-the-wind",
+      "title": "Gone with the Wind",
+      "author": "Margaret Mitchell",
+      "publisher": "The Macmillan Company",
+      "year": 1936,
+      "guidePath": "/books/gone-with-the-wind/first-edition"
+    },
+    {
+      "slug": "pet-sematary",
+      "title": "Pet Sematary",
+      "author": "Stephen King",
+      "publisher": "Doubleday",
+      "year": 1983,
+      "guidePath": "/books/pet-sematary/first-edition"
+    },
+    {
+      "slug": "the-way-of-kings",
+      "title": "The Way of Kings",
+      "author": "Brandon Sanderson",
+      "publisher": "Tor Books",
+      "year": 2010,
+      "guidePath": "/books/the-way-of-kings/first-edition"
+    },
+    {
+      "slug": "the-stand",
+      "title": "The Stand",
+      "author": "Stephen King",
+      "publisher": "Doubleday",
+      "year": 1978,
+      "guidePath": "/books/the-stand/first-edition"
+    },
+    {
+      "slug": "it",
+      "title": "It",
+      "author": "Stephen King",
+      "publisher": "Viking",
+      "year": 1986,
+      "guidePath": "/books/it/first-edition"
+    },
+    {
+      "slug": "rage",
+      "title": "Rage",
+      "author": "Stephen King",
+      "publisher": "Signet (New American Library)",
+      "year": 1977,
+      "guidePath": "/books/rage/first-edition"
+    },
+    {
+      "slug": "the-gunslinger",
+      "title": "The Dark Tower: The Gunslinger",
+      "author": "Stephen King",
+      "publisher": "Donald M. Grant, Publisher",
+      "year": 1982,
+      "guidePath": "/books/the-gunslinger/first-edition"
+    },
+    {
+      "slug": "the-dark-tower-vii",
+      "title": "The Dark Tower VII: The Dark Tower",
+      "author": "Stephen King",
+      "publisher": "Donald M. Grant, Publisher",
+      "year": 2004,
+      "guidePath": "/books/the-dark-tower-vii/first-edition"
+    }
+  ]
+}

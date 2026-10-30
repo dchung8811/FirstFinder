@@ -32,6 +32,7 @@ final class AppModel {
 
     private(set) var overlay = LocalOverlay()
     let toasts = ToastCenter()
+    let ai = FakeAI()
     let network = NetworkMonitor()
     let photos: PhotoSigner
 
@@ -301,6 +302,13 @@ final class AppModel {
         } catch {
             fail(&feedbackLoad, error)
         }
+    }
+
+    // The book-name field's catalog suggestions. A failed search just offers
+    // fewer suggestions, as on the web.
+    func searchBookCatalog(_ query: String) async -> [BookCatalogRow] {
+        guard isOnline else { return [] }
+        return (try? await store.searchBookCatalog(query: query, limit: BookSearch.maxSuggestions)) ?? []
     }
 
     func loadBanner() async {

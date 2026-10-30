@@ -116,6 +116,26 @@ extension AppModel {
         return Mapping.fromDbItem(row)
     }
 
+    // MARK: CSV import
+
+    // Applies a reviewed import: adds get the next reference numbers in file
+    // order, updates go through csvUpdateRow like the web's, and deletes
+    // hide the item on this phone.
+    @discardableResult
+    func applyImport(_ batch: Csv.Batch, fileName: String) -> String {
+        for item in batch.creates { addItem(item, itemPhotos: [], receiptPhotos: []) }
+        for update in batch.updates {
+            guard let current = row(for: update.existing.id) else { continue }
+            overlay.saveItem(Mapping.csvUpdatedRow(current, fields: update.fields), isNew: false, summary: "Updated \"\(label(current.name ?? ""))\" from \(fileName)")
+        }
+        for item in batch.deletes {
+            overlay.discardItem(id: item.id, summary: "Deleted \"\(label(item.name))\" from \(fileName)")
+        }
+        let summary = "\(batch.creates.count) added, \(batch.updates.count) updated, \(batch.deletes.count) deleted."
+        toasts.push(summary, tone: .success)
+        return "Applied \(fileName): \(summary)"
+    }
+
     // MARK: Sharing
 
     // shareSettings as the dialog sees them: the saved row, or the defaults

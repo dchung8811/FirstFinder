@@ -85,7 +85,7 @@ struct MarkSoldDialog: View {
                         Button("Cancel") { dismiss() }.buttonStyle(.ffSecondary)
                         Spacer()
                         Button("Mark sold") {
-                            app.markSold(entry.id, soldPrice: soldPrice, soldDate: DateField.iso(soldDate), condition: condition)
+                            app.markSold(entry.id, soldPrice: soldPrice, soldDate: Format.day(soldDate), condition: condition)
                             dismiss()
                         }
                         .buttonStyle(.ffPrimary)
@@ -125,8 +125,8 @@ struct EditItemModal: View {
         _draft = State(initialValue: item)
         _purchasePrice = State(initialValue: Format.amountText(item.purchasePrice))
         _valueText = State(initialValue: Format.amountText(item.status == "Sold" ? item.soldPrice : item.estimatedValue))
-        _purchaseDate = State(initialValue: DateField.parse(item.purchaseDate))
-        _soldDate = State(initialValue: DateField.parse(item.soldDate))
+        _purchaseDate = State(initialValue: Format.parseDay(item.purchaseDate))
+        _soldDate = State(initialValue: Format.parseDay(item.soldDate))
         _itemPhotos = State(initialValue: item.itemPhotos)
         _receiptPhotos = State(initialValue: item.receiptPhotos)
     }
@@ -210,8 +210,8 @@ struct EditItemModal: View {
         } else {
             next.estimatedValue = Format.optionalAmount(valueText)
         }
-        next.purchaseDate = purchaseDate.map(DateField.iso) ?? ""
-        next.soldDate = sold ? (soldDate.map(DateField.iso) ?? "") : ""
+        next.purchaseDate = purchaseDate.map(Format.day) ?? ""
+        next.soldDate = sold ? (soldDate.map(Format.day) ?? "") : ""
         app.saveEdit(next, itemPhotos: itemPhotos, receiptPhotos: receiptPhotos, addedPhotoCount: added)
         dismiss()
     }
@@ -336,21 +336,8 @@ struct DateField: View {
         }
     }
 
-    static func iso(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
-    }
-
-    static func parse(_ value: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: String(value.prefix(10)))
-    }
+    static func iso(_ date: Date) -> String { Format.day(date) }
+    static func parse(_ value: String) -> Date? { Format.parseDay(value) }
 }
 
 // A date that may be left blank, as purchase dates often are.

@@ -43,6 +43,18 @@ struct DeveloperView: View {
                 Text("Shows the offline banner and stops fetches, keeping whatever was last loaded.")
             }
 
+            Section {
+                Picker("Next AI result", selection: Binding(get: { app.ai.outcome }, set: { app.ai.outcome = $0 })) {
+                    ForEach(FakeAI.Outcome.allCases) { Text($0.rawValue).tag($0) }
+                }
+                LabeledContent("Identifications left today", value: "\(app.ai.remainingToday) of \(FakeAI.dailyLimit)")
+                Button("Reset today's count") { app.ai.resetUsage() }
+            } header: {
+                Text("Simulated AI")
+            } footer: {
+                Text("Identify and Snap a picture never call the real service here. They answer after 1.5 seconds with a sample result, or with the failure chosen above, in the web's words. The daily count resets at midnight UTC.")
+            }
+
             Section("Local changes") {
                 LabeledContent("Changes on this phone", value: "\(app.overlay.changes.count)")
                 Button("Discard all local changes", role: .destructive) { app.overlay.revertAll() }

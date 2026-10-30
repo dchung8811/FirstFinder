@@ -19,7 +19,7 @@ struct MainTabView: View {
                 .tabItem { Label(countLabel("Collection", app.inventoryCount), systemImage: "books.vertical") }
                 .tag(Tab.collection)
 
-            NavigationStack { ScreenPlaceholder(view: .addItems) }
+            AddItemsPage()
                 .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 .tag(Tab.add)
 

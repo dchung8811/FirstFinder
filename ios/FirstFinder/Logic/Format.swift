@@ -88,6 +88,24 @@ enum Format {
         return NSDecimalNumber(decimal: value).stringValue
     }
 
+    // A date picked on the phone, as the YYYY-MM-DD the date columns hold.
+    // The phone's own calendar day, not UTC: that's the day the collector picked.
+    static func day(_ date: Date) -> String {
+        localDay.string(from: date)
+    }
+
+    static func parseDay(_ value: String) -> Date? {
+        localDay.date(from: String(value.prefix(10)))
+    }
+
+    private static let localDay: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
     private static let isoDay: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
