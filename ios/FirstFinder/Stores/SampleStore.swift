@@ -65,6 +65,12 @@ final class SampleStore: CollectionStore, @unchecked Sendable {
         broadcast(.signedOut)
     }
 
+    // Switching to Sample keeps whoever was looking signed in or out as they
+    // were, so the signed-out pages can be reviewed on sample data too.
+    func setSignedIn(_ signedIn: Bool) {
+        lock.withLock { _signedIn = signedIn }
+    }
+
     func accessToken() async -> String? {
         lock.withLock { _signedIn } ? "sample-token" : nil
     }
@@ -143,6 +149,7 @@ enum SampleSiteJSON {
     static func response(for path: String) -> String? {
         switch path.split(separator: "?").first.map(String.init) ?? path {
         case "/api/admin/access": #"{"admin":true}"#
+        case "/api/featured-shelves": SampleData.featuredShelvesJSON
         default: nil
         }
     }

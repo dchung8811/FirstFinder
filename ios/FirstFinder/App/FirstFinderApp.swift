@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 @main
@@ -8,6 +9,9 @@ struct FirstFinderApp: App {
         // The shared URL cache writes responses to disk by default. Nothing
         // this app fetches should outlive the process, so it gets none.
         URLCache.shared = URLCache(memoryCapacity: 16 * 1024 * 1024, diskCapacity: 0, directory: nil)
+        // The home page's demo video plays muted; ambient keeps it from
+        // stopping whatever else the phone is playing.
+        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
         _app = State(initialValue: AppModel())
     }
 

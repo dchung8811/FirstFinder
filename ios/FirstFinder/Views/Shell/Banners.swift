@@ -88,28 +88,33 @@ struct SiteBannerView: View {
     var body: some View {
         if app.showsSiteBanner {
             let banner = app.siteBanner
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "megaphone").accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(banner.message).font(.subheadline)
+            let cream = Theme.adaptive(0xfff7ea, dark: 0xfff7ea)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(banner.message)
                     if !banner.linkLabel.isEmpty, !banner.linkView.isEmpty {
-                        Button(banner.linkLabel) { onFollow(banner.linkView) }
-                            .font(.subheadline.weight(.semibold))
+                        Button("\(banner.linkLabel) →") { onFollow(banner.linkView) }
+                            .fontWeight(.semibold)
                             .underline()
                     }
                 }
-                Spacer(minLength: 0)
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Button {
                     app.dismissedBannerId = Mapping.bannerDismissalId(banner)
                 } label: {
-                    Image(systemName: "xmark").padding(6)
+                    Image(systemName: "xmark").font(.footnote).padding(6)
                 }
-                .accessibilityLabel("Dismiss banner")
+                .foregroundStyle(cream.opacity(0.7))
+                .accessibilityLabel("Dismiss announcement")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .foregroundStyle(Theme.green)
-            .background(Theme.tint)
+            .padding(.vertical, 12)
+            .foregroundStyle(cream)
+            .background(Theme.adaptive(0x123f38, dark: 0x123f38))
+            .overlay(alignment: .top) { Rectangle().fill(cream.opacity(0.12)).frame(height: 1) }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Announcement")
         }
     }
 }

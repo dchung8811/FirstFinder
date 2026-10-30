@@ -193,3 +193,28 @@ enum SampleData {
         ]
     }
 }
+
+extension SampleData {
+    // Three invented Explore shelves for the home page's strip. Some covers
+    // have a (placeholder) photo and some don't, so both the photo and the
+    // cloth-jacket look show up in sample mode.
+    static let featuredShelvesJSON = #"""
+    {"shelves":[
+      {"slug":"lantern-shelf","title":"The Lantern Shelf","blurb":"Invented fantasy firsts.","itemCount":42,"covers":[
+        {"id":"s1-1","name":"The Lantern Keeper's Almanac","author":"Mara Ellery","maker":"Hollow Oak Press","category":"Book","photoUrl":"ffsample://photo/shelf/s1-1"},
+        {"id":"s1-2","name":"Salt Roads","author":"Idris Calloway","maker":"Westmere & Sons","category":"Book","photoUrl":null},
+        {"id":"s1-3","name":"Night Ferry to Corran","author":"Odile Varga","maker":"Harrow House","category":"Book","photoUrl":"ffsample://photo/shelf/s1-3"},
+        {"id":"s1-4","name":"The Copper Orchard","author":"Lenna Ashgrove","maker":"Brightwater Books","category":"Book","photoUrl":null},
+        {"id":"s1-5","name":"A Field Guide to Small Weather","author":"Petra Hune","maker":"Quillfeather","category":"Book","photoUrl":null}
+      ]},
+      {"slug":"harbor-comics","title":"Harbor Comics","itemCount":17,"covers":[
+        {"id":"s2-1","name":"Captain Meridian #1","author":"Theo Brandt","maker":"Starlit Comics","category":"Comic","photoUrl":"ffsample://photo/shelf/s2-1"},
+        {"id":"s2-2","name":"Moth & Lantern #12","author":"June Halloway","maker":"Paper Kite","category":"Comic","photoUrl":null},
+        {"id":"s2-3","name":"Harbor Patrol Annual 1983","maker":"Tidewater Comics","category":"Comic","photoUrl":null}
+      ]},
+      {"slug":"one-good-record","title":"One Good Record","itemCount":1,"covers":[
+        {"id":"s3-1","name":"Blue Hour Sessions LP","maker":"Low Tide Records","category":"Record","photoUrl":null}
+      ]}
+    ]}
+    """#
+}

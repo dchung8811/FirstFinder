@@ -90,6 +90,7 @@ enum AppView: String, CaseIterable, Identifiable, Hashable, Sendable {
 enum WebRoute: Hashable, Identifiable, Sendable {
     case explore
     case sharedCollection(slug: String)
+    case sharedItem(slug: String, itemId: String)
     case bookGuides
     case featureGuide(slug: String)
 
@@ -99,6 +100,7 @@ enum WebRoute: Hashable, Identifiable, Sendable {
         switch self {
         case .explore: "/explore"
         case .sharedCollection(let slug): "/c/\(slug)"
+        case .sharedItem(let slug, let itemId): ExploreLogic.publicItemPath(slug: slug, itemId: itemId)
         case .bookGuides: "/books"
         case .featureGuide(let slug): "/features/\(slug)"
         }
@@ -107,7 +109,7 @@ enum WebRoute: Hashable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .explore: "Explore"
-        case .sharedCollection: "Shared collection"
+        case .sharedCollection, .sharedItem: "Shared collection"
         case .bookGuides: "Book guides"
         case .featureGuide: "Feature guide"
         }

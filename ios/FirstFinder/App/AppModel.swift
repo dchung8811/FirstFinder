@@ -44,6 +44,9 @@ final class AppModel {
     private(set) var shareRowLive: SharedCollectionRow?
     private(set) var feedbackRows: [FeedbackRow] = []
     private(set) var bannerRow: SiteBannerRow?
+    // The home page's strip. nil while loading; [] hides the section, which
+    // is also what a failed fetch does -- as on the web.
+    private(set) var featuredShelves: [FeaturedShelf]?
 
     private(set) var inventoryLoad: Load = .idle
     private(set) var wishlistLoad: Load = .idle
@@ -69,6 +72,18 @@ final class AppModel {
             dataMode = .sample
         }
         photos = PhotoSigner()
+        // Launch arguments for review and screenshots, e.g.
+        //   xcrun simctl launch booted app.firstfinder.prototype -FFDataMode Sample -FFSampleSignedIn NO
+        // They arrive in the arguments domain of UserDefaults, which is never
+        // written to disk.
+        let arguments = UserDefaults.standard
+        if arguments.string(forKey: "FFDataMode") == DataMode.sample.rawValue {
+            store = sampleStore
+            dataMode = .sample
+        }
+        if arguments.object(forKey: "FFSampleSignedIn") != nil {
+            sampleStore.setSignedIn(arguments.bool(forKey: "FFSampleSignedIn"))
+        }
         photos.attach(store)
         network.start()
     }
@@ -195,11 +210,13 @@ final class AppModel {
     func switchMode(to mode: DataMode) async {
         guard mode != dataMode else { return }
         if mode == .live, liveStore == nil { return }
+        if mode == .sample { sampleStore.setSignedIn(profile != nil) }
         dataMode = mode
         store = mode == .live ? liveStore! : sampleStore
         photos.attach(store)
         clearRows()
         overlay.revertAll()
+        featuredShelves = nil
         auth = .unknown
         isAdmin = false
         await start()
@@ -276,6 +293,20 @@ final class AppModel {
         guard isOnline else { return }
         // Like the web: a banner that fails to load is simply not shown.
         if let row = try? await store.fetchSiteBanner() { bannerRow = row }
+    }
+
+    func loadFeaturedShelves(force: Bool = false) async {
+        if featuredShelves != nil, !force { return }
+        guard isOnline else {
+            if featuredShelves == nil { featuredShelves = [] }
+            return
+        }
+        do {
+            let data = try await store.getSiteJSON(path: "/api/featured-shelves", authorized: false)
+            featuredShelves = try JSONDecoder().decode(FeaturedShelvesResponse.self, from: data).shelves
+        } catch {
+            featuredShelves = []
+        }
     }
 
     private func checkAdmin() async {

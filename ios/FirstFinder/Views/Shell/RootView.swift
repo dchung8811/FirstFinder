@@ -54,6 +54,10 @@ struct ConfigProblemView: View {
     }
 }
 
+// More → Developer is reachable signed out too, so Sample mode can be
+// switched on before anyone signs in.
+struct DeveloperRoute: Hashable {}
+
 // Signed out: Home, Log in, Sign up, Reset password and the public pages.
 struct SignedOutRoot: View {
     @State private var path = NavigationPath()
@@ -65,47 +69,72 @@ struct SignedOutRoot: View {
                     SignedOutDestination(view: view, path: $path)
                 }
                 .navigationDestination(for: WebRoute.self) { WebPage(route: $0) }
+                .navigationDestination(for: DeveloperRoute.self) { _ in DeveloperView() }
         }
     }
 }
 
-// The landing page's slot. HomePage (with featured shelves) is built in its
-// own step; until then this offers the way in and the public pages.
+// Signed out, Home is the web's landing page with the web's header: the
+// mark and name on the left, Log in and the menu on the right.
 struct SignedOutHome: View {
     @Binding var path: NavigationPath
-    @Environment(AppModel.self) private var app
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                PageHeader(
-                    eyebrow: "FirstFinder",
-                    title: "Catalog your collection and identify first editions",
-                    subtitle: "Home with featured shelves is built in a later step."
-                )
-                VStack(spacing: 10) {
-                    Button("Log in") { path.append(AppView.login) }
-                        .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
-                    Button("Get started") { path.append(AppView.signup) }
-                        .buttonStyle(FFButtonStyle(variant: .secondary, fullWidth: true))
-                }
-                Card {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Eyebrow("Explore and learn").padding(.bottom, 8)
-                        NavRow(title: "Explore", systemImage: "safari") { path.append(WebRoute.explore) }
-                        ForEach([AppView.features, .roadmap, .about, .contribute, .privacy, .terms]) { view in
-                            NavRow(title: view.title, systemImage: MoreView.icon(for: view)) { path.append(view) }
-                        }
-                        NavRow(title: "Book guides", systemImage: "books.vertical") { path.append(WebRoute.bookGuides) }
-                        NavRow(title: "Reset password", systemImage: "key") { path.append(AppView.resetPassword) }
-                    }
-                }
+        HomePage(path: $path)
+            // The web's header, as a solid bar that stays put while the page
+            // scrolls under it -- not the system's floating glass buttons,
+            // which sit over the hero and the covers.
+            .safeAreaInset(edge: .top, spacing: 0) { SiteHeader(path: $path) }
+            .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+// SiteNav for someone signed out: mark and name, Log in, and the menu.
+struct SiteHeader: View {
+    @Binding var path: NavigationPath
+
+    var body: some View {
+        HStack(spacing: 10) {
+            LogoMark()
+                .foregroundStyle(Theme.adaptive(0xfff7ea, dark: 0xfff7ea))
+                .padding(5)
+                .frame(width: 32, height: 32)
+                .background(Theme.adaptive(0x123f38, dark: 0x123f38), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            Text("FirstFinder")
+                .font(.headline)
+                .foregroundStyle(Theme.ink)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            Button("Log in") { path.append(AppView.login) }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.onAction)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 36)
+                .background(Theme.action, in: Capsule())
+            Menu {
+                Button("Get Started") { path.append(AppView.signup) }
+                Button("Explore") { path.append(WebRoute.explore) }
+                Button(AppView.roadmap.title) { path.append(AppView.roadmap) }
+                Button(AppView.about.title) { path.append(AppView.about) }
+                Button(AppView.features.title) { path.append(AppView.features) }
+                Button(AppView.contribute.title) { path.append(AppView.contribute) }
+                Button("Book guides") { path.append(WebRoute.bookGuides) }
+                Divider()
+                Button("Developer") { path.append(DeveloperRoute()) }
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Theme.ink)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.surfaceRaised, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.border))
             }
-            .padding(16)
+            .accessibilityLabel("Menu")
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background(Theme.page)
-        .navigationTitle("FirstFinder")
-        .navigationBarTitleDisplayMode(.inline)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.borderSoft.opacity(0.6)).frame(height: 1) }
     }
 }
 
