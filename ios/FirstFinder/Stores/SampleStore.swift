@@ -150,6 +150,8 @@ enum SampleSiteJSON {
         switch path.split(separator: "?").first.map(String.init) ?? path {
         case "/api/admin/access": #"{"admin":true}"#
         case "/api/featured-shelves": SampleData.featuredShelvesJSON
+        case "/api/admin/stats": SampleData.adminStatsJSON
+        case "/api/admin/banner": #"{"banner":{"enabled":true,"message":"Sample banner: the roadmap has three new items this month.","linkLabel":"See the roadmap","linkView":"roadmap","updatedAt":"2026-07-01T00:00:00Z"}}"#
         default: nil
         }
     }

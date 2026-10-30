@@ -218,3 +218,24 @@ extension SampleData {
     ]}
     """#
 }
+
+extension SampleData {
+    // A canned /api/admin/stats reply with a check in each state, so every
+    // look of the admin screen can be reviewed. Invented numbers.
+    static let adminStatsJSON = #"""
+    {"ok":true,"generatedAt":"2026-09-07T12:00:00Z","excludedAccounts":1,"plan":"free","status":"act",
+     "metrics":{"items":{"excluding_admins":412,"total":641,"new_30d":38,"collectors":27},
+                "users":{"excluding_admins":96,"new_30d":11,"new_7d":3,"never_returned":41,"active_7d":14,"active_30d":33},
+                "logins":{"d7":52,"tracked_since":"2026-05-01T00:00:00Z"},
+                "shares":{"published":9,"started_not_published":4},
+                "identify":{"calls_today":5,"calls_30d":118},
+                "feedback":{"total":23,"filed_to_github":19,"errored":1}},
+     "github":{"repo":{"stars":42,"forks":6,"openIssuesAndPrs":17,"lastPushedAt":"2026-09-06T21:00:00Z"}},
+     "checks":[
+      {"key":"db","label":"Database size","status":"ok","value":"118 MB of 500 MB","ratio":0.236,"detail":"Free-plan allowance."},
+      {"key":"storage","label":"Photo storage","status":"watch","value":"0.81 GB of 1 GB","ratio":0.81,"detail":"Photos are most of it.","action":"Plan the upgrade before it reaches 95%."},
+      {"key":"memory","label":"Server memory","status":"act","value":"96% used","ratio":0.96,"detail":"Sustained, not a spike.","action":"Upgrade the compute size."},
+      {"key":"github-token","label":"GitHub token","status":"ok","value":"Expires in 81 days","detail":"Fine-grained token."}
+     ]}
+    """#
+}

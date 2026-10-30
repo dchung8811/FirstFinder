@@ -101,3 +101,42 @@ final class WishlistActionTests: XCTestCase {
         XCTAssertNil(app.wishlist.first { $0.name == "Something" }?.maxPrice)
     }
 }
+
+@MainActor
+final class MorePagesTests: XCTestCase {
+    func testTheSampleAdminStatsCarryEveryCheckState() throws {
+        let object = try JSONSerialization.jsonObject(with: Data(SampleData.adminStatsJSON.utf8)) as? [String: Any]
+        let checks = object?["checks"] as? [[String: Any]] ?? []
+        XCTAssertEqual(Set(checks.compactMap { $0["status"] as? String }), ["ok", "watch", "act"])
+    }
+
+    func testPercentNeverRoundsUsageDownToZero() {
+        XCTAssertEqual(AdminDashboard.percent(0.004), "<1%")
+        XCTAssertEqual(AdminDashboard.percent(0.236), "24%")
+        XCTAssertEqual(AdminDashboard.percent(.nan), "--")
+    }
+
+    func testRelativeTime() {
+        let now = Date()
+        XCTAssertEqual(AdminDashboard.relativeTime(nil, now: now), "never")
+        XCTAssertEqual(AdminDashboard.relativeTime(now.addingTimeInterval(-5), now: now), "just now")
+        XCTAssertEqual(AdminDashboard.relativeTime(now.addingTimeInterval(-3 * 3600), now: now), "3h ago")
+    }
+
+    func testTheReportPDFRenders() {
+        let data = ReportPDF(items: SampleData.inventory().map { Mapping.fromDbItem($0) }).render()
+        XCTAssertTrue(String(decoding: data.prefix(5), as: UTF8.self).hasPrefix("%PDF"))
+    }
+
+    func testFeedbackAndNameStayOnThePhone() async {
+        let app = AppModel(config: .failure(.missing))
+        await app.start()
+        let before = app.feedback.count
+        app.overlay.addFeedback(FeedbackRow(id: "f", userId: "u", description: "Hi", photos: PhotoColumn(), status: "new", createdAt: nil), summary: "Sent feedback")
+        app.overlay.setAccountName("New Name", summary: "Renamed")
+        XCTAssertEqual(app.feedback.count, before + 1)
+        app.overlay.revertAll()
+        XCTAssertEqual(app.feedback.count, before)
+        XCTAssertNil(app.overlay.accountName)
+    }
+}

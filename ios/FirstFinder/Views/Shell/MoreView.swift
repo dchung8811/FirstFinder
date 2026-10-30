@@ -48,9 +48,9 @@ struct MoreView: View {
             .navigationTitle("More")
             .navigationDestination(for: Destination.self) { destination in
                 switch destination {
-                case .view(let view): ScreenPlaceholder(view: view)
+                case .view(let view): MoreDestination(view: view)
                 case .web(let route): WebPage(route: route)
-                case .admin: ScreenPlaceholder(view: .dashboard, note: "The admin dashboard is built in a later step.")
+                case .admin: AdminDashboard()
                 case .developer: DeveloperView()
                 }
             }
@@ -97,4 +97,18 @@ struct MoreView: View {
     }
 
     private func icon(for view: AppView) -> String { Self.icon(for: view) }
+}
+
+// The pages More opens, by the web's view name.
+struct MoreDestination: View {
+    let view: AppView
+
+    var body: some View {
+        switch view {
+        case .insuranceExport: InsuranceExportPage()
+        case .feedback: FeedbackPage()
+        case .account: MyAccountPage()
+        default: ScreenPlaceholder(view: view)
+        }
+    }
 }

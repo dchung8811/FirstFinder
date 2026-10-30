@@ -39,6 +39,7 @@ final class LocalOverlay {
 
     private(set) var shareRow: SharedCollectionRow?
     private(set) var accountToggles: [String: Bool] = [:]
+    private(set) var accountName: String?
     private(set) var feedback: [FeedbackRow] = []
 
     // Photo bytes picked on this phone, keyed by a "local/..." path. Memory
@@ -146,6 +147,11 @@ final class LocalOverlay {
         log(.account(key), summary)
     }
 
+    func setAccountName(_ name: String, summary: String) {
+        accountName = name
+        log(.account("name"), summary)
+    }
+
     func addFeedback(_ row: FeedbackRow, summary: String) {
         feedback = [row] + feedback
         log(.feedback(row.id), summary)
@@ -180,6 +186,7 @@ final class LocalOverlay {
             shareRow = nil
         case .account(let key):
             accountToggles[key] = nil
+            if key == "name" { accountName = nil }
         case .feedback(let id):
             feedback.removeAll { $0.id == id }
         }
@@ -195,6 +202,7 @@ final class LocalOverlay {
         deletedWantIds = []
         shareRow = nil
         accountToggles = [:]
+        accountName = nil
         feedback = []
         localPhotos = [:]
         changes = []
