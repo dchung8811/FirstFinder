@@ -1,0 +1,13 @@
+# The prototype's Supabase URL and anon key. Copied by hand from .env.local;
+# Secrets.example.xcconfig is the committed template.
+Config/Secrets.xcconfig
+
+# Xcode per-user state and build output.
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# Screenshots of live mode show a real collection. Only sample-mode
+# screenshots are ever committed, and they go in docs/, not here.
+Screenshots/

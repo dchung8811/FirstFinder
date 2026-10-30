@@ -1,0 +1,9 @@
+// Settings shared by every configuration. The Supabase values live in
+// Secrets.xcconfig, which is gitignored; the optional include keeps a fresh
+// clone building (in Sample mode) before anyone has created it.
+#include? "Secrets.xcconfig"
+
+// Where Explore, /c/<slug>, the book guides and the public JSON routes are read
+// from. The prototype never talks to a local Next server: the dashboard check
+// compares against :3000, but the phone reads the same live database either way.
+FIRSTFINDER_SITE_URL = https:/$()/firstfinder.app
