@@ -35,6 +35,12 @@ final class AppModel {
     let network = NetworkMonitor()
     let photos: PhotoSigner
 
+    // Which tab is showing, and an item a screen asked the collection to show
+    // (a recent find tapped on the dashboard). Shared so any screen can send
+    // the reader to another.
+    var selectedTab: AppTab = .dashboard
+    var focusItemId: String?
+
     private(set) var auth: AuthState = .unknown
     private(set) var isAdmin = false
 
@@ -135,6 +141,11 @@ final class AppModel {
     }
 
     func isLocal(itemId: String) -> Bool { overlay.isLocal(itemId: itemId) }
+
+    func openItem(_ id: String) {
+        focusItemId = id
+        selectedTab = .collection
+    }
     func isLocal(wantId: String) -> Bool { overlay.isLocal(wantId: wantId) }
 
     // MARK: Lifecycle
@@ -329,6 +340,8 @@ final class AppModel {
         load = .failed(error.localizedDescription)
     }
 }
+
+enum AppTab: Hashable { case dashboard, collection, add, wishlist, more }
 
 // NWPathMonitor, observed. The web's equivalent is navigator.onLine.
 @MainActor

@@ -4,14 +4,14 @@ import SwiftUI
 // nav bar holds more than a phone's tab bar can, so the rest of it lives in
 // More, in the web's order.
 struct MainTabView: View {
-    enum Tab: Hashable { case dashboard, collection, add, wishlist, more }
+    typealias Tab = AppTab
 
     @Environment(AppModel.self) private var app
-    @State private var selection: Tab = .dashboard
 
     var body: some View {
-        TabView(selection: $selection) {
-            NavigationStack { ScreenPlaceholder(view: .dashboard) }
+        @Bindable var app = app
+        TabView(selection: $app.selectedTab) {
+            NavigationStack { DashboardPage() }
                 .tabItem { Label("Dashboard", systemImage: "chart.bar") }
                 .tag(Tab.dashboard)
 

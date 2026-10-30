@@ -8,6 +8,9 @@ struct SignedPhoto: View {
     let path: String
     var contentMode: ContentMode = .fill
     var accessibilityLabel: String = ""
+    // Said in the frame when the photo can't be shown. Without one, nothing
+    // is drawn. Either way, never a broken image.
+    var missingLabel: String?
 
     @Environment(AppModel.self) private var app
     @State private var image: UIImage?
@@ -28,6 +31,8 @@ struct SignedPhoto: View {
             } else if case .signed(let url) = app.photos.state(for: path), url.scheme == SampleStore.photoScheme {
                 SamplePlaceholderCover(seed: path)
                     .accessibilityLabel(accessibilityLabel)
+            } else if let missingLabel {
+                MissingPhotoLabel(text: missingLabel)
             } else {
                 // Failed to sign or to load: nothing.
                 EmptyView()
