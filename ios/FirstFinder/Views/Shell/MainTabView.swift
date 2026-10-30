@@ -23,7 +23,7 @@ struct MainTabView: View {
                 .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 .tag(Tab.add)
 
-            NavigationStack { ScreenPlaceholder(view: .wishlist) }
+            NavigationStack { WishlistPage() }
                 .tabItem { Label(countLabel("Wishlist", app.wishlistCount), systemImage: "heart") }
                 .tag(Tab.wishlist)
 
