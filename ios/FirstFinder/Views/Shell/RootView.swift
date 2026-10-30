@@ -8,7 +8,7 @@ struct RootView: View {
     var body: some View {
         VStack(spacing: 0) {
             PrototypeBanner()
-            SiteBannerView()
+            SiteBannerView { app.followBannerLink($0) }
             OfflineBanner()
             content
                 .frame(maxHeight: .infinity)
@@ -60,6 +60,7 @@ struct DeveloperRoute: Hashable {}
 
 // Signed out: Home, Log in, Sign up, Reset password and the public pages.
 struct SignedOutRoot: View {
+    @Environment(AppModel.self) private var app
     @State private var path = NavigationPath()
 
     var body: some View {
@@ -70,6 +71,16 @@ struct SignedOutRoot: View {
                 }
                 .navigationDestination(for: WebRoute.self) { WebPage(route: $0) }
                 .navigationDestination(for: DeveloperRoute.self) { _ in DeveloperView() }
+        }
+        .onChange(of: app.pendingSignedOutView) { _, view in
+            guard let view else { return }
+            path.append(view)
+            app.pendingSignedOutView = nil
+        }
+        .onChange(of: app.pendingWebRoute) { _, route in
+            guard let route, app.profile == nil else { return }
+            path.append(route)
+            app.pendingWebRoute = nil
         }
     }
 }
@@ -151,7 +162,7 @@ struct SignedOutDestination: View {
         case .resetPassword:
             ResetPasswordPage()
         default:
-            ScreenPlaceholder(view: view)
+            PublicPage(view: view)
         }
     }
 }

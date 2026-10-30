@@ -93,6 +93,9 @@ enum WebRoute: Hashable, Identifiable, Sendable {
     case sharedItem(slug: String, itemId: String)
     case bookGuides
     case featureGuide(slug: String)
+    // A public page the web renders from hand-written copy (About, Roadmap,
+    // Privacy, Terms), opened on the live site so the words can't drift.
+    case sitePage(path: String, title: String)
 
     var id: String { path }
 
@@ -103,6 +106,7 @@ enum WebRoute: Hashable, Identifiable, Sendable {
         case .sharedItem(let slug, let itemId): ExploreLogic.publicItemPath(slug: slug, itemId: itemId)
         case .bookGuides: "/books"
         case .featureGuide(let slug): "/features/\(slug)"
+        case .sitePage(let path, _): path
         }
     }
 
@@ -112,6 +116,7 @@ enum WebRoute: Hashable, Identifiable, Sendable {
         case .sharedCollection, .sharedItem: "Shared collection"
         case .bookGuides: "Book guides"
         case .featureGuide: "Feature guide"
+        case .sitePage(_, let title): title
         }
     }
 }

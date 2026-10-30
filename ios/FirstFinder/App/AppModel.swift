@@ -44,6 +44,33 @@ final class AppModel {
     // A page another tab asked More to open (the collection's "Export for
     // insurance" lives under More on the phone).
     var pendingMoreRoute: AppView?
+    // A page the signed-out stack was asked to open (the site banner's link).
+    var pendingSignedOutView: AppView?
+    var pendingWebRoute: WebRoute?
+
+    // Where the site banner's link goes: bannerDestination's views, mapped
+    // onto the phone's tabs and stacks.
+    func followBannerLink(_ view: String) {
+        if view == "explore" {
+            if profile != nil { selectedTab = .more }
+            pendingWebRoute = .explore
+            return
+        }
+        guard let target = AppView(rawValue: view) else { return }
+        if profile == nil {
+            pendingSignedOutView = target
+            return
+        }
+        switch target {
+        case .dashboard: selectedTab = .dashboard
+        case .addItems: selectedTab = .add
+        case .wishlist: selectedTab = .wishlist
+        case .inventory: selectedTab = .collection
+        default:
+            selectedTab = .more
+            pendingMoreRoute = target
+        }
+    }
 
     private(set) var auth: AuthState = .unknown
     private(set) var isAdmin = false

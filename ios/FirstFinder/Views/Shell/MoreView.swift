@@ -61,6 +61,12 @@ struct MoreView: View {
                 path.append(Destination.view(route))
                 app.pendingMoreRoute = nil
             }
+            .onChange(of: app.pendingWebRoute, initial: true) { _, route in
+                guard let route else { return }
+                path = NavigationPath()
+                path.append(Destination.web(route))
+                app.pendingWebRoute = nil
+            }
             .confirmationDialog("Sign out of FirstFinder on this phone?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
                 Button("Sign out", role: .destructive) { Task { await app.signOut() } }
             } message: {
@@ -108,7 +114,7 @@ struct MoreDestination: View {
         case .insuranceExport: InsuranceExportPage()
         case .feedback: FeedbackPage()
         case .account: MyAccountPage()
-        default: ScreenPlaceholder(view: view)
+        default: PublicPage(view: view)
         }
     }
 }

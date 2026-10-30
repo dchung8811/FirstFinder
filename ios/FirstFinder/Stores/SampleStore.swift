@@ -150,6 +150,7 @@ enum SampleSiteJSON {
         switch path.split(separator: "?").first.map(String.init) ?? path {
         case "/api/admin/access": #"{"admin":true}"#
         case "/api/featured-shelves": SampleData.featuredShelvesJSON
+        case "/api/contribute": #"{"ok":true,"repo":{"stars":42,"forks":6,"openIssuesAndPrs":17,"lastPushedAt":"2026-09-06T21:00:00Z"},"goodFirstIssues":[{"number":101,"title":"Sample issue: tidy the empty state copy","url":"https://example.com/sample/101","labels":["good first issue"],"assigned":false}],"helpWanted":[{"number":102,"title":"Sample issue: a bigger, scoped piece","url":"https://example.com/sample/102","labels":["help wanted"],"assigned":true}]}"#
         case "/api/admin/stats": SampleData.adminStatsJSON
         case "/api/admin/banner": #"{"banner":{"enabled":true,"message":"Sample banner: the roadmap has three new items this month.","linkLabel":"See the roadmap","linkView":"roadmap","updatedAt":"2026-07-01T00:00:00Z"}}"#
         default: nil
