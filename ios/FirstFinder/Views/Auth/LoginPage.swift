@@ -3,10 +3,10 @@ import SwiftUI
 // LoginPage from app/InventoryApp.jsx: one page with three modes (log in,
 // create account, forgot password), the same copy as authModeCopy on the web.
 //
-// Only email log-in is wired. Sign-up and the reset email would create an
-// account or send mail, so in the prototype they validate and stop. Google
-// and Apple are drawn but not set up: Google needs an iOS redirect URL added
-// in the Supabase dashboard first, and Apple isn't configured at all.
+// Email and Google log-in are wired; both sign in to an existing account and
+// change nothing about it. Sign-up and the reset email would create an
+// account or send mail, so in the prototype they validate and stop. Apple is
+// drawn but not set up, as it isn't configured for the site either.
 struct LoginPage: View {
     enum Mode: String { case signin, signup, forgot }
 
@@ -86,7 +86,7 @@ struct LoginPage: View {
                         if mode != .forgot {
                             OrDivider().padding(.vertical, 22)
                             VStack(spacing: 12) {
-                                SocialAuthButton(systemImage: "g.circle", title: "Continue with Google") { notSetUp("Google") }
+                                SocialAuthButton(systemImage: "g.circle", title: "Continue with Google") { Task { await google() } }
                                 SocialAuthButton(systemImage: "apple.logo", title: "Continue with Apple") { notSetUp("Apple") }
                             }
                         }
@@ -130,6 +130,16 @@ struct LoginPage: View {
         message = nil
         password = ""
         confirmPassword = ""
+    }
+
+    private func google() async {
+        loading = true
+        defer { loading = false }
+        do {
+            try await app.signInWithGoogle()
+        } catch {
+            message = .init(kind: .error, text: error.localizedDescription)
+        }
     }
 
     private func notSetUp(_ provider: String) {

@@ -21,7 +21,7 @@ final class ReadOnlyGuardTests: XCTestCase {
         ".insert(", ".update(", ".upsert(", ".delete(",
         ".upload(", ".remove(", ".move(",
         // Auth calls that change an account or send mail.
-        ".signUp(", ".updateUser(", ".resetPasswordForEmail(", ".signInWithOAuth(",
+        ".signUp(", ".updateUser(", ".resetPasswordForEmail(",
         // Storage listing: the web uses it to repair photo records, which then
         // writes. The prototype has no reason to list anything.
         ".list(",
@@ -53,6 +53,16 @@ final class ReadOnlyGuardTests: XCTestCase {
 
                 for call in Self.forbiddenCalls + Self.forbiddenRoutes + Self.forbiddenFunctions where line.contains(call) {
                     failures.append("\(at) uses \(call)")
+                }
+
+                // Google sign-in is allowed in one place only: it signs in to an
+                // account that already exists. Anywhere else it's a second
+                // door into auth that this test doesn't watch.
+                if line.contains(".signInWithOAuth("), file.lastPathComponent != "LiveReadStore.swift" {
+                    failures.append("\(at) starts an OAuth sign-in outside LiveReadStore")
+                }
+                if line.contains(".signInWithOAuth("), !line.contains("provider: .google") {
+                    failures.append("\(at) starts an OAuth sign-in with a provider other than Google")
                 }
 
                 // Any .rpc( other than search_book_catalog.

@@ -47,6 +47,10 @@ protocol CollectionStore: AnyObject, Sendable {
     func restoreSession() async -> UserProfile?
     func authEvents() -> AsyncStream<AuthEvent>
     func signIn(email: String, password: String) async throws -> UserProfile
+    // Google, through the system's sign-in sheet -- the web's "Continue with
+    // Google". For an account that exists it only signs in; like the web's
+    // button, a Google account Supabase has never seen would get a new one.
+    func signInWithGoogle() async throws -> UserProfile
     func signOut() async
     func accessToken() async -> String?
 

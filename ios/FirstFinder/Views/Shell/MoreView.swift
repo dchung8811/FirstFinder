@@ -47,12 +47,15 @@ struct MoreView: View {
             .background(Theme.page)
             .navigationTitle("More")
             .navigationDestination(for: Destination.self) { destination in
-                switch destination {
-                case .view(let view): MoreDestination(view: view)
-                case .web(let route): WebPage(route: route)
-                case .admin: AdminDashboard()
-                case .developer: DeveloperView()
+                Group {
+                    switch destination {
+                    case .view(let view): MoreDestination(view: view)
+                    case .web(let route): WebPage(route: route)
+                    case .admin: AdminDashboard()
+                    case .developer: DeveloperView()
+                    }
                 }
+                .solidNavigationBar()
             }
             // Another tab asked for a page that lives under More.
             .onChange(of: app.pendingMoreRoute, initial: true) { _, route in

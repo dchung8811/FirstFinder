@@ -216,6 +216,11 @@ final class AppModel {
         await becomeSignedIn(profile)
     }
 
+    func signInWithGoogle() async throws {
+        let profile = try await store.signInWithGoogle()
+        await becomeSignedIn(profile)
+    }
+
     func signOut() async {
         await store.signOut()
         becomeSignedOut()

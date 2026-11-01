@@ -212,3 +212,13 @@ struct LocalChip: View {
             .accessibilityLabel("Changed on this phone only")
     }
 }
+
+// A solid header on pushed pages. iOS 26 floats the back button over the
+// content in glass, which slid over the login page's mode switch; the web's
+// header is a solid bar, so pushed pages get one too.
+extension View {
+    func solidNavigationBar() -> some View {
+        toolbarBackground(Theme.page, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+    }
+}

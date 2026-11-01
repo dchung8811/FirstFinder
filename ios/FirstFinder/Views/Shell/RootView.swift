@@ -69,8 +69,8 @@ struct SignedOutRoot: View {
                 .navigationDestination(for: AppView.self) { view in
                     SignedOutDestination(view: view, path: $path)
                 }
-                .navigationDestination(for: WebRoute.self) { WebPage(route: $0) }
-                .navigationDestination(for: DeveloperRoute.self) { _ in DeveloperView() }
+                .navigationDestination(for: WebRoute.self) { WebPage(route: $0).solidNavigationBar() }
+                .navigationDestination(for: DeveloperRoute.self) { _ in DeveloperView().solidNavigationBar() }
         }
         .onChange(of: app.pendingSignedOutView) { _, view in
             guard let view else { return }
@@ -153,12 +153,14 @@ struct SignedOutDestination: View {
         switch view {
         case .login:
             LoginPage(mode: .signin, onViewTerms: { path.append(AppView.terms) }, onViewPrivacy: { path.append(AppView.privacy) })
+                .solidNavigationBar()
         case .signup:
             LoginPage(mode: .signup, onViewTerms: { path.append(AppView.terms) }, onViewPrivacy: { path.append(AppView.privacy) })
+                .solidNavigationBar()
         case .resetPassword:
-            ResetPasswordPage()
+            ResetPasswordPage().solidNavigationBar()
         default:
-            PublicPage(view: view)
+            PublicPage(view: view).solidNavigationBar()
         }
     }
 }

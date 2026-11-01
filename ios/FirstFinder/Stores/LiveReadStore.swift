@@ -88,6 +88,26 @@ final class LiveReadStore: CollectionStore, @unchecked Sendable {
         }
     }
 
+    // Where Google sends the collector back. Must be listed under Redirect
+    // URLs in the Supabase dashboard (Authentication → URL Configuration).
+    static let oauthRedirect = URL(string: "app.firstfinder.prototype://auth-callback")!
+
+    func signInWithGoogle() async throws -> UserProfile {
+        do {
+            let session = try await client.auth.signInWithOAuth(provider: .google, redirectTo: Self.oauthRedirect) { webSession in
+                // An ephemeral sheet keeps no Google cookies on the phone
+                // afterwards, in keeping with storing nothing but the session.
+                webSession.prefersEphemeralWebBrowserSession = true
+            }
+            return Self.profile(from: session.user)
+        } catch {
+            if (error as NSError).domain == "com.apple.AuthenticationServices.WebAuthenticationSession", (error as NSError).code == 1 {
+                throw StoreError.failed("Sign-in was cancelled or failed. Try again.")
+            }
+            throw StoreError.failed(Self.describeAuthError(error))
+        }
+    }
+
     func signOut() async {
         // Local scope: end this phone's session only. The default (global)
         // would also sign the collector out of the website on every device.

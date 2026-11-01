@@ -60,6 +60,13 @@ final class SampleStore: CollectionStore, @unchecked Sendable {
         return SampleData.profile
     }
 
+    func signInWithGoogle() async throws -> UserProfile {
+        try await Task.sleep(for: latency)
+        lock.withLock { _signedIn = true }
+        broadcast(.signedIn(SampleData.profile))
+        return SampleData.profile
+    }
+
     func signOut() async {
         lock.withLock { _signedIn = false }
         broadcast(.signedOut)

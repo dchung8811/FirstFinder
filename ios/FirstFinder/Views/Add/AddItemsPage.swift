@@ -51,10 +51,10 @@ struct AddItemsPage: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .tutorial: FullAddPage(onSaved: finishSave)
+                case .tutorial: FullAddPage(onSaved: finishSave).solidNavigationBar()
                 case .identify:
                     if let binding = Binding($identifyDraft) {
-                        IdentifyReviewPage(draft: binding, onSaved: finishSave, onDiscard: discardIdentify)
+                        IdentifyReviewPage(draft: binding, onSaved: finishSave, onDiscard: discardIdentify).solidNavigationBar()
                     }
                 }
             }
