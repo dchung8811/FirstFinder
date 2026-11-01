@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import XCTest
 @testable import FirstFinder
 
@@ -142,10 +143,7 @@ final class ExploreLogicTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(ExploreLogic.interleave(response.shelves).count, ShelfDrift.minToMove)
     }
 
-    func testTheLogoPathsParse() {
-        var path = Path()
-        for data in LogoMarkShape.paths { LogoMarkShape.append(data, to: &path) }
-        XCTAssertEqual(path.boundingRect.minX, 15, accuracy: 0.5)
-        XCTAssertEqual(path.boundingRect.maxY, 101, accuracy: 0.5)
+    func testTheLogoIsBundled() {
+        XCTAssertNotNil(UIImage(named: "LogoMark"), "the current mark from public/firstfinder-mark-exact.png")
     }
 }

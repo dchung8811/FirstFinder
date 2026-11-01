@@ -106,11 +106,7 @@ struct SiteHeader: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            LogoMark()
-                .foregroundStyle(Theme.adaptive(0xfff7ea, dark: 0xfff7ea))
-                .padding(5)
-                .frame(width: 32, height: 32)
-                .background(Theme.adaptive(0x123f38, dark: 0x123f38), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            LogoMark(size: 34)
             Text("FirstFinder")
                 .font(.headline)
                 .foregroundStyle(Theme.ink)
