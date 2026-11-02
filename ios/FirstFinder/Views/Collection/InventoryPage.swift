@@ -214,6 +214,9 @@ struct InventoryPage: View {
                                 .frame(width: 34, height: 36)
                                 .foregroundStyle(layout == mode ? Theme.onAction : Theme.brown)
                                 .background(layout == mode ? Theme.action : .clear, in: Capsule())
+                                // A clear background isn't hit-testable, so
+                                // without this only the glyph took taps.
+                                .contentShape(Capsule())
                         }
                         .accessibilityLabel("\(mode.rawValue.capitalized) view")
                         .accessibilityAddTraits(layout == mode ? .isSelected : [])

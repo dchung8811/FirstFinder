@@ -206,6 +206,8 @@ struct AuthModeTabs: View {
                 .frame(maxWidth: .infinity, minHeight: 40)
                 .foregroundStyle(mode == value ? Theme.onAction : Theme.brown)
                 .background(mode == value ? Theme.action : .clear, in: Capsule())
+                // The whole half takes the tap, not just the word.
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(mode == value ? [.isSelected] : [])
