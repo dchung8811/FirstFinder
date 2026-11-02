@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../src/lib/supabaseAdmin";
+import { scanDailyLimit } from "../../../src/utils/dailyBudget";
 
 // Scan-to-fill: read what is printed on a cover and a copyright page, and
 // nothing else. No web search, no valuation, no edition verdict -- the route
@@ -29,8 +30,8 @@ const COOLDOWN_MS = 2000;
 // the day it's needed -- set SCAN_DAILY_LIMIT to a number (0 switches scanning
 // off) and it is enforced in Postgres by supabase/scan-daily-limit.sql, which
 // is already applied in production. Unset, or not a whole number, means no cap.
-const parsedLimit = Number(process.env.SCAN_DAILY_LIMIT);
-const DAILY_LIMIT = process.env.SCAN_DAILY_LIMIT && Number.isInteger(parsedLimit) && parsedLimit >= 0 ? parsedLimit : null;
+// Read through src/utils/dailyBudget so /api/identify-budget agrees.
+const DAILY_LIMIT = scanDailyLimit(process.env.SCAN_DAILY_LIMIT);
 const callLog = new Map();
 
 // In process memory, like identify-book's: it exists to stop a double-tap or a
