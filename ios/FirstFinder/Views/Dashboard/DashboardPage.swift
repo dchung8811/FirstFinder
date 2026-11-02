@@ -398,15 +398,29 @@ struct TimeSeriesChart: View {
             }
         }
         .chartXAxis {
+            // Charts sizes each label to one bar's slot, which cut the end
+            // dates down to "N" and "…" on a busy chart. The ends hang inward
+            // from their bars instead, and the peak's date gives way if it
+            // would collide with one; the web's SVG simply lets them overlap.
             AxisMarks(values: labelled.sorted().map { keys[$0] }) { mark in
-                AxisValueLabel {
-                    if let key = mark.as(String.self) {
-                        Text(DashboardLogic.monthLabel(key)).font(.caption2).foregroundStyle(Theme.brownMuted)
-                    }
+                let key = mark.as(String.self) ?? ""
+                let isFirst = key == keys.first
+                let isLast = key == keys.last && !isFirst
+                AxisValueLabel(
+                    anchor: isFirst ? .topLeading : isLast ? .topTrailing : .top,
+                    collisionResolution: .greedy(priority: isFirst || isLast ? 1 : 0, minimumSpacing: 6)
+                ) {
+                    Text(DashboardLogic.monthLabel(key))
+                        .font(.caption2)
+                        .foregroundStyle(Theme.brownMuted)
+                        .fixedSize()
                 }
             }
         }
         .frame(height: 170)
+        // Headroom for the peak's label when the peak is the top of the
+        // scale, as the web leaves; otherwise it runs into the title.
+        .padding(.top, 14)
         .accessibilityLabel(title)
     }
 }
