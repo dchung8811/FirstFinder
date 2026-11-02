@@ -25,17 +25,22 @@ struct SignedPhoto: View {
                     .accessibilityLabel(accessibilityLabel)
             } else if path.hasPrefix(LocalOverlay.localPhotoPrefix) {
                 Color.clear
-            } else if !loadFailed, case .pending = app.photos.state(for: path) {
-                Rectangle().fill(Theme.chip).overlay(ProgressView().tint(Theme.brownSoft))
-                    .accessibilityLabel("Loading photo")
             } else if case .signed(let url) = app.photos.state(for: path), url.scheme == SampleStore.photoScheme {
                 SamplePlaceholderCover(seed: path)
                     .accessibilityLabel(accessibilityLabel)
+            } else if !loadFailed, app.photos.state(for: path) != .failed {
+                // Waiting to be signed, or signed and still downloading.
+                Rectangle().fill(Theme.chip).overlay(ProgressView().tint(Theme.brownSoft))
+                    .accessibilityLabel("Loading photo")
             } else if let missingLabel {
                 MissingPhotoLabel(text: missingLabel)
             } else {
-                // Failed to sign or to load: nothing.
-                EmptyView()
+                // Failed to sign or to load: nothing to see. Color.clear, not
+                // EmptyView: a Group holding only EmptyView isn't on screen,
+                // so SwiftUI cancels the task below and never starts the next
+                // one. That left every collection tile blank once its photo
+                // was signed, before the download had even begun.
+                Color.clear
             }
         }
         .task(id: taskKey) { await load() }
@@ -61,7 +66,9 @@ struct SignedPhoto: View {
             guard url.scheme != SampleStore.photoScheme else { return }
             if let loaded = await ImageLoader.shared.image(for: url, cacheKey: path) {
                 image = loaded
-            } else {
+            } else if !Task.isCancelled {
+                // A cancelled download isn't a failed one: the view went away
+                // or its URL changed, and whoever replaces it loads again.
                 loadFailed = true
             }
         case .failed:
