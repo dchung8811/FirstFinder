@@ -177,10 +177,4 @@ final class CollectionActionTests: XCTestCase {
         app.saveEdit(item, itemPhotos: item.itemPhotos, receiptPhotos: item.receiptPhotos, addedPhotoCount: 0)
         XCTAssertNil(app.inventory.first { $0.id == item.id }?.estimatedValue)
     }
-
-    func testTabCountsMatchTheWebsNav() async {
-        let app = await signedInSample()
-        XCTAssertEqual(app.inventoryCount, app.activeInventory.count, "the web counts active items only")
-        XCTAssertEqual(app.wishlistCount, app.wishlist.filter { $0.foundAt.isEmpty }.count, "and open wants only")
-    }
 }

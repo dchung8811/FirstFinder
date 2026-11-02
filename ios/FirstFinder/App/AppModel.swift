@@ -159,18 +159,6 @@ final class AppModel {
         Mapping.shouldShowBanner(siteBanner, dismissedId: dismissedBannerId)
     }
 
-    // Counts stay nil until their fetch has landed, as on the web:
-    // "My Collection (0)" while loading reads as an empty collection.
-    var inventoryCount: Int? {
-        if case .loaded = inventoryLoad { return inventory.filter { $0.status != "Sold" }.count }
-        return nil
-    }
-
-    var wishlistCount: Int? {
-        if case .loaded = wishlistLoad { return wishlist.filter { $0.foundAt.isEmpty }.count }
-        return nil
-    }
-
     func isLocal(itemId: String) -> Bool { overlay.isLocal(itemId: itemId) }
 
     func openItem(_ id: String) {

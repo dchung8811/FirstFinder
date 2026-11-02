@@ -2,7 +2,8 @@ import SwiftUI
 
 // Signed in: Dashboard · Collection · Add (center) · Wishlist · More. The web's
 // nav bar holds more than a phone's tab bar can, so the rest of it lives in
-// More, in the web's order.
+// More, in the web's order. Unlike the web's nav, the tabs carry no counts:
+// "Collection (176)" crowded its neighbours in a five-tab bar.
 struct MainTabView: View {
     typealias Tab = AppTab
 
@@ -16,7 +17,7 @@ struct MainTabView: View {
                 .tag(Tab.dashboard)
 
             NavigationStack { InventoryPage() }
-                .tabItem { Label(countLabel("Collection", app.inventoryCount), systemImage: "books.vertical") }
+                .tabItem { Label("Collection", systemImage: "books.vertical") }
                 .tag(Tab.collection)
 
             AddItemsPage()
@@ -24,18 +25,12 @@ struct MainTabView: View {
                 .tag(Tab.add)
 
             NavigationStack { WishlistPage() }
-                .tabItem { Label(countLabel("Wishlist", app.wishlistCount), systemImage: "heart") }
+                .tabItem { Label("Wishlist", systemImage: "heart") }
                 .tag(Tab.wishlist)
 
             MoreView()
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
                 .tag(Tab.more)
         }
-    }
-
-    // The count only once its fetch has landed; never "(0)" while loading.
-    private func countLabel(_ title: String, _ count: Int?) -> String {
-        guard let count else { return title }
-        return "\(title) (\(count))"
     }
 }
