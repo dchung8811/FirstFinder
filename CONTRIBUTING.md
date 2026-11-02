@@ -167,7 +167,10 @@ please report privately.
 
 ## Licensing of contributions
 
-FirstFinder is licensed under the [GNU AGPL v3](LICENSE). By contributing, you
-agree that your contributions are licensed under the same terms. In practice
-that means anyone can run and modify FirstFinder, but anyone who runs a modified
-version as a public service has to publish their changes too.
+FirstFinder is licensed under the [GNU AGPL v3](LICENSE), with an additional
+[app store exception](APP_STORE_EXCEPTION.md). By contributing, you agree that
+your contributions are licensed under the same terms, including that exception.
+In practice that means anyone can run and modify FirstFinder, but anyone who
+runs a modified version as a public service has to publish their changes too —
+and FirstFinder's iOS app can be distributed through the App Store, which the
+AGPL alone would not allow.

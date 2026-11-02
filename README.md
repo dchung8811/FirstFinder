@@ -436,9 +436,14 @@ Please report vulnerabilities privately rather than in a public issue. See
 
 ## License
 
-[GNU Affero General Public License v3.0](LICENSE).
+[GNU Affero General Public License v3.0](LICENSE), with an
+[app store exception](APP_STORE_EXCEPTION.md).
 
 You are free to use, study, modify, and share FirstFinder. If you run a modified
 version as a service other people can reach over a network, the AGPL requires
 you to offer them the source of your version too. That's the point: it keeps
 FirstFinder, and anything built from it, open for collectors.
+
+The exception exists because Apple's App Store terms add restrictions the AGPL
+on its own forbids. It lets FirstFinder's iOS app ship through the App Store, as
+long as its full source stays available under the AGPL.
