@@ -77,9 +77,28 @@ private struct WebViewRepresentable: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(state: state) }
 
+    // The site's own nav bar and announcement banner, hidden: the phone
+    // already draws both above the page, and the nav's "Log in" would start a
+    // second sign-in inside a web view that forgets it on close. Both carry
+    // the web's print:hidden class -- the site's own marker for "app chrome,
+    // not page" -- and the banner is its one Announcement region. Headers a
+    // page draws for itself (/c/<slug>, the book guides) are left alone.
+    private static let hideSiteChrome = WKUserScript(
+        source: """
+        (function () {
+          var style = document.createElement('style');
+          style.textContent = 'nav.print\\\\:hidden, [role="region"][aria-label="Announcement"] { display: none !important; }';
+          document.documentElement.appendChild(style);
+        })();
+        """,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true
+    )
+
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        configuration.userContentController.addUserScript(Self.hideSiteChrome)
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.allowsBackForwardNavigationGestures = true

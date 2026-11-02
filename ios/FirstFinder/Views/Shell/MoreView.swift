@@ -46,6 +46,9 @@ struct MoreView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.page)
             .navigationTitle("More")
+            // Solid like the pages it opens; see-through, the collapsed
+            // title sat on top of the rows scrolling under it.
+            .solidNavigationBar()
             .navigationDestination(for: Destination.self) { destination in
                 Group {
                     switch destination {
