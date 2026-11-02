@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../src/lib/supabaseAdmin";
+import { identifyDailyLimit } from "../../../src/utils/dailyBudget";
 
 // Search-grounded valuation needs a model OpenAI actually pairs with the
 // web_search tool -- their own docs recommend gpt-5.5 for new web_search
@@ -27,8 +28,9 @@ const COOLDOWN_MS = 3000;
 // Two per user per day. Every identification is a search-grounded model call
 // with one or more web round-trips, which costs real money on a self-funded
 // app -- this is the number that keeps the feature affordable to leave on.
-// Tunable without a deploy.
-const DAILY_LIMIT = Number(process.env.IDENTIFY_DAILY_LIMIT) || 2;
+// Tunable without a deploy. Read through src/utils/dailyBudget so
+// /api/identify-budget reports the same number this enforces.
+const DAILY_LIMIT = identifyDailyLimit(process.env.IDENTIFY_DAILY_LIMIT);
 const callLog = new Map();
 
 // The cooldown is deliberately still in process memory: it exists to stop a
