@@ -66,7 +66,6 @@ struct WishlistPage: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack {
                                     Text(want.name).font(.headline)
-                                    if app.isLocal(wantId: want.id) { LocalChip() }
                                 }
                                 if !want.maker.isEmpty { Text(want.maker).font(.subheadline).foregroundStyle(Theme.brown) }
                                 Text("Hunted \(WishlistLogic.accountDate(want.createdAt)) — found \(WishlistLogic.accountDate(want.foundAt))")
@@ -143,7 +142,6 @@ struct WantCard: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             PriorityChip(priority: want.priority)
-                            if app.isLocal(wantId: want.id) { LocalChip() }
                         }
                         if !want.createdAt.isEmpty {
                             Text("Watching since \(WishlistLogic.accountDate(want.createdAt))").font(.caption).foregroundStyle(Theme.brownMuted)
@@ -302,11 +300,10 @@ struct WantDialog: View {
                         Button(isNew ? "Add to wishlist" : "Save") {
                             var next = draft
                             next.maxPrice = Format.optionalAmount(maxPrice)
-                            app.saveWant(next)
-                            dismiss()
+                            Task { if await app.saveWant(next) { dismiss() } }
                         }
                         .buttonStyle(.ffPrimary)
-                        .disabled(!WishlistLogic.isSaveable(draft))
+                        .disabled(!WishlistLogic.isSaveable(draft) || app.isSaving)
                     }
                 }
                 .padding(20)
@@ -314,7 +311,7 @@ struct WantDialog: View {
             .background(Theme.page)
             .scrollDismissesKeyboard(.interactively)
             .confirmationDialog("Remove \"\(draft.name)\" from your wishlist?", isPresented: $confirmingRemove, titleVisibility: .visible) {
-                Button("Remove", role: .destructive) { app.removeWant(draft.id); dismiss() }
+                Button("Remove", role: .destructive) { Task { if await app.removeWant(draft.id) { dismiss() } } }
             }
         }
     }
@@ -384,10 +381,12 @@ struct FoundItDialog: View {
                         Button("Add to collection") {
                             var details = found
                             details.purchaseDate = acquired.map(Format.day) ?? ""
-                            app.markWantFound(want, found: details, itemPhotos: itemPhotos, receiptPhotos: receiptPhotos)
-                            dismiss()
+                            Task {
+                                if await app.markWantFound(want, found: details, itemPhotos: itemPhotos, receiptPhotos: receiptPhotos) { dismiss() }
+                            }
                         }
                         .buttonStyle(.ffPrimary)
+                        .disabled(app.isSaving)
                     }
                 }
                 .padding(20)

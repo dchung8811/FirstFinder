@@ -1,50 +1,29 @@
 import SwiftUI
 
-// The persistent strip that says what this app is. It never goes away: a
-// reviewer passing the phone around should not be able to mistake a local
-// change for a saved one.
-struct PrototypeBanner: View {
+// Shown only in Sample mode, so a demo -- or a reviewer passing the phone
+// around -- can't mistake the sample shelf for someone's real collection.
+// Live mode has no strip: it's simply the app.
+struct SampleModeBanner: View {
     @Environment(AppModel.self) private var app
-    @State private var showingChanges = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "hammer")
-                .accessibilityHidden(true)
-            Text("Prototype — changes stay on this phone")
-                .font(.caption.weight(.semibold))
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
-            Spacer(minLength: 4)
-            Text(app.dataMode.rawValue.uppercased())
-                .font(.ledger(10, relativeTo: .caption2).weight(.semibold))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Theme.cream.opacity(0.18), in: Capsule())
-                .accessibilityLabel("\(app.dataMode.rawValue) data")
-            if !app.overlay.isEmpty {
-                Button {
-                    showingChanges = true
-                } label: {
-                    Text("\(app.overlay.changes.count) local")
-                        .font(.ledger(10, relativeTo: .caption2).weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Theme.warningSurface, in: Capsule())
-                        .foregroundStyle(Theme.warningInk)
-                }
-                .accessibilityLabel("\(app.overlay.changes.count) changes on this phone only. Show them.")
+        if app.dataMode == .sample {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .accessibilityHidden(true)
+                Text("Sample data — not a real collection")
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                Spacer(minLength: 4)
             }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .foregroundStyle(Theme.adaptive(0xfff7ea, dark: 0xfff7ea))
-        // Kept below the status bar: the page color shows behind the clock,
-        // so the system's dark status text stays readable.
-        .background(Theme.adaptive(0x0f332d, dark: 0x201a14), ignoresSafeAreaEdges: [])
-        .accessibilityElement(children: .contain)
-        .sheet(isPresented: $showingChanges) {
-            PendingSyncPanel()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .foregroundStyle(Theme.adaptive(0xfff7ea, dark: 0xfff7ea))
+            // Kept below the status bar: the page color shows behind the
+            // clock, so the system's dark status text stays readable.
+            .background(Theme.adaptive(0x0f332d, dark: 0x201a14), ignoresSafeAreaEdges: [])
+            .accessibilityElement(children: .combine)
         }
     }
 }
@@ -177,57 +156,3 @@ struct ToastStack: View {
     }
 }
 
-// PendingSyncPanel, repurposed. On the web it lists writes queued while
-// offline; in the prototype every change is "pending" forever, so this is the
-// list of what exists only on this phone, with Discard to put each back.
-struct PendingSyncPanel: View {
-    @Environment(AppModel.self) private var app
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Text("These changes exist only on this phone and are gone when the app quits. Nothing here is sent anywhere.")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.brown)
-                    Button("Sync now") {}
-                        .disabled(true)
-                        .accessibilityHint("Disabled in the prototype")
-                }
-                Section("Local changes") {
-                    if app.overlay.changes.isEmpty {
-                        Text("No local changes.").foregroundStyle(Theme.brownSoft)
-                    }
-                    ForEach(app.overlay.changes) { change in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(change.summary)
-                                Text(change.at.formatted(date: .omitted, time: .shortened))
-                                    .font(.ledger(12, relativeTo: .caption))
-                                    .foregroundStyle(Theme.brownSoft)
-                            }
-                            Spacer()
-                            LocalChip()
-                        }
-                        .swipeActions {
-                            Button("Discard", role: .destructive) { app.overlay.revert(change.entity) }
-                        }
-                    }
-                }
-                if !app.overlay.changes.isEmpty {
-                    Section {
-                        Button("Discard all local changes", role: .destructive) { app.overlay.revertAll() }
-                    }
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Theme.page)
-            .navigationTitle("Pending on this phone")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
-        }
-    }
-}

@@ -76,8 +76,11 @@ struct AddItemsPage: View {
         .sheet(isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } })) {
             if let pendingImport {
                 BulkImportPreviewDialog(fileName: pendingImport.name, batch: pendingImport.batch) {
-                    bulkMessage = app.applyImport(pendingImport.batch, fileName: pendingImport.name)
-                    app.selectedTab = .collection
+                    Task {
+                        guard let message = await app.applyImport(pendingImport.batch, fileName: pendingImport.name) else { return }
+                        bulkMessage = message
+                        app.selectedTab = .collection
+                    }
                 }
             }
         }
@@ -262,7 +265,7 @@ struct AddItemsPage: View {
                 if filled.isEmpty { app.toasts.push("Read your photos, but every field it found already had something in it.", tone: .warning) }
             } catch let failure as FakeAI.Failure {
                 app.toasts.push(failure.message, tone: .error)
-                app.overlay.forgetPhotos(photos.map(\.path))
+                app.pendingPhotos.forget(photos.map(\.path))
             } catch {}
         }
     }
@@ -279,7 +282,7 @@ struct AddItemsPage: View {
                 path.append(Route.identify)
             } catch let failure as FakeAI.Failure {
                 app.toasts.push(failure.message, tone: .error)
-                app.overlay.forgetPhotos([photo.path])
+                app.pendingPhotos.forget([photo.path])
             } catch {}
         }
     }
@@ -287,11 +290,13 @@ struct AddItemsPage: View {
     // saveQuickItem: duplicates are flagged first, never blocking.
     private func save(_ draft: ItemDraft, onDone: @escaping () -> Void) {
         let item = draft.built()
-        let commit = {
-            app.addItem(item, itemPhotos: draft.itemPhotos, receiptPhotos: draft.receiptPhotos)
-            app.toasts.push("Saved to your collection.", tone: .success)
-            onDone()
-            app.selectedTab = .collection
+        // addItem says "Saved to your collection." itself, or what went wrong.
+        let commit: () -> Void = {
+            Task {
+                guard await app.addItem(item, itemPhotos: draft.itemPhotos, receiptPhotos: draft.receiptPhotos) != nil else { return }
+                onDone()
+                app.selectedTab = .collection
+            }
         }
         let matches = ItemsLogic.findPossibleDuplicates(item, in: app.inventory)
         if matches.isEmpty {
@@ -315,7 +320,7 @@ struct AddItemsPage: View {
     }
 
     private func discardIdentify() {
-        if let identifyDraft { app.overlay.forgetPhotos(identifyDraft.photos.map(\.path)) }
+        if let identifyDraft { app.pendingPhotos.forget(identifyDraft.photos.map(\.path)) }
         identifyDraft = nil
         path = NavigationPath()
     }

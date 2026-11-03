@@ -1,12 +1,14 @@
 import Foundation
 
 // What a screen can ask of the data layer. Two stores implement it: the live
-// one, which reads the real database and can do nothing else, and the sample
-// one, which answers from memory. Views only ever see AppModel, which holds
-// one of them, so no view can tell -- or needs to know -- which it has.
+// one, which reads and writes the real database, and the sample one, which
+// does both in memory for demos and App Store screenshots. Views only ever see
+// AppModel, which holds one of them, so no view can tell -- or needs to know --
+// which it has.
 //
-// Every method here is a read. Writes do not go through a store at all: they
-// land in LocalOverlay, in memory, and disappear when the app quits.
+// Writes take the bodies Writes.swift builds, so what reaches the database is
+// exactly what the web would have sent. Every write acts on the signed-in
+// collector's own rows; Row Level Security refuses anything else.
 
 enum DataMode: String, CaseIterable, Sendable, Identifiable {
     case live = "Live"
@@ -20,6 +22,10 @@ enum StoreError: LocalizedError, Equatable {
     case offline
     case notSignedIn
     case failed(String)
+    // A write the database refused or never answered. The code is Postgres's
+    // SQLSTATE or PostgREST's own (PGRST116), nil when there was no answer at
+    // all -- WriteRetry decides from it whether another attempt is worth it.
+    case write(String, code: String?)
 
     var errorDescription: String? {
         switch self {
@@ -27,6 +33,7 @@ enum StoreError: LocalizedError, Equatable {
         case .offline: "You're offline. Showing what was last loaded."
         case .notSignedIn: "Sign in to see your collection."
         case .failed(let message): message
+        case .write(let message, let code): WriteRetry.describe(message: message, code: code)
         }
     }
 }
@@ -72,6 +79,44 @@ protocol CollectionStore: AnyObject, Sendable {
     // for an admin, the admin routes). Sample mode answers these from canned
     // JSON.
     func getSiteJSON(path: String, authorized: Bool) async throws -> Data
+
+    // A signed-in POST to the site: feedback filing and account deletion.
+    func postSiteJSON(path: String, body: Data) async throws -> Data
+
+    // MARK: Writes
+
+    // The highest reference number in use, read from the database rather than
+    // from memory, so two devices adding at once collide on the unique index
+    // instead of quietly sharing a number.
+    func maxReferenceNumber(userId: String) async throws -> Int
+
+    func insertItems(_ payloads: [RowPayload]) async throws -> [InventoryRow]
+    func updateItem(id: String, _ payload: RowPayload) async throws -> InventoryRow
+    func deleteItem(id: String) async throws
+
+    // Photos. Upload never overwrites: each path is new, see Writes.photoPath.
+    func uploadPhoto(path: String, jpeg: Data) async throws
+    func removePhotos(paths: [String]) async throws
+    // Everything stored under an item's folder, which can be more than its row
+    // lists. nil when the listing itself failed.
+    func listItemPhotoPaths(userId: String, itemId: String) async -> [String]?
+
+    // Fire-and-forget: suggests a title for the shared book catalog.
+    func queueBookSuggestion(title: String, author: String) async
+
+    func insertWant(_ payload: RowPayload) async throws -> WishlistRow
+    func updateWant(id: String, _ payload: RowPayload) async throws -> WishlistRow
+    func deleteWant(id: String) async throws
+
+    func upsertShareSettings(_ payload: RowPayload) async throws -> SharedCollectionRow
+
+    // Feedback photos go through uploadPhoto, under <user>/feedback/<id>/,
+    // then onto the row with updateFeedback -- the web's arrangement.
+    func insertFeedback(_ payload: RowPayload) async throws -> FeedbackRow
+    func updateFeedback(id: String, _ payload: RowPayload) async throws
+
+    // Account metadata on the auth user (full_name, email_updates).
+    func updateUserMetadata(_ data: [String: JSONValue]) async throws -> UserProfile
 }
 
 // The prototype's own rule for how long a signed photo URL lives. The web

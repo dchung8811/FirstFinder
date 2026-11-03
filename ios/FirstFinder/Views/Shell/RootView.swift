@@ -7,7 +7,7 @@ struct RootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PrototypeBanner()
+            SampleModeBanner()
             SiteBannerView { app.followBannerLink($0) }
             OfflineBanner()
             content

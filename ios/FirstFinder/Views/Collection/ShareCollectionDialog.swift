@@ -55,17 +55,16 @@ struct ShareCollectionDialog: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(draft.visibility == "off" ? "Save" : "Save and publish") {
-                        app.saveShare(draft)
-                        dismiss()
+                        Task { if await app.saveShare(draft) { dismiss() } }
                     }
-                    .disabled(!dirty)
+                    .disabled(!dirty || app.isSaving)
                 }
                 ToolbarItem(placement: .bottomBar) {
                     if dirty { Text("Unsaved changes").font(.footnote).foregroundStyle(Theme.brownSoft) }
                 }
             }
             .confirmationDialog("Reset your link?", isPresented: $confirmingReset, titleVisibility: .visible) {
-                Button("Reset link", role: .destructive) { app.resetShareLink(); dismiss() }
+                Button("Reset link", role: .destructive) { Task { if await app.resetShareLink() { dismiss() } } }
             } message: {
                 Text("Resetting gives you a new address and breaks every link you've already sent.")
             }

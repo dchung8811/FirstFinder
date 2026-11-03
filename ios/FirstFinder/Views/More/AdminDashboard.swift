@@ -128,7 +128,7 @@ struct AdminDashboard: View {
 
     private func fetch() async throws -> Data {
         do {
-            return try await app.store.getSiteJSON(path: "/api/admin/stats", authorized: true)
+            return try await app.store.getSiteJSON(path: "/api/v1/admin/stats", authorized: true)
         } catch {
             self.error = error.localizedDescription
             loading = false
@@ -334,7 +334,7 @@ private struct BannerPanel: View {
                 struct Banner: Decodable { var enabled: Bool?; var message: String?; var linkLabel: String?; var linkView: String?; var updatedAt: String? }
                 var banner: Banner
             }
-            if let data = try? await app.store.getSiteJSON(path: "/api/admin/banner", authorized: true),
+            if let data = try? await app.store.getSiteJSON(path: "/api/v1/admin/banner", authorized: true),
                let response = try? JSONDecoder().decode(Response.self, from: data) {
                 let banner = response.banner
                 draft = SiteBanner(enabled: banner.enabled ?? false, message: banner.message ?? "", linkLabel: banner.linkLabel ?? "", linkView: banner.linkView ?? "", updatedAt: banner.updatedAt)

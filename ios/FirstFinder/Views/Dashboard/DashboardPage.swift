@@ -479,9 +479,6 @@ private struct RecentFindCover: View {
             .frame(width: 128, height: 128 * 4 / 3)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.border))
-            .overlay(alignment: .topTrailing) {
-                if app.isLocal(itemId: item.id) { LocalChip().scaleEffect(0.85).padding(4) }
-            }
             .padding(.bottom, 6)
             Text(item.name.isEmpty ? "Untitled item" : item.name)
                 .font(.subheadline.weight(.medium))

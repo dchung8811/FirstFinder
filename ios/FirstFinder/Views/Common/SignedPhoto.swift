@@ -23,7 +23,7 @@ struct SignedPhoto: View {
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
                     .accessibilityLabel(accessibilityLabel)
-            } else if path.hasPrefix(LocalOverlay.localPhotoPrefix) {
+            } else if path.hasPrefix(PendingPhotos.prefix) {
                 Color.clear
             } else if case .signed(let url) = app.photos.state(for: path), url.scheme == SampleStore.photoScheme {
                 SamplePlaceholderCover(seed: path)
@@ -55,8 +55,8 @@ struct SignedPhoto: View {
     }
 
     private func load() async {
-        if path.hasPrefix(LocalOverlay.localPhotoPrefix) {
-            image = app.overlay.localPhotos[path].flatMap(UIImage.init(data:))
+        if path.hasPrefix(PendingPhotos.prefix) {
+            image = app.pendingPhotos.bytes[path].flatMap(UIImage.init(data:))
             return
         }
         switch app.photos.state(for: path) {

@@ -2,101 +2,116 @@ import Foundation
 import XCTest
 @testable import FirstFinder
 
-// The prototype signs in to a real account and must never change it. Row
-// Level Security would allow writes to the collector's own rows, so the
-// database can't enforce this; these tests do, by reading every source file
-// under ios/ and failing on anything that could write.
+// The app writes to a collector's real collection, and Row Level Security is
+// the only thing on the server standing between one account and another. So
+// the app keeps its own writing narrow, and these tests hold it there by
+// reading every source file under ios/:
+//
+//   - Only Stores/LiveStore.swift may write, and only to the tables, storage
+//     bucket and database functions the app needs.
+//   - Every call to the site goes to /api/v1, the addresses that stay stable
+//     for installed builds (see src/utils/apiV1Wiring.test.js on the web).
+//   - The service role key, which bypasses Row Level Security, appears nowhere
+//     in any form.
 //
 // This file is the one place the forbidden spellings may appear, so it skips
 // itself. Everything else -- app code, other tests, config -- is scanned.
-final class ReadOnlyGuardTests: XCTestCase {
+final class WriteGuardTests: XCTestCase {
     private static let iosRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
 
     private static let thisFile = URL(fileURLWithPath: #filePath).lastPathComponent
+    private static let writer = "LiveStore.swift"
 
-    // Supabase calls that write, plus their storage counterparts.
-    private static let forbiddenCalls = [
-        ".insert(", ".update(", ".upsert(", ".delete(",
-        ".upload(", ".remove(", ".move(",
-        // Auth calls that change an account or send mail.
-        ".signUp(", ".updateUser(", ".resetPasswordForEmail(",
-        // Storage listing: the web uses it to repair photo records, which then
-        // writes. The prototype has no reason to list anything.
-        ".list(",
+    // Calls that write, or that list storage. Allowed in LiveStore only.
+    private static let writeCalls = [
+        ".insert(", ".update(", ".upsert(", ".delete(", ".upload(", ".remove(", ".move(", ".list(", ".rpc(",
     ]
 
-    // The API routes that spend money, file issues or delete accounts.
-    private static let forbiddenRoutes = [
-        "/api/identify-book", "/api/scan-book", "/api/feedback-intake", "/api/delete-account",
+    // Never, anywhere: storage moves, and auth calls that change an account's
+    // email or password or send mail. Sign-up and reset come with their own
+    // narrower rules when the app gains them.
+    private static let forbiddenEverywhere = [
+        ".move(", ".signUp(", ".updateUser(", ".resetPasswordForEmail(",
     ]
 
-    // Database functions that write. search_book_catalog is the only one the
-    // prototype may call; this list is for a clearer failure message, and the
-    // .rpc( rule below catches anything not on it either.
-    private static let forbiddenFunctions = ["queue_book_suggestion", "claim_identify_call", "claim_scan_call"]
+    // Server-side only: the spending routes call these with the service role.
+    private static let forbiddenFunctions = ["claim_identify_call", "claim_scan_call"]
 
     private static let allowedTables: Set<String> = [
         "inventory_items", "wishlist_items", "shared_collections", "feedback", "book_catalog", "site_banner",
     ]
 
-    func testNoSwiftSourceCanWrite() throws {
+    private static let allowedFunctions: Set<String> = ["search_book_catalog", "queue_book_suggestion"]
+
+    func testOnlyLiveStoreWritesAndOnlyWhereItShould() throws {
         var failures: [String] = []
 
         for file in try Self.files(withExtensions: ["swift"]) {
             let text = try String(contentsOf: file, encoding: .utf8)
             let name = Self.relative(file)
+            let isWriter = file.lastPathComponent == Self.writer
 
             for (index, line) in text.components(separatedBy: .newlines).enumerated() {
                 let at = "\(name):\(index + 1)"
 
-                for call in Self.forbiddenCalls + Self.forbiddenRoutes + Self.forbiddenFunctions where line.contains(call) {
+                if !isWriter {
+                    for call in Self.writeCalls where line.contains(call) {
+                        failures.append("\(at) uses \(call) outside \(Self.writer)")
+                    }
+                }
+                for call in Self.forbiddenEverywhere + Self.forbiddenFunctions where line.contains(call) {
                     failures.append("\(at) uses \(call)")
                 }
 
-                // Google sign-in is allowed in one place only: it signs in to an
-                // account that already exists. Anywhere else it's a second
-                // door into auth that this test doesn't watch.
-                if line.contains(".signInWithOAuth("), file.lastPathComponent != "LiveReadStore.swift" {
-                    failures.append("\(at) starts an OAuth sign-in outside LiveReadStore")
+                // Google sign-in, in the writer only: a second door into auth
+                // elsewhere would be one this test doesn't watch.
+                if line.contains(".signInWithOAuth("), !isWriter {
+                    failures.append("\(at) starts an OAuth sign-in outside \(Self.writer)")
                 }
                 if line.contains(".signInWithOAuth("), !line.contains("provider: .google") {
                     failures.append("\(at) starts an OAuth sign-in with a provider other than Google")
                 }
 
-                // Any .rpc( other than search_book_catalog.
-                for match in Self.matches(#"\.rpc\(\s*"?([^",)\s]*)"#, in: line) where match != "search_book_catalog" {
+                for match in Self.matches(#"\.rpc\(\s*"?([^",)\s]*)"#, in: line) where !Self.allowedFunctions.contains(match) {
                     failures.append("\(at) calls rpc \(match.isEmpty ? "(non-literal)" : match)")
                 }
 
-                // Tables: only the read list, and only by literal name. The
-                // storage bucket is the one non-literal .from( allowed.
+                // Tables by literal name only, from the list. The photo
+                // bucket is the one non-literal .from( allowed.
                 for match in Self.matches(#"\.from\(\s*([^)]*)\)"#, in: line) {
                     let argument = match.trimmingCharacters(in: .whitespaces)
                     if argument == "PhotoSigning.bucket" { continue }
                     let table = argument.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                     if !argument.hasPrefix("\"") || !Self.allowedTables.contains(table) {
-                        failures.append("\(at) reads from \(argument), which is not on the read list")
+                        failures.append("\(at) uses table \(argument), which is not on the list")
                     }
                 }
 
-                // Every HTTP request the prototype builds is a GET.
-                for method in Self.matches(#"httpMethod\s*=\s*"?([A-Za-z]*)"#, in: line) where method != "GET" {
+                // GETs anywhere; a POST only from the writer.
+                for method in Self.matches(#"httpMethod\s*=\s*"?([A-Za-z]*)"#, in: line) {
+                    if method == "GET" { continue }
+                    if method == "POST", isWriter { continue }
                     failures.append("\(at) sets httpMethod to \(method.isEmpty ? "a non-literal" : method)")
+                }
+
+                // Every site path through the stable addresses.
+                for path in Self.matches(#""(/api/[A-Za-z0-9/_-]*)"#, in: line) where !path.hasPrefix("/api/v1/") {
+                    failures.append("\(at) calls \(path); use /api/v1")
                 }
             }
         }
 
-        XCTAssertTrue(failures.isEmpty, "Write paths found in ios/:\n" + failures.joined(separator: "\n"))
+        XCTAssertTrue(failures.isEmpty, "Write paths outside the rules in ios/:\n" + failures.joined(separator: "\n"))
     }
 
-    // Only LiveReadStore talks to Supabase. Another file importing it would be
-    // a second door the read list doesn't cover.
-    func testOnlyLiveReadStoreImportsSupabase() throws {
+    // Only LiveStore talks to Supabase. Another file importing it would be a
+    // second door the rules above don't cover.
+    func testOnlyLiveStoreImportsSupabase() throws {
         let modules = ["Supabase", "Auth", "PostgREST", "Storage", "Realtime", "Functions"]
         var offenders: [String] = []
-        for file in try Self.files(withExtensions: ["swift"]) where file.lastPathComponent != "LiveReadStore.swift" {
+        for file in try Self.files(withExtensions: ["swift"]) where file.lastPathComponent != Self.writer {
             let text = try String(contentsOf: file, encoding: .utf8)
             for module in modules where text.contains("import \(module)\n") {
                 offenders.append("\(Self.relative(file)) imports \(module)")
@@ -134,10 +149,10 @@ final class ReadOnlyGuardTests: XCTestCase {
     // The guard is only worth having if it actually trips. Feed it the
     // spellings it must catch and check each one is seen.
     func testGuardRecognisesWhatItForbids() {
-        XCTAssertEqual(Self.matches(#"\.rpc\(\s*"?([^",)\s]*)"#, in: #"client.rpc("queue_book_suggestion", params: p)"#), ["queue_book_suggestion"])
-        XCTAssertEqual(Self.matches(#"\.rpc\(\s*"?([^",)\s]*)"#, in: #"client.rpc("search_book_catalog", params: p)"#), ["search_book_catalog"])
+        XCTAssertEqual(Self.matches(#"\.rpc\(\s*"?([^",)\s]*)"#, in: #"client.rpc("claim_identify_call", params: p)"#), ["claim_identify_call"])
         XCTAssertEqual(Self.matches(#"\.from\(\s*([^)]*)\)"#, in: #"client.from("login_events").select()"#), [#""login_events""#])
-        XCTAssertEqual(Self.matches(#"httpMethod\s*=\s*"?([A-Za-z]*)"#, in: #"request.httpMethod = "POST""#), ["POST"])
+        XCTAssertEqual(Self.matches(#"httpMethod\s*=\s*"?([A-Za-z]*)"#, in: #"request.httpMethod = "DELETE""#), ["DELETE"])
+        XCTAssertEqual(Self.matches(#""(/api/[A-Za-z0-9/_-]*)"#, in: #"getSiteJSON(path: "/api/admin/stats")"#), ["/api/admin/stats"])
         XCTAssertNotNil(AppConfig.privilegedRole(of: Self.fakeJWT(role: "service_role")))
         XCTAssertNil(AppConfig.privilegedRole(of: Self.fakeJWT(role: "anon")))
     }
@@ -151,7 +166,7 @@ final class ReadOnlyGuardTests: XCTestCase {
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else {
-            throw NSError(domain: "ReadOnlyGuard", code: 1, userInfo: [NSLocalizedDescriptionKey: "Can't read \(iosRoot.path)"])
+            throw NSError(domain: "WriteGuard", code: 1, userInfo: [NSLocalizedDescriptionKey: "Can't read \(iosRoot.path)"])
         }
 
         var found: [URL] = []

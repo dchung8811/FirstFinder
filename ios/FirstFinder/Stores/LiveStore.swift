@@ -1,22 +1,25 @@
 import Foundation
 import Supabase
 
-// The only file in the prototype that imports Supabase, and the only way the
-// app reaches the live database. It exposes reads and nothing else:
+// The only file in the app that imports Supabase, and the only way the app
+// reaches the live database. What it may do is short and fixed:
 //
-//   select on inventory_items, wishlist_items, shared_collections (own row),
-//   feedback (own rows), site_banner; the search_book_catalog function; and
-//   batched signed URLs on the item-photos bucket.
+//   read   inventory_items, wishlist_items, shared_collections (own row),
+//          feedback (own rows), site_banner; the search_book_catalog function;
+//          batched signed URLs on the item-photos bucket
+//   write  inventory_items, wishlist_items, shared_collections, feedback --
+//          the collector's own rows, which Row Level Security enforces; photos
+//          under the collector's own folder in item-photos; their own auth
+//          metadata (name, email preference); queue_book_suggestion
+//   call   the site's /api/v1 routes, with the collector's own token
 //
-// Row Level Security would let this account change its own rows, so the
-// read-only rule is the app's, not the database's. ReadOnlyGuardTests scans
-// every source file in ios/ for anything that could write and fails the
-// build's tests if it finds one.
+// WriteGuardTests holds every file in ios/ to that list: only this file may
+// write, only to these tables and functions, never with the service role key.
 //
-// Nothing read here is written to disk. The URLSession is ephemeral (no
-// cookie store, no disk cache), and the only thing persisted is the auth
-// session, which supabase-swift keeps in the Keychain.
-final class LiveReadStore: CollectionStore, @unchecked Sendable {
+// Nothing read here is written to disk by this file. The URLSession is
+// ephemeral (no cookie store, no disk cache); the auth session lives in the
+// Keychain, where supabase-swift keeps it.
+final class LiveStore: CollectionStore, @unchecked Sendable {
     // @unchecked: every stored property is a let of a Sendable type.
 
     nonisolated let mode: DataMode = .live
@@ -233,7 +236,182 @@ final class LiveReadStore: CollectionStore, @unchecked Sendable {
         }
     }
 
+    func postSiteJSON(path: String, body: Data) async throws -> Data {
+        guard let url = URL(string: path, relativeTo: siteURL) else { throw StoreError.failed("Bad path \(path)") }
+        guard let token = await accessToken() else { throw StoreError.notSignedIn }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, response) = try await session.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else {
+                let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+                throw StoreError.failed(message ?? "The site answered \(status).")
+            }
+            return data
+        } catch let error as StoreError {
+            throw error
+        } catch {
+            throw Self.translate(error)
+        }
+    }
+
+    // MARK: Writes
+
+    func maxReferenceNumber(userId: String) async throws -> Int {
+        struct Row: Decodable, Sendable { let reference_number: Int? }
+        let rows: [Row] = try await write {
+            try await self.client.from("inventory_items")
+                .select("reference_number")
+                .eq("user_id", value: userId)
+                .not("reference_number", operator: .is, value: "null")
+                .order("reference_number", ascending: false)
+                .limit(1)
+                .execute()
+                .value
+        }
+        return rows.first?.reference_number ?? 0
+    }
+
+    func insertItems(_ payloads: [RowPayload]) async throws -> [InventoryRow] {
+        try await write {
+            try await self.client.from("inventory_items").insert(payloads).select().execute().value
+        }
+    }
+
+    func updateItem(id: String, _ payload: RowPayload) async throws -> InventoryRow {
+        try await write {
+            try await self.client.from("inventory_items").update(payload).eq("id", value: id).select().single().execute().value
+        }
+    }
+
+    func deleteItem(id: String) async throws {
+        try await write {
+            _ = try await self.client.from("inventory_items").delete().eq("id", value: id).execute()
+        }
+    }
+
+    func uploadPhoto(path: String, jpeg: Data) async throws {
+        try await write {
+            // upsert off: a path is never reused, and writing over one should
+            // fail rather than replace. A year's cache-control, as the web
+            // sets, because the object at a path never changes.
+            _ = try await self.client.storage.from(PhotoSigning.bucket)
+                .upload(path, data: jpeg, options: FileOptions(cacheControl: "31536000", contentType: "image/jpeg", upsert: false))
+        }
+    }
+
+    func removePhotos(paths: [String]) async throws {
+        guard !paths.isEmpty else { return }
+        try await write {
+            _ = try await self.client.storage.from(PhotoSigning.bucket).remove(paths: paths)
+        }
+    }
+
+    func listItemPhotoPaths(userId: String, itemId: String) async -> [String]? {
+        let prefix = "\(userId)/\(itemId)"
+        let pageSize = 100
+        var paths: [String] = []
+        // Paged to the end: one page would be a silent ceiling that looks
+        // exactly like success.
+        var offset = 0
+        while true {
+            guard let page = try? await client.storage.from(PhotoSigning.bucket)
+                .list(path: prefix, options: SearchOptions(limit: pageSize, offset: offset))
+            else { return nil }
+            // Folder entries have no id; only files are removable.
+            paths += page.filter { $0.id != nil }.map { "\(prefix)/\($0.name)" }
+            if page.count < pageSize { return paths }
+            offset += pageSize
+        }
+    }
+
+    func queueBookSuggestion(title: String, author: String) async {
+        struct Params: Encodable, Sendable {
+            let p_title: String
+            let p_author: String
+        }
+        // Best effort, like the web's: a suggestion that doesn't land costs
+        // nothing but a catalog entry.
+        _ = try? await client.rpc("queue_book_suggestion", params: Params(p_title: title, p_author: author)).execute()
+    }
+
+    func insertWant(_ payload: RowPayload) async throws -> WishlistRow {
+        try await write {
+            try await self.client.from("wishlist_items").insert(payload).select().single().execute().value
+        }
+    }
+
+    func updateWant(id: String, _ payload: RowPayload) async throws -> WishlistRow {
+        try await write {
+            try await self.client.from("wishlist_items").update(payload).eq("id", value: id).select().single().execute().value
+        }
+    }
+
+    func deleteWant(id: String) async throws {
+        try await write {
+            _ = try await self.client.from("wishlist_items").delete().eq("id", value: id).execute()
+        }
+    }
+
+    func upsertShareSettings(_ payload: RowPayload) async throws -> SharedCollectionRow {
+        try await write {
+            try await self.client.from("shared_collections").upsert(payload, onConflict: "user_id").select().single().execute().value
+        }
+    }
+
+    func insertFeedback(_ payload: RowPayload) async throws -> FeedbackRow {
+        try await write {
+            try await self.client.from("feedback").insert(payload).select(FeedbackRow.selectColumns).single().execute().value
+        }
+    }
+
+    func updateFeedback(id: String, _ payload: RowPayload) async throws {
+        try await write {
+            _ = try await self.client.from("feedback").update(payload).eq("id", value: id).execute()
+        }
+    }
+
+    func updateUserMetadata(_ data: [String: JSONValue]) async throws -> UserProfile {
+        try await write {
+            let user = try await self.client.auth.update(user: UserAttributes(data: data.mapValues(Self.anyJSON)))
+            return Self.profile(from: user)
+        }
+    }
+
     // MARK: Helpers
+
+    // Every write goes through here, so a refusal always reaches the app as
+    // StoreError.write with the database's own code -- which is what
+    // WriteRetry decides on -- and being offline stays .offline.
+    private func write<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch let error as PostgrestError {
+            throw StoreError.write(error.message, code: error.code)
+        } catch let error as StorageError {
+            throw StoreError.write(error.message, code: nil)
+        } catch let error as URLError where [.notConnectedToInternet, .dataNotAllowed].contains(error.code) {
+            throw StoreError.offline
+        } catch {
+            throw StoreError.write(error.localizedDescription, code: nil)
+        }
+    }
+
+    private static func anyJSON(_ value: JSONValue) -> AnyJSON {
+        switch value {
+        case .null: .null
+        case .bool(let value): .bool(value)
+        case .int(let value): .integer(value)
+        case .number(let value): .double(NSDecimalNumber(decimal: value).doubleValue)
+        case .string(let value): .string(value)
+        case .array(let values): .array(values.map(anyJSON))
+        case .object(let values): .object(values.mapValues(anyJSON))
+        }
+    }
 
     private func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
         do {

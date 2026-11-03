@@ -167,42 +167,66 @@ enum WishlistLogic {
 }
 
 extension AppModel {
-    func saveWant(_ want: Want) {
-        guard let userId = profile?.id else { return }
-        let isNew = want.id.isEmpty
-        let now = ISO8601DateFormatter().string(from: Date())
-        let write = Mapping.toDbWant(want, userId: userId)
-        let existing = isNew ? nil : overlay.mergedWishlist(wishlistRows).first { $0.id == want.id }
-        let row = WishlistRow(
-            id: isNew ? UUID().uuidString.lowercased() : want.id, userId: userId, name: write.name, maker: write.maker,
-            category: write.category, wantedEdition: write.wantedEdition, wantedPrinting: write.wantedPrinting,
-            publisher: write.publisher, minCondition: write.minCondition, jacketRequirement: write.jacketRequirement,
-            signatureRequirement: write.signatureRequirement, maxPrice: write.maxPrice, preferredSource: write.preferredSource,
-            priority: write.priority, upgradeForItemId: write.upgradeForItemId, notes: write.notes,
-            hiddenFromShare: write.hiddenFromShare, foundAt: existing?.foundAt, foundItemId: existing?.foundItemId,
-            createdAt: existing?.createdAt ?? now, updatedAt: now
-        )
-        overlay.saveWant(row, isNew: isNew, summary: isNew ? "Added \"\(want.name)\" to your wishlist" : "Edited \"\(want.name)\"")
-        toasts.push(isNew ? "Added to your wishlist." : "Want updated.", tone: .success)
+    // saveWant: insert or update on the same path, decided by whether the
+    // draft has an id yet.
+    @discardableResult
+    func saveWant(_ want: Want) async -> Bool {
+        guard let userId = profile?.id, WishlistLogic.isSaveable(want) else { return false }
+        guard isOnline else {
+            toasts.push(Self.offlineSaveMessage, tone: .error)
+            return false
+        }
+        isSaving = true
+        defer { isSaving = false }
+        let payload = Writes.want(Mapping.toDbWant(want, userId: userId))
+        do {
+            let saved = want.id.isEmpty
+                ? try await store.insertWant(payload)
+                : try await store.updateWant(id: want.id, payload)
+            took(want: saved)
+        } catch {
+            toasts.push(error.localizedDescription, tone: .error)
+            return false
+        }
+        toasts.push(want.id.isEmpty ? "Added to your wishlist." : "Want updated.", tone: .success)
+        return true
     }
 
-    func removeWant(_ id: String) {
-        let name = wishlist.first { $0.id == id }?.name ?? ""
-        overlay.discardWant(id: id, summary: "Removed \"\(name)\" from your wishlist")
+    @discardableResult
+    func removeWant(_ id: String) async -> Bool {
+        guard isOnline else {
+            toasts.push(Self.offlineSaveMessage, tone: .error)
+            return false
+        }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await store.deleteWant(id: id)
+        } catch {
+            toasts.push(error.localizedDescription, tone: .error)
+            return false
+        }
+        dropped(wantId: id)
         toasts.push("Removed from your wishlist.", tone: .success)
+        return true
     }
 
-    // "I found it": the copy joins the collection, and the want is marked
-    // found rather than deleted, so the hunt stays on record.
-    func markWantFound(_ want: Want, found: WishlistLogic.Found, itemPhotos: [Photo], receiptPhotos: [Photo]) {
-        guard let saved = addItem(WishlistLogic.toItem(want, found: found), itemPhotos: itemPhotos, receiptPhotos: receiptPhotos),
-              var row = overlay.mergedWishlist(wishlistRows).first(where: { $0.id == want.id })
-        else { return }
-        let now = ISO8601DateFormatter().string(from: Date())
-        row.foundAt = now
-        row.foundItemId = saved.id
-        row.updatedAt = now
-        overlay.saveWant(row, isNew: false, summary: "Found \"\(want.name)\"")
-        toasts.push("Saved to your collection.", tone: .success)
+    // "I found it": the copy joins the collection through the same path as
+    // any other add, and only then is the want marked found -- not deleted, so
+    // the hunt stays on record. Two writes, deliberately not a transaction:
+    // the failure this allows is a collector who owns the book and still has
+    // the want listed, which they can see and clear.
+    @discardableResult
+    func markWantFound(_ want: Want, found: WishlistLogic.Found, itemPhotos: [Photo], receiptPhotos: [Photo]) async -> Bool {
+        guard let saved = await addItem(WishlistLogic.toItem(want, found: found), itemPhotos: itemPhotos, receiptPhotos: receiptPhotos) else {
+            return false
+        }
+        let now = Writes.timestamp(Date())
+        do {
+            took(want: try await store.updateWant(id: want.id, ["found_at": now, "found_item_id": .string(saved.id), "updated_at": now]))
+        } catch {
+            toasts.push("Added to your collection, but the want stayed on your list.", tone: .warning)
+        }
+        return true
     }
 }

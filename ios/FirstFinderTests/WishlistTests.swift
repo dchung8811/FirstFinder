@@ -87,7 +87,7 @@ final class WishlistActionTests: XCTestCase {
         await app.start()
         guard let want = WishlistLogic.open(app.wishlist).first else { return XCTFail("no open sample want") }
         let before = app.inventory.count
-        app.markWantFound(want, found: .init(purchasePrice: "100"), itemPhotos: [], receiptPhotos: [])
+        await app.markWantFound(want, found: .init(purchasePrice: "100"), itemPhotos: [], receiptPhotos: [])
         XCTAssertEqual(app.inventory.count, before + 1)
         let after = app.wishlist.first { $0.id == want.id }
         XCTAssertFalse(after?.foundAt.isEmpty ?? true)
@@ -97,7 +97,7 @@ final class WishlistActionTests: XCTestCase {
     func testANewWantKeepsANilCeiling() async {
         let app = AppModel(config: .failure(.missing))
         await app.start()
-        app.saveWant(Want(id: "", name: "Something", maxPrice: nil))
+        await app.saveWant(Want(id: "", name: "Something", maxPrice: nil))
         XCTAssertNil(app.wishlist.first { $0.name == "Something" }?.maxPrice)
     }
 }
@@ -128,15 +128,27 @@ final class MorePagesTests: XCTestCase {
         XCTAssertTrue(String(decoding: data.prefix(5), as: UTF8.self).hasPrefix("%PDF"))
     }
 
-    func testFeedbackAndNameStayOnThePhone() async {
+    func testFeedbackAndNameAreSaved() async {
         let app = AppModel(config: .failure(.missing))
         await app.start()
         let before = app.feedback.count
-        app.overlay.addFeedback(FeedbackRow(id: "f", userId: "u", description: "Hi", photos: PhotoColumn(), status: "new", createdAt: nil), summary: "Sent feedback")
-        app.overlay.setAccountName("New Name", summary: "Renamed")
+        let sent = await app.sendFeedback("  The scan missed the number line.  ", photos: [])
+        XCTAssertTrue(sent)
+        await app.refreshFeedback()
         XCTAssertEqual(app.feedback.count, before + 1)
-        app.overlay.revertAll()
-        XCTAssertEqual(app.feedback.count, before)
-        XCTAssertNil(app.overlay.accountName)
+        XCTAssertEqual(app.feedback.first?.description, "The scan missed the number line.")
+
+        await app.saveName("New Name")
+        XCTAssertEqual(app.profile?.fullName, "New Name")
+        await app.setEmailUpdates(true)
+        XCTAssertEqual(app.profile?.emailUpdates, true)
+    }
+
+    func testBlankFeedbackIsNotSent() async {
+        let app = AppModel(config: .failure(.missing))
+        await app.start()
+        let sent = await app.sendFeedback("   ", photos: [])
+        XCTAssertFalse(sent)
+        XCTAssertEqual(app.toasts.toasts.last?.message, "Add a description before sending feedback.")
     }
 }

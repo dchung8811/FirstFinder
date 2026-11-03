@@ -87,9 +87,6 @@ struct CollectionCard: View {
                         .padding(12)
                     }
                 }
-                .overlay(alignment: .topLeading) {
-                    if app.isLocal(itemId: entry.id) { LocalChip().padding(12) }
-                }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("View photos of \(title)")
@@ -102,9 +99,6 @@ struct CollectionCard: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 224)
                 .background(Theme.chip)
-                .overlay(alignment: .topLeading) {
-                    if app.isLocal(itemId: entry.id) { LocalChip().padding(12) }
-                }
         }
     }
 
@@ -233,17 +227,6 @@ struct CollectionTile: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(highlighted ? Theme.green : Theme.border, lineWidth: highlighted ? 2 : 1)
             )
-            .overlay(alignment: .topLeading) {
-                if app.isLocal(itemId: entry.id) {
-                    Image(systemName: "iphone")
-                        .font(.caption2)
-                        .foregroundStyle(Theme.warningInk)
-                        .padding(5)
-                        .background(Theme.warningSurface, in: Circle())
-                        .padding(5)
-                        .accessibilityLabel("Changed on this phone only")
-                }
-            }
             .padding(.bottom, 6)
             Text(label).font(.subheadline.weight(.medium)).foregroundStyle(Theme.ink).lineLimit(1)
             Text(credit.isEmpty ? "Unknown maker" : credit).font(.caption).foregroundStyle(Theme.brownSoft).lineLimit(1)

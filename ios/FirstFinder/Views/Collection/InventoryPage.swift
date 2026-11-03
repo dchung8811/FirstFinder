@@ -105,9 +105,9 @@ struct InventoryPage: View {
             presenting: deleting
         ) { item in
             Button("Cancel", role: .cancel) {}
-            Button("Delete item", role: .destructive) { app.deleteItem(item.id) }
+            Button("Delete item", role: .destructive) { Task { await app.deleteItem(item.id) } }
         } message: { _ in
-            Text("This removes the item and its saved photos permanently. This can't be undone.\n\nIn the prototype it's hidden on this phone only, until the app quits.")
+            Text("This removes the item and its saved photos permanently. This can't be undone.")
         }
     }
 
@@ -372,8 +372,7 @@ struct InventoryPage: View {
             edit: { editing = $0 },
             markSold: { markingSold = $0 },
             restore: { entry in
-                app.restoreSold(entry.id)
-                statusView = "active"
+                Task { if await app.restoreSold(entry.id) != nil { statusView = "active" } }
             },
             askToDelete: { deleting = $0 }
         )

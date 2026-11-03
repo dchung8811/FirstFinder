@@ -191,7 +191,7 @@ struct ContributePage: View {
         .navigationTitle(AppView.contribute.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            if let data = try? await app.store.getSiteJSON(path: "/api/contribute", authorized: false) {
+            if let data = try? await app.store.getSiteJSON(path: "/api/v1/contribute", authorized: false) {
                 payload = try? JSONDecoder().decode(Payload.self, from: data)
             }
             loading = false

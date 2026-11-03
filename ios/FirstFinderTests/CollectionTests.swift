@@ -119,7 +119,9 @@ final class PublicCollectionTests: XCTestCase {
     }
 }
 
-// The collection's actions, end to end through the overlay, in Sample mode.
+// The collection's actions, end to end through the sample store, which saves
+// in memory the way the database would. Each test checks the save reached the
+// store -- a fresh read agrees -- not just that the screen changed.
 @MainActor
 final class CollectionActionTests: XCTestCase {
     private func signedInSample() async -> AppModel {
@@ -132,49 +134,103 @@ final class CollectionActionTests: XCTestCase {
     func testRestoringASoldItemReturnsItToItsPreviousStatus() async {
         let app = await signedInSample()
         guard let item = app.inventory.first(where: { $0.status == "For sale" }) else { return XCTFail("no For sale sample item") }
-        app.markSold(item.id, soldPrice: "75", soldDate: "2026-09-01", condition: "")
+        let marked = await app.markSold(item.id, soldPrice: "75", soldDate: "2026-09-01", condition: "")
+        XCTAssertTrue(marked)
         let sold = app.inventory.first { $0.id == item.id }
         XCTAssertEqual(sold?.status, "Sold")
         XCTAssertEqual(sold?.previousStatus, "For sale")
         XCTAssertEqual(sold?.soldPrice, 75)
-        XCTAssertTrue(app.isLocal(itemId: item.id))
 
-        XCTAssertEqual(app.restoreSold(item.id), "For sale")
-        let restored = app.inventory.first { $0.id == item.id }
-        XCTAssertEqual(restored?.status, "For sale")
-        XCTAssertNil(restored?.soldPrice)
+        await app.refreshInventory()
+        XCTAssertEqual(app.inventory.first { $0.id == item.id }?.status, "Sold", "the sale was saved, not just shown")
+
+        let restored = await app.restoreSold(item.id)
+        XCTAssertEqual(restored, "For sale")
+        let back = app.inventory.first { $0.id == item.id }
+        XCTAssertEqual(back?.status, "For sale")
+        XCTAssertNil(back?.soldPrice)
+        XCTAssertEqual(back?.previousStatus, "")
     }
 
     func testMarkingSoldWithABlankPriceKeepsItBlank() async {
         let app = await signedInSample()
         guard let item = app.activeInventory.first else { return XCTFail() }
-        app.markSold(item.id, soldPrice: "", soldDate: "2026-09-01", condition: "")
+        await app.markSold(item.id, soldPrice: "", soldDate: "2026-09-01", condition: "")
         XCTAssertNil(app.inventory.first { $0.id == item.id }?.soldPrice)
     }
 
-    func testDeletingHidesTheItemOnlyHere() async {
+    func testDeletingRemovesTheItemForGood() async {
         let app = await signedInSample()
         let before = app.inventory.count
         guard let item = app.inventory.first else { return XCTFail() }
-        app.deleteItem(item.id)
+        let deleted = await app.deleteItem(item.id)
+        XCTAssertTrue(deleted)
         XCTAssertEqual(app.inventory.count, before - 1)
-        app.overlay.revertAll()
-        XCTAssertEqual(app.inventory.count, before)
+        await app.refreshInventory()
+        XCTAssertEqual(app.inventory.count, before - 1)
+        XCTAssertNil(app.inventory.first { $0.id == item.id })
     }
 
     func testANewItemGetsTheNextReferenceNumber() async {
         let app = await signedInSample()
         let highest = app.inventory.compactMap(\.referenceNumber).max() ?? 0
-        let added = app.addItem(Item(id: "", name: "New find"), itemPhotos: [], receiptPhotos: [])
+        let added = await app.addItem(Item(id: "", name: "New find"), itemPhotos: [], receiptPhotos: [])
         XCTAssertEqual(added?.referenceNumber, highest + 1)
         XCTAssertEqual(app.inventory.first?.name, "New find", "a new item comes first")
+        XCTAssertEqual(app.toasts.toasts.last?.message, "Saved to your collection.")
+    }
+
+    // A picked photo is uploaded under the owner's folder for the new item,
+    // linked to the row, and then forgotten from memory.
+    func testANewItemsPhotosAreUploadedAndLinked() async {
+        let app = await signedInSample()
+        let picked = app.pendingPhotos.store(Data([0xFF, 0xD8, 0xFF]), name: "cover.jpg")
+        guard let added = await app.addItem(Item(id: "", name: "With a photo"), itemPhotos: [picked], receiptPhotos: []) else { return XCTFail() }
+        let userId = app.profile?.id ?? ""
+        XCTAssertEqual(added.itemPhotos.count, 1)
+        XCTAssertTrue(added.itemPhotos[0].path.hasPrefix("\(userId)/\(added.id)/item-"), added.itemPhotos[0].path)
+        XCTAssertEqual(added.itemPhotoCount, 1)
+        XCTAssertTrue(app.pendingPhotos.bytes.isEmpty)
     }
 
     func testEditingKeepsTheEstimateNilWhenLeftBlank() async {
         let app = await signedInSample()
         guard var item = app.activeInventory.first(where: { $0.estimatedValue != nil }) else { return XCTFail() }
         item.estimatedValue = nil
-        app.saveEdit(item, itemPhotos: item.itemPhotos, receiptPhotos: item.receiptPhotos, addedPhotoCount: 0)
+        let saved = await app.saveEdit(item, itemPhotos: item.itemPhotos, receiptPhotos: item.receiptPhotos)
+        XCTAssertTrue(saved)
+        await app.refreshInventory()
         XCTAssertNil(app.inventory.first { $0.id == item.id }?.estimatedValue)
+    }
+
+    func testAnInlineEditWritesOnlyThatField() async {
+        let app = await signedInSample()
+        guard let item = app.activeInventory.first(where: { !$0.notes.isEmpty }) ?? app.activeInventory.first else { return XCTFail() }
+        await app.inlineSave(item.id, fields: ["name": "Renamed"])
+        let after = app.inventory.first { $0.id == item.id }
+        XCTAssertEqual(after?.name, "Renamed")
+        XCTAssertEqual(after?.notes, item.notes)
+        XCTAssertEqual(after?.estimatedValue, item.estimatedValue)
+    }
+
+    // A refused save leaves the screen as it was and says what happened.
+    func testAFailedSaveChangesNothing() async {
+        let app = await signedInSample()
+        guard let item = app.activeInventory.first else { return XCTFail() }
+        app.sampleStore.scenario = .failing
+        let marked = await app.markSold(item.id, soldPrice: "10", soldDate: "", condition: "")
+        XCTAssertFalse(marked)
+        XCTAssertEqual(app.inventory.first { $0.id == item.id }?.status, item.status)
+        XCTAssertEqual(app.toasts.toasts.last?.tone, .error)
+    }
+
+    func testSavingNeedsAConnection() async {
+        let app = await signedInSample()
+        guard let item = app.activeInventory.first else { return XCTFail() }
+        app.forceOffline = true
+        let deleted = await app.deleteItem(item.id)
+        XCTAssertFalse(deleted)
+        XCTAssertNotNil(app.inventory.first { $0.id == item.id })
+        XCTAssertEqual(app.toasts.toasts.last?.message, AppModel.offlineSaveMessage)
     }
 }

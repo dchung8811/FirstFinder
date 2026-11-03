@@ -10,6 +10,12 @@ struct RecordsList: View {
 
     @Environment(AppModel.self) private var app
 
+    // Inline edits save on commit, as the web's do; the cell shows the saved
+    // value once the row comes back.
+    private func save(_ itemId: String, _ fields: [String: String]) {
+        Task { await app.inlineSave(itemId, fields: fields) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Tap any name, category, status, or amount to edit it here.")
@@ -36,25 +42,24 @@ struct RecordsList: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 InlineCell(label: "item name", value: entry.name, display: entry.name.isEmpty ? "Untitled item" : entry.name, bold: true) {
-                    app.inlineSave(entry.id, fields: ["name": $0])
+                    save(entry.id, ["name": $0])
                 }
-                if app.isLocal(itemId: entry.id) { LocalChip() }
             }
             InlineCell(label: authored ? "author" : "maker", value: authored ? entry.author : entry.maker, display: credit.isEmpty ? "Unknown maker" : credit) {
-                app.inlineSave(entry.id, fields: authored ? ["author": $0] : ["maker": $0])
+                save(entry.id, authored ? ["author": $0] : ["maker": $0])
             }
             HStack(spacing: 16) {
                 InlineCell(label: "category", value: entry.category, options: Vocab.quickCategories) {
-                    app.inlineSave(entry.id, fields: ["category": $0])
+                    save(entry.id, ["category": $0])
                 }
                 InlineCell(label: "status", value: entry.status, options: Vocab.statuses) {
-                    app.inlineSave(entry.id, fields: ["status": $0])
+                    save(entry.id, ["status": $0])
                 }
             }
             HStack(spacing: 16) {
                 LabeledInline(label: "Cost") {
                     InlineCell(label: "what you paid", value: Format.amountText(entry.purchasePrice), display: Format.currency(entry.purchasePrice), numeric: true) {
-                        app.inlineSave(entry.id, fields: ["purchasePrice": $0])
+                        save(entry.id, ["purchasePrice": $0])
                     }
                 }
                 LabeledInline(label: "Value") {
@@ -64,7 +69,7 @@ struct RecordsList: View {
                         display: ItemsLogic.formatEstimatedValue(entry),
                         numeric: true
                     ) {
-                        app.inlineSave(entry.id, fields: sold ? ["soldPrice": $0] : ["estimatedValue": $0])
+                        save(entry.id, sold ? ["soldPrice": $0] : ["estimatedValue": $0])
                     }
                 }
             }

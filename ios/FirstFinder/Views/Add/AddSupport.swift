@@ -75,7 +75,7 @@ struct PhotoPickerButton<Label: View>: View {
                 var photos: [Photo] = []
                 for (index, item) in items.enumerated() {
                     if let data = try? await item.loadTransferable(type: Data.self) {
-                        photos.append(app.overlay.storePhoto(data, name: "photo-\(index + 1).jpg"))
+                        photos.append(app.pendingPhotos.store(data, name: "photo-\(index + 1).jpg"))
                     }
                 }
                 picked = []
@@ -84,7 +84,7 @@ struct PhotoPickerButton<Label: View>: View {
         }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraPicker { data in
-                if let data { onPicked([app.overlay.storePhoto(data, name: "camera.jpg")]) }
+                if let data { onPicked([app.pendingPhotos.store(data, name: "camera.jpg")]) }
             }
             .ignoresSafeArea()
         }
@@ -173,7 +173,7 @@ struct PhotoUploader: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                             Button {
                                 photos.removeAll { $0.path == photo.path }
-                                app.overlay.forgetPhotos([photo.path])
+                                app.pendingPhotos.forget([photo.path])
                             } label: {
                                 Image(systemName: "xmark").font(.caption2.weight(.bold)).foregroundStyle(.white)
                                     .frame(width: 26, height: 26).background(Color.black.opacity(0.7), in: Circle())

@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import FirstFinder
 
@@ -45,58 +46,40 @@ final class AppConfigTests: XCTestCase {
 }
 
 @MainActor
-final class LocalOverlayTests: XCTestCase {
-    private func row(_ id: String, name: String, created: String) -> InventoryRow {
-        InventoryRow(id: id, userId: "u", name: name, createdAt: created)
+final class PendingPhotosTests: XCTestCase {
+    func testAPickedPhotoWaitsInMemoryUntilForgotten() {
+        let pending = PendingPhotos()
+        let photo = pending.store(Data([1, 2, 3]), name: "a.jpg")
+        XCTAssertTrue(PendingPhotos.isPending(photo))
+        XCTAssertEqual(pending.bytes[photo.path], Data([1, 2, 3]))
+        pending.forget([photo.path])
+        XCTAssertTrue(pending.bytes.isEmpty)
     }
 
-    func testAnEditReplacesTheLiveRowInPlace() {
-        let overlay = LocalOverlay()
-        let live = [row("1", name: "A", created: "2026-02"), row("2", name: "B", created: "2026-01")]
-        overlay.saveItem(row("2", name: "B edited", created: "2026-01"), isNew: false, summary: "Edited B")
-        XCTAssertEqual(overlay.mergedInventory(live).map(\.name), ["A", "B edited"])
-        XCTAssertTrue(overlay.isLocal(itemId: "2"))
-        XCTAssertFalse(overlay.isLocal(itemId: "1"))
+    func testAStoredPhotoIsNotPending() {
+        XCTAssertFalse(PendingPhotos.isPending(Photo(path: "user/item/item-1-abc-a.jpg", name: "a.jpg")))
     }
 
-    func testANewItemComesFirst() {
-        let overlay = LocalOverlay()
-        overlay.saveItem(row("new", name: "New", created: "2026-10"), isNew: true, summary: "Added New")
-        XCTAssertEqual(overlay.mergedInventory([row("1", name: "A", created: "2026-02")]).map(\.id), ["new", "1"])
+    // compressImage: the long edge down to 1,600px, and smaller than it was.
+    func testCompressionShrinksALargePhoto() throws {
+        let size = CGSize(width: 4000, height: 3000)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let original = UIGraphicsImageRenderer(size: size, format: format).pngData { context in
+            for x in stride(from: 0, to: 4000, by: 50) {
+                UIColor(hue: CGFloat(x) / 4000, saturation: 0.7, brightness: 0.8, alpha: 1).setFill()
+                context.fill(CGRect(x: x, y: 0, width: 50, height: 3000))
+            }
+        }
+        let compressed = PhotoCompression.jpeg(original)
+        let image = try XCTUnwrap(UIImage(data: compressed))
+        XCTAssertLessThan(compressed.count, original.count)
+        XCTAssertEqual(max(image.size.width, image.size.height), 1600)
     }
 
-    func testDeletingALiveItemHidesItButDeletingALocalOneForgetsIt() {
-        let overlay = LocalOverlay()
-        let live = [row("1", name: "A", created: "2026-02")]
-        overlay.discardItem(id: "1", summary: "Deleted A")
-        XCTAssertEqual(overlay.mergedInventory(live), [])
-        XCTAssertEqual(overlay.changes.count, 1)
-
-        overlay.saveItem(row("new", name: "New", created: "2026-10"), isNew: true, summary: "Added New")
-        overlay.discardItem(id: "new", summary: "Deleted New")
-        XCTAssertEqual(overlay.mergedInventory(live), [])
-        XCTAssertEqual(overlay.changes.count, 1, "deleting a local-only item should leave no trace")
-    }
-
-    func testRevertPutsAnItemBackAsTheStoreReadIt() {
-        let overlay = LocalOverlay()
-        let live = [row("1", name: "A", created: "2026-02")]
-        overlay.saveItem(row("1", name: "A edited", created: "2026-02"), isNew: false, summary: "Edited A")
-        overlay.discardItem(id: "1", summary: "Deleted A")
-        overlay.revert(.item("1"))
-        XCTAssertEqual(overlay.mergedInventory(live).map(\.name), ["A"])
-        XCTAssertTrue(overlay.isEmpty)
-    }
-
-    func testRevertAllEmptiesEverything() {
-        let overlay = LocalOverlay()
-        overlay.saveItem(row("1", name: "A", created: "2026"), isNew: true, summary: "Added")
-        overlay.setAccountToggle("explore", to: true, summary: "Explore on")
-        _ = overlay.storePhoto(Data([1, 2, 3]), name: "a.jpg")
-        overlay.revertAll()
-        XCTAssertTrue(overlay.isEmpty)
-        XCTAssertTrue(overlay.localPhotos.isEmpty)
-        XCTAssertEqual(overlay.accountToggle("explore", live: false), false)
+    func testCompressionKeepsBytesItCantDecode() {
+        let junk = Data([0, 1, 2, 3])
+        XCTAssertEqual(PhotoCompression.jpeg(junk), junk)
     }
 }
 

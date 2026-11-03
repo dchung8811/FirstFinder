@@ -55,12 +55,6 @@ struct DeveloperView: View {
                 Text("Identify and Snap a picture never call the real service here. They answer after 1.5 seconds with a sample result, or with the failure chosen above, in the web's words. The daily count resets at midnight UTC.")
             }
 
-            Section("Local changes") {
-                LabeledContent("Changes on this phone", value: "\(app.overlay.changes.count)")
-                Button("Discard all local changes", role: .destructive) { app.overlay.revertAll() }
-                    .disabled(app.overlay.isEmpty)
-            }
-
             Section("Reload") {
                 Button("Refetch everything") { Task { await app.refreshAll() } }
                 Button("Show the site banner again") { app.dismissedBannerId = nil }

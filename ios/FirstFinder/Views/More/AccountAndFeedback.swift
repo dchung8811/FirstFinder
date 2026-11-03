@@ -1,8 +1,8 @@
 import SwiftUI
 
-// FeedbackPage: a description and optional photos. On the web this files an
-// issue too; in the prototype the feedback is kept on this phone and listed
-// below with what you've already sent (read live).
+// FeedbackPage: a description and optional photos, saved to the feedback
+// table and then filed as an issue by the server, as on the web. What you've
+// already sent is listed below.
 struct FeedbackPage: View {
     @Environment(AppModel.self) private var app
     @State private var description = ""
@@ -23,9 +23,9 @@ struct FeedbackPage: View {
                             .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))
                             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
                         PhotoUploader(title: "Attach photos (optional)", systemImage: "camera", photos: $photos)
-                        Button("Send feedback", action: send).buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
-                        Text("In the prototype, feedback stays on this phone. Nothing is sent or filed.")
-                            .font(.caption).foregroundStyle(Theme.warningInk)
+                        Button(app.isSaving ? "Sending…" : "Send feedback", action: send)
+                            .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
+                            .disabled(app.isSaving)
                     }
                 }
                 Text("Prefer email? Reach us directly at thebookbarterer@gmail.com.")
@@ -37,7 +37,6 @@ struct FeedbackPage: View {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(WishlistLogic.accountDate(row.createdAt ?? "")).font(.caption).foregroundStyle(Theme.brownMuted)
-                                if app.overlay.feedback.contains(where: { $0.id == row.id }) { LocalChip() }
                                 if !row.photos.records.isEmpty { Chip(text: "\(row.photos.records.count) photo\(row.photos.records.count == 1 ? "" : "s")") }
                             }
                             Text(row.description).font(.subheadline)
@@ -59,27 +58,16 @@ struct FeedbackPage: View {
     }
 
     private func send() {
-        let text = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
-            app.toasts.push("Add a description before sending feedback.", tone: .error)
-            return
+        Task {
+            guard await app.sendFeedback(description, photos: photos) else { return }
+            description = ""
+            photos = []
         }
-        guard let userId = app.profile?.id else { return }
-        let row = FeedbackRow(
-            id: UUID().uuidString.lowercased(), userId: userId, description: text,
-            photos: PhotoColumn(records: photos.map { .init(path: $0.path, name: $0.name) }),
-            status: "new", createdAt: ISO8601DateFormatter().string(from: Date())
-        )
-        app.overlay.addFeedback(row, summary: "Sent feedback")
-        description = ""
-        photos = []
-        app.toasts.push("Thanks — your feedback was sent.", tone: .success)
     }
 }
 
 // MyAccountPage: profile, member since, the first collectible, the email
-// updates switch, and the danger zone. The name and switches change only on
-// this phone; deleting ends in "Disabled in the prototype".
+// updates switch, sharing at a glance, and the danger zone.
 struct MyAccountPage: View {
     @Environment(AppModel.self) private var app
     @Environment(\.openURL) private var openURL
@@ -89,7 +77,7 @@ struct MyAccountPage: View {
     var body: some View {
         let profile = app.profile
         let first = ItemsLogic.firstCollectible(app.inventory)
-        let emailUpdates = app.overlay.accountToggle("email_updates", live: profile?.emailUpdates ?? false)
+        let emailUpdates = profile?.emailUpdates ?? false
         let share = app.shareSettingsOrDefault
 
         ScrollView {
@@ -112,15 +100,12 @@ struct MyAccountPage: View {
                         }
                         Divider().overlay(Theme.borderSoft)
                         Field(label: "Name", text: $name)
-                        Button("Save name") {
-                            app.overlay.setAccountName(name.trimmingCharacters(in: .whitespaces), summary: "Changed your name to \"\(name)\"")
-                            app.toasts.push("Name updated.", tone: .success)
-                        }
-                        .buttonStyle(.ffPrimary)
+                        Button("Save name") { Task { await app.saveName(name) } }
+                            .buttonStyle(.ffPrimary)
+                            .disabled(app.isSaving)
                         Divider().overlay(Theme.borderSoft)
                         Toggle(isOn: Binding(get: { emailUpdates }, set: { next in
-                            app.overlay.setAccountToggle("email_updates", to: next, summary: next ? "Turned on update emails" : "Turned off update emails")
-                            app.toasts.push(next ? "You'll get the occasional update email." : "No more update emails.", tone: .success)
+                            Task { await app.setEmailUpdates(next) }
                         })) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Email me about new features").font(.subheadline.weight(.medium))
@@ -129,12 +114,12 @@ struct MyAccountPage: View {
                             }
                         }
                         .toggleStyle(CheckboxToggleStyle())
+                        .disabled(app.isSaving)
                     }
                 }
 
-                // The real sharing values, read live; toggling changes the
-                // phone's copy only. The full settings are behind Share on
-                // the collection, as on the web.
+                // The two sharing switches people look for here. The full
+                // settings are behind Share on the collection, as on the web.
                 if let share {
                     Card(padding: 22) {
                         VStack(alignment: .leading, spacing: 12) {
@@ -142,7 +127,7 @@ struct MyAccountPage: View {
                             Toggle(isOn: Binding(get: { share.visibility != "off" }, set: { on in
                                 var next = share
                                 next.visibility = on ? (share.visibility == "off" ? "unlisted" : share.visibility) : "off"
-                                app.saveShare(next)
+                                Task { await app.saveShare(next) }
                             })) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Sharing").font(.subheadline.weight(.medium))
@@ -153,7 +138,7 @@ struct MyAccountPage: View {
                             Toggle(isOn: Binding(get: { share.visibility == "listed" && share.showOnExplore }, set: { on in
                                 var next = share
                                 next.showOnExplore = on
-                                app.saveShare(next)
+                                Task { await app.saveShare(next) }
                             })) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Show on Explore").font(.subheadline.weight(.medium))
@@ -196,7 +181,7 @@ struct MyAccountPage: View {
         .background(Theme.page)
         .navigationTitle(AppView.account.title)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { name = app.overlay.accountName ?? profile?.fullName ?? "" }
+        .onAppear { name = profile?.fullName ?? "" }
         .sheet(isPresented: $showingDelete) { DeleteAccountDialog() }
     }
 
@@ -208,11 +193,12 @@ struct MyAccountPage: View {
     }
 }
 
-// DeleteAccountDialog: type DELETE, and then -- in the prototype -- nothing.
+// DeleteAccountDialog: type DELETE, then the server deletes the login, the
+// collection, every photo and all feedback, and the phone signs out.
 struct DeleteAccountDialog: View {
+    @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var confirmText = ""
-    @State private var attempted = false
 
     var body: some View {
         NavigationStack {
@@ -228,18 +214,14 @@ struct DeleteAccountDialog: View {
                     .padding(12)
                     .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))
                     .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.errorBorder))
-                if attempted {
-                    Text("Disabled in the prototype. Nothing was deleted.")
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.warningInk).padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.warningSurface, in: RoundedRectangle(cornerRadius: 12))
-                }
                 HStack {
-                    Button("Cancel") { dismiss() }.buttonStyle(.ffSecondary)
+                    Button("Cancel") { dismiss() }.buttonStyle(.ffSecondary).disabled(app.isSaving)
                     Spacer()
-                    Button("Permanently delete my account") { attempted = true }
-                        .buttonStyle(.ffDanger)
-                        .disabled(confirmText.trimmingCharacters(in: .whitespaces).uppercased() != "DELETE")
+                    Button(app.isSaving ? "Deleting…" : "Permanently delete my account") {
+                        Task { if await app.deleteAccount() { dismiss() } }
+                    }
+                    .buttonStyle(.ffDanger)
+                    .disabled(app.isSaving || confirmText.trimmingCharacters(in: .whitespaces).uppercased() != "DELETE")
                 }
                 Spacer()
             }

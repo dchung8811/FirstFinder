@@ -85,10 +85,12 @@ struct MarkSoldDialog: View {
                         Button("Cancel") { dismiss() }.buttonStyle(.ffSecondary)
                         Spacer()
                         Button("Mark sold") {
-                            app.markSold(entry.id, soldPrice: soldPrice, soldDate: Format.day(soldDate), condition: condition)
-                            dismiss()
+                            Task {
+                                if await app.markSold(entry.id, soldPrice: soldPrice, soldDate: Format.day(soldDate), condition: condition) { dismiss() }
+                            }
                         }
                         .buttonStyle(.ffPrimary)
+                        .disabled(app.isSaving)
                     }
                     .padding(.top, 8)
                 }
@@ -182,9 +184,9 @@ struct EditItemModal: View {
                     .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.borderSoft))
 
                     HStack {
-                        Button("Cancel") { dismiss() }.buttonStyle(.ffSecondary)
+                        Button("Cancel") { discardAdded(); dismiss() }.buttonStyle(.ffSecondary).disabled(app.isSaving)
                         Spacer()
-                        Button("Save changes", action: save).buttonStyle(.ffPrimary)
+                        Button(app.isSaving ? "Saving…" : "Save changes", action: save).buttonStyle(.ffPrimary).disabled(app.isSaving)
                     }
                     .padding(.top, 8)
                 }
@@ -212,13 +214,17 @@ struct EditItemModal: View {
         }
         next.purchaseDate = purchaseDate.map(Format.day) ?? ""
         next.soldDate = sold ? (soldDate.map(Format.day) ?? "") : ""
-        app.saveEdit(next, itemPhotos: itemPhotos, receiptPhotos: receiptPhotos, addedPhotoCount: added)
-        dismiss()
+        Task { if await app.saveEdit(next, itemPhotos: itemPhotos, receiptPhotos: receiptPhotos) { dismiss() } }
+    }
+
+    // Photos picked and then cancelled are forgotten, not left in memory.
+    private func discardAdded() {
+        app.pendingPhotos.forget((itemPhotos + receiptPhotos).filter(PendingPhotos.isPending).map(\.path))
     }
 }
 
 // EditPhotoSection: the photos already saved, ones added now (marked New),
-// and a picker. Added photos live in the overlay's memory, nowhere else.
+// and a picker. Added photos wait in memory until Save uploads them.
 struct EditPhotoSection: View {
     let title: String
     let systemImage: String
@@ -283,7 +289,7 @@ struct EditPhotoSection: View {
     private func load(_ items: [PhotosPickerItem]) async {
         for item in items {
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            photos.append(app.overlay.storePhoto(data, name: "photo-\(photos.count + 1).jpg"))
+            photos.append(app.pendingPhotos.store(data, name: "photo-\(photos.count + 1).jpg"))
             added += 1
         }
         picked = []

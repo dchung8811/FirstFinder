@@ -1,139 +1,322 @@
 import Foundation
 
-// Everything a collector can change, applied to the in-memory overlay and
-// never sent anywhere. Each action builds the row the web's write would have
-// produced -- same columns, same sale-field rules -- so a local change looks
-// exactly like a saved one, and says what the web says in its toast.
+// Everything a collector can change, saved through the store the way
+// app/InventoryApp.jsx saves it: the same order of steps, the same rows (see
+// Writes.swift), and the same words in the toast afterwards. Each action
+// changes what's on screen only once the save has landed, to the row that
+// came back.
+//
+// Saving needs a connection. The web can queue edits offline; the phone's
+// first release doesn't, and says so instead of pretending to save.
 extension AppModel {
-    // MARK: Reading the merged rows
-
-    var mergedInventoryRows: [InventoryRow] {
-        overlay.mergedInventory(inventoryRows)
-    }
-
-    func row(for itemId: String) -> InventoryRow? {
-        mergedInventoryRows.first { $0.id == itemId }
-    }
-
     var activeInventory: [Item] { inventory.filter { $0.status != "Sold" } }
     var soldInventory: [Item] { inventory.filter { $0.status == "Sold" } }
 
-    // nextReferenceNumbers: the next number after the highest one in use,
-    // across live and local rows. The web asks the database for its max; the
-    // phone has every row in memory already.
-    func nextReferenceNumber() -> Int {
-        (mergedInventoryRows.compactMap(\.referenceNumber).max() ?? 0) + 1
+    func row(for itemId: String) -> InventoryRow? {
+        inventoryRows.first { $0.id == itemId }
     }
 
-    private var nowIso: String { ISO8601DateFormatter().string(from: Date()) }
+    static let offlineSaveMessage = "You're offline, so that can't be saved yet. Try again when you have a connection."
 
-    // MARK: Item lifecycle
+    // MARK: Adding
 
-    // updateInventoryItem: the edit modal's save.
-    func saveEdit(_ draft: Item, itemPhotos: [Photo], receiptPhotos: [Photo], addedPhotoCount: Int) {
-        guard let current = row(for: draft.id), let userId = profile?.id else { return }
-        let currentItem = Mapping.fromDbItem(current)
+    // insertItemWithPhotos: a reference number, the row, then its photos.
+    // The row is saved first, so a failed photo never costs the collector the
+    // item -- the photos are reported separately, and differently depending
+    // on whether they failed to upload or failed to link.
+    @discardableResult
+    func addItem(_ item: Item, itemPhotos: [Photo], receiptPhotos: [Photo], announce: Bool = true) async -> Item? {
+        guard let userId = profile?.id else {
+            toasts.push("Please log in before saving to your collection.", tone: .error)
+            return nil
+        }
+        guard isOnline else {
+            toasts.push(Self.offlineSaveMessage, tone: .error)
+            return nil
+        }
+        isSaving = true
+        defer { isSaving = false }
 
-        let isNowSold = draft.status == "Sold"
-        let wasAlreadySold = currentItem.status == "Sold"
-        let previousStatus: String? = !isNowSold ? nil : wasAlreadySold ? (currentItem.previousStatus.isEmpty ? "Owned" : currentItem.previousStatus) : (currentItem.status.isEmpty ? "Owned" : currentItem.status)
+        let inserted: InventoryRow
+        do {
+            inserted = try await insertNumbered(item, userId: userId, itemPhotoCount: itemPhotos.count, receiptPhotoCount: receiptPhotos.count)
+        } catch {
+            toasts.push(error.localizedDescription, tone: .error)
+            return nil
+        }
 
-        var write = Mapping.toDbItem(draft, userId: userId, itemPhotoCount: itemPhotos.count, receiptPhotoCount: receiptPhotos.count)
-        write.referenceNumber = current.referenceNumber
-        write.previousStatus = previousStatus
-        write.soldPrice = isNowSold ? draft.soldPrice : nil
-        write.soldDate = isNowSold && !draft.soldDate.isEmpty ? draft.soldDate : nil
+        var saved = inserted
+        var uploadFailures: [String] = []
+        var photoLinkFailed = false
 
-        let updated = Mapping.row(
-            from: write, id: current.id, itemPhotos: itemPhotos, receiptPhotos: receiptPhotos,
-            hiddenFromShare: draft.hiddenFromShare, createdAt: current.createdAt ?? nowIso, updatedAt: nowIso
-        )
-        overlay.saveItem(updated, isNew: false, summary: "Edited \"\(label(draft.name))\"")
-        toasts.push("Changes saved.", tone: .success)
+        if !itemPhotos.isEmpty || !receiptPhotos.isEmpty {
+            let items = await upload(itemPhotos, folder: inserted.id, kind: "item")
+            let receipts = await upload(receiptPhotos, folder: inserted.id, kind: "receipt")
+            uploadFailures = items.failures + receipts.failures
+            // Retried: the files are in storage and their paths in hand, so
+            // the same update can simply be sent again after a gateway blip.
+            let store = store
+            let link = Writes.photoLink(itemPhotos: items.uploaded, receiptPhotos: receipts.uploaded)
+            do {
+                saved = try await WriteRetry.run { try await store.updateItem(id: inserted.id, link) }
+            } catch {
+                photoLinkFailed = true
+            }
+        }
+
+        if item.category == "Book" {
+            let title = item.name.trimmingCharacters(in: .whitespaces)
+            if title.count >= 3 {
+                let store = store
+                let maker = item.maker.trimmingCharacters(in: .whitespaces)
+                Task { await store.queueBookSuggestion(title: title, author: maker) }
+            }
+        }
+
+        took(item: saved)
+
+        if photoLinkFailed {
+            // Deliberately says NOT to re-add: the photos are in storage, and
+            // re-adding uploads duplicates.
+            toasts.push(
+                uploadFailures.isEmpty
+                    ? "Item saved and your photos uploaded, but linking them to the item didn't save. They're safe in storage -- open the item and save again to attach them. Don't re-add them or you'll upload duplicates."
+                    : "Item saved. Some photos failed to upload (\(uploadFailures.joined(separator: ", "))), and the ones that did upload could not be linked to the item. Open the item and save again to attach them -- don't re-add them or you'll upload duplicates.",
+                tone: .warning
+            )
+        } else if !uploadFailures.isEmpty {
+            toasts.push("Item saved, but some photos failed to upload: \(uploadFailures.joined(separator: ", ")). Re-add those photos from Edit.", tone: .warning)
+        } else if announce {
+            toasts.push("Saved to your collection.", tone: .success)
+        }
+        return Mapping.fromDbItem(saved)
     }
 
-    func markSold(_ itemId: String, soldPrice: String, soldDate: String, condition: String) {
-        guard var updated = row(for: itemId) else { return }
-        let previous = Mapping.fromDbItem(updated)
-        let statusToRestore = previous.status != "Sold" ? previous.status : (previous.previousStatus.isEmpty ? "Owned" : previous.previousStatus)
+    // nextReferenceNumbers, then the insert. The number comes from the
+    // database's current max, and the unique (user_id, reference_number) index
+    // is the backstop: if another device took the number in between, ask
+    // again rather than fail.
+    private func insertNumbered(_ item: Item, userId: String, itemPhotoCount: Int, receiptPhotoCount: Int) async throws -> InventoryRow {
+        var attempt = 0
+        while true {
+            var numbered = item
+            numbered.referenceNumber = try await store.maxReferenceNumber(userId: userId) + 1
+            let payload = Writes.itemInsert(Mapping.toDbItem(numbered, userId: userId, itemPhotoCount: itemPhotoCount, receiptPhotoCount: receiptPhotoCount))
+            do {
+                guard let row = try await store.insertItems([payload]).first else {
+                    throw StoreError.write("The item didn't come back from the save.", code: WriteRetry.noRowWrittenCode)
+                }
+                return row
+            } catch StoreError.write(let message, code: "23505") where attempt < 2 {
+                _ = message
+                attempt += 1
+            }
+        }
+    }
 
-        updated.status = "Sold"
-        updated.previousStatus = statusToRestore
-        updated.soldPrice = Format.optionalAmount(soldPrice)
-        updated.soldDate = soldDate.isEmpty ? nil : soldDate
-        updated.condition = condition.isEmpty ? previous.condition : condition
-        updated.updatedAt = nowIso
-        overlay.saveItem(updated, isNew: false, summary: "Marked \"\(label(previous.name))\" sold")
+    // uploadPhotoList: each pending photo compressed and stored under the
+    // owner's folder. Photos already in storage pass straight through.
+    func upload(_ photos: [Photo], folder: String, kind: String) async -> (uploaded: [Photo], failures: [String]) {
+        guard let userId = profile?.id else { return ([], photos.map(\.name)) }
+        var uploaded: [Photo] = []
+        var failures: [String] = []
+        for photo in photos {
+            guard PendingPhotos.isPending(photo) else {
+                uploaded.append(photo)
+                continue
+            }
+            guard let original = pendingPhotos.bytes[photo.path] else {
+                failures.append(photo.name)
+                continue
+            }
+            let jpeg = await Task.detached(priority: .userInitiated) { PhotoCompression.jpeg(original) }.value
+            let path = Writes.photoPath(userId: userId, itemId: folder, kind: kind, name: photo.name)
+            do {
+                try await store.uploadPhoto(path: path, jpeg: jpeg)
+                uploaded.append(Photo(path: path, name: photo.name))
+                pendingPhotos.forget([photo.path])
+            } catch {
+                failures.append(photo.name)
+            }
+        }
+        return (uploaded, failures)
+    }
+
+    // MARK: Editing
+
+    // updateInventoryItem: new photos uploaded, removed ones deleted from
+    // storage, then the whole item saved. `itemPhotos` and `receiptPhotos` are
+    // the lists as the form left them: kept photos plus any just picked.
+    @discardableResult
+    func saveEdit(_ draft: Item, itemPhotos: [Photo], receiptPhotos: [Photo]) async -> Bool {
+        guard profile != nil, let current = row(for: draft.id).map({ Mapping.fromDbItem($0) }) else { return false }
+        guard isOnline else {
+            toasts.push(Self.offlineSaveMessage, tone: .error)
+            return false
+        }
+        isSaving = true
+        defer { isSaving = false }
+
+        let items = await upload(itemPhotos, folder: draft.id, kind: "item")
+        let receipts = await upload(receiptPhotos, folder: draft.id, kind: "receipt")
+        let uploadedAny = items.uploaded.contains { !current.itemPhotos.contains($0) }
+            || receipts.uploaded.contains { !current.receiptPhotos.contains($0) }
+
+        let keptPaths = Set((itemPhotos + receiptPhotos).map(\.path))
+        let removed = (current.itemPhotos + current.receiptPhotos).map(\.path).filter { !keptPaths.contains($0) }
+        if !removed.isEmpty { try? await store.removePhotos(paths: removed) }
+
+        let store = store
+        let payload = Writes.itemUpdate(draft: draft, current: current, itemPhotos: items.uploaded, receiptPhotos: receipts.uploaded)
+        do {
+            let saved = try await WriteRetry.run { try await store.updateItem(id: draft.id, payload) }
+            took(item: saved)
+        } catch {
+            toasts.push(
+                uploadedAny
+                    ? "Your changes didn't save. Any photos you added are already in storage -- open the item and save again rather than re-adding them, which would upload duplicates."
+                    : error.localizedDescription,
+                tone: .error
+            )
+            return false
+        }
+
+        let failures = items.failures + receipts.failures
+        if failures.isEmpty {
+            toasts.push("Changes saved.", tone: .success)
+        } else {
+            toasts.push("Changes saved, but some new photos failed to upload: \(failures.joined(separator: ", ")). Re-add those photos from Edit.", tone: .warning)
+        }
+        return true
+    }
+
+    @discardableResult
+    func markSold(_ itemId: String, soldPrice: String, soldDate: String, condition: String) async -> Bool {
+        guard let current = row(for: itemId).map({ Mapping.fromDbItem($0) }) else { return false }
+        let payload = Writes.markSold(current: current, soldPrice: soldPrice, soldDate: soldDate, condition: condition)
+        guard await save(itemId, payload) else { return false }
         toasts.push(Format.hasValue(soldPrice) ? "Marked sold for \(Format.currency(soldPrice))." : "Marked sold.", tone: .success)
+        return true
     }
 
     // Restoring a sold item returns it to the status it had before the sale,
     // not to "Owned".
     @discardableResult
-    func restoreSold(_ itemId: String) -> String? {
-        guard var updated = row(for: itemId) else { return nil }
-        let previous = Mapping.fromDbItem(updated)
-        let restored = previous.previousStatus.isEmpty ? "Owned" : previous.previousStatus
-
-        updated.status = restored
-        updated.previousStatus = nil
-        updated.soldPrice = nil
-        updated.soldDate = nil
-        updated.updatedAt = nowIso
-        overlay.saveItem(updated, isNew: false, summary: "Restored \"\(label(previous.name))\" to \(restored)")
+    func restoreSold(_ itemId: String) async -> String? {
+        guard let current = row(for: itemId).map({ Mapping.fromDbItem($0) }) else { return nil }
+        let (payload, restored) = Writes.restore(current: current)
+        guard await save(itemId, payload) else { return nil }
         toasts.push("Restored to \(restored).", tone: .success)
         return restored
     }
 
-    func deleteItem(_ itemId: String) {
-        guard let current = row(for: itemId) else { return }
-        let name = current.name ?? ""
-        overlay.discardItem(id: itemId, summary: "Deleted \"\(label(name))\"")
-        toasts.push("Deleted \"\(name.isEmpty ? "item" : name)\".", tone: .success)
-    }
-
-    // updateItemFields: the records view's inline edits, through csvUpdateRow.
-    func inlineSave(_ itemId: String, fields: [String: String]) {
-        guard let current = row(for: itemId) else { return }
+    // updateItemFields: the records view's inline edits. Moving an item to
+    // Sold there defaults the sale date to today, as the edit form does.
+    func inlineSave(_ itemId: String, fields: [String: String]) async {
+        guard let current = row(for: itemId).map({ Mapping.fromDbItem($0) }) else { return }
         var enriched = fields
-        if fields["status"] == "Sold", (current.soldDate ?? "").isEmpty { enriched["soldDate"] = Format.todayIso() }
-        let updated = Mapping.csvUpdatedRow(current, fields: enriched)
-        overlay.saveItem(updated, isNew: false, summary: "Edited \"\(label(current.name ?? ""))\"")
+        if fields["status"] == "Sold", current.soldDate.isEmpty { enriched["soldDate"] = Format.todayIso() }
+        await save(itemId, Writes.fieldUpdate(current: current, fields: enriched))
     }
 
-    // A new item, as saveQuickItem / the tutorial would insert it.
+    // One update by id, taken back into the rows. Not retried: these aren't
+    // the writes that strand uploaded photos when they fail.
     @discardableResult
-    func addItem(_ item: Item, itemPhotos: [Photo], receiptPhotos: [Photo]) -> Item? {
-        guard let userId = profile?.id else { return nil }
-        var numbered = item
-        numbered.referenceNumber = nextReferenceNumber()
-        let write = Mapping.toDbItem(numbered, userId: userId, itemPhotoCount: itemPhotos.count, receiptPhotoCount: receiptPhotos.count)
-        let row = Mapping.row(
-            from: write, id: UUID().uuidString.lowercased(), itemPhotos: itemPhotos, receiptPhotos: receiptPhotos,
-            hiddenFromShare: false, createdAt: nowIso, updatedAt: nowIso
-        )
-        overlay.saveItem(row, isNew: true, summary: "Added \"\(label(item.name))\"")
-        return Mapping.fromDbItem(row)
+    private func save(_ itemId: String, _ payload: RowPayload) async -> Bool {
+        guard isOnline else {
+            toasts.push(Self.offlineSaveMessage, tone: .error)
+            return false
+        }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            took(item: try await store.updateItem(id: itemId, payload))
+            return true
+        } catch {
+            toasts.push(error.localizedDescription, tone: .error)
+            return false
+        }
+    }
+
+    // MARK: Deleting
+
+    // The row first; then, best effort, everything stored in its photo
+    // folder -- listed from storage rather than taken from the row, which
+    // isn't a complete record of what was uploaded for it.
+    @discardableResult
+    func deleteItem(_ itemId: String) async -> Bool {
+        guard let userId = profile?.id, let current = row(for: itemId) else { return false }
+        guard isOnline else {
+            toasts.push(Self.offlineSaveMessage, tone: .error)
+            return false
+        }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await store.deleteItem(id: itemId)
+        } catch {
+            toasts.push(error.localizedDescription, tone: .error)
+            return false
+        }
+        let rowPaths = (current.itemPhotos.records + current.receiptPhotos.records).compactMap(\.path)
+        let paths = await store.listItemPhotoPaths(userId: userId, itemId: itemId) ?? rowPaths
+        try? await store.removePhotos(paths: paths)
+
+        dropped(itemId: itemId)
+        let name = current.name ?? ""
+        toasts.push("Deleted \"\(name.isEmpty ? "item" : name)\".", tone: .success)
+        return true
     }
 
     // MARK: CSV import
 
-    // Applies a reviewed import: adds get the next reference numbers in file
-    // order, updates go through csvUpdateRow like the web's, and deletes
-    // hide the item on this phone.
+    // A reviewed import: adds get the next reference numbers in file order,
+    // updates write only the columns the file changed, deletes go the way a
+    // single delete does.
     @discardableResult
-    func applyImport(_ batch: Csv.Batch, fileName: String) -> String {
-        for item in batch.creates { addItem(item, itemPhotos: [], receiptPhotos: []) }
-        for update in batch.updates {
-            guard let current = row(for: update.existing.id) else { continue }
-            overlay.saveItem(Mapping.csvUpdatedRow(current, fields: update.fields), isNew: false, summary: "Updated \"\(label(current.name ?? ""))\" from \(fileName)")
+    func applyImport(_ batch: Csv.Batch, fileName: String) async -> String? {
+        guard let userId = profile?.id else { return nil }
+        guard isOnline else {
+            toasts.push(Self.offlineSaveMessage, tone: .error)
+            return nil
         }
-        for item in batch.deletes {
-            overlay.discardItem(id: item.id, summary: "Deleted \"\(label(item.name))\" from \(fileName)")
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            if !batch.creates.isEmpty {
+                let start = try await store.maxReferenceNumber(userId: userId) + 1
+                let payloads = batch.creates.enumerated().map { index, item in
+                    var numbered = item
+                    numbered.referenceNumber = start + index
+                    return Writes.itemInsert(Mapping.toDbItem(numbered, userId: userId))
+                }
+                for row in try await store.insertItems(payloads) { took(item: row) }
+            }
+            for update in batch.updates {
+                guard let current = row(for: update.existing.id).map({ Mapping.fromDbItem($0) }) else { continue }
+                took(item: try await store.updateItem(id: current.id, Writes.fieldUpdate(current: current, fields: update.fields)))
+            }
+        } catch {
+            // Whatever landed before the failure is already on screen.
+            toasts.push("The import stopped partway: \(error.localizedDescription)", tone: .error)
+            return nil
         }
+
+        isSaving = false
+        for item in batch.deletes { await deleteQuietly(item.id) }
+
         let summary = "\(batch.creates.count) added, \(batch.updates.count) updated, \(batch.deletes.count) deleted."
         toasts.push(summary, tone: .success)
         return "Applied \(fileName): \(summary)"
+    }
+
+    private func deleteQuietly(_ itemId: String) async {
+        guard let userId = profile?.id, let current = row(for: itemId) else { return }
+        guard (try? await store.deleteItem(id: itemId)) != nil else { return }
+        let rowPaths = (current.itemPhotos.records + current.receiptPhotos.records).compactMap(\.path)
+        try? await store.removePhotos(paths: await store.listItemPhotoPaths(userId: userId, itemId: itemId) ?? rowPaths)
+        dropped(itemId: itemId)
     }
 
     // MARK: Sharing
@@ -147,32 +330,36 @@ extension AppModel {
         return nil
     }
 
-    func saveShare(_ draft: ShareSettings) {
-        guard let userId = profile?.id else { return }
+    @discardableResult
+    func saveShare(_ draft: ShareSettings) async -> Bool {
         let slug = (shareSettings?.slug).flatMap { $0.isEmpty ? nil : $0 } ?? PublicCollection.generateSlug()
-        let write = Mapping.toDbShareRow(draft, userId: userId, slug: slug)
-        overlay.saveShare(row(from: write), summary: draft.visibility == "off" ? "Turned your page off" : "Published your page")
+        guard await upsertShare(draft, slug: slug) else { return false }
         toasts.push(draft.visibility == "off" ? "Your page is off. The link no longer opens." : "Your collection page is live.", tone: .success)
+        return true
     }
 
-    func resetShareLink() {
-        guard let userId = profile?.id, let settings = shareSettings else { return }
-        let write = Mapping.toDbShareRow(settings, userId: userId, slug: PublicCollection.generateSlug())
-        overlay.saveShare(row(from: write), summary: "Made a new link for your page")
+    @discardableResult
+    func resetShareLink() async -> Bool {
+        guard let settings = shareSettings else { return false }
+        guard await upsertShare(settings, slug: PublicCollection.generateSlug()) else { return false }
         toasts.push("New link created. The old one no longer works.", tone: .success)
+        return true
     }
 
-    private func row(from write: ShareWrite) -> SharedCollectionRow {
-        SharedCollectionRow(
-            userId: write.userId, slug: write.slug, visibility: write.visibility, title: write.title, blurb: write.blurb,
-            showEstimatedValue: write.showEstimatedValue, showPrices: write.showPrices, showProvenance: write.showProvenance,
-            showNotes: write.showNotes, showSold: write.showSold, showWishlist: write.showWishlist,
-            showOnExplore: write.showOnExplore, exploreItemIds: write.exploreItemIds,
-            firstPublishedAt: shareRowLive?.firstPublishedAt, createdAt: shareRowLive?.createdAt ?? nowIso, updatedAt: nowIso
-        )
-    }
-
-    private func label(_ name: String) -> String {
-        name.isEmpty ? "Untitled item" : name
+    private func upsertShare(_ settings: ShareSettings, slug: String) async -> Bool {
+        guard let userId = profile?.id else { return false }
+        guard isOnline else {
+            toasts.push(Self.offlineSaveMessage, tone: .error)
+            return false
+        }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            took(share: try await store.upsertShareSettings(Writes.share(Mapping.toDbShareRow(settings, userId: userId, slug: slug))))
+            return true
+        } catch {
+            toasts.push(error.localizedDescription, tone: .error)
+            return false
+        }
     }
 }

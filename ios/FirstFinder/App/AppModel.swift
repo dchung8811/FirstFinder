@@ -3,9 +3,9 @@ import Network
 import Observation
 
 // The one object every screen reads from. It owns whichever store is active
-// (Live or Sample), the overlay on top of it, and the last rows each fetch
-// returned -- in memory only. "Offline" means exactly that: the last
-// successful fetch, still on screen, with the offline banner over it.
+// (Live or Sample) and the last rows each fetch or save returned -- in memory
+// only. A save changes these rows only once the store has accepted it, and
+// then to the row the store sent back, as the web does.
 @MainActor
 @Observable
 final class AppModel {
@@ -28,9 +28,9 @@ final class AppModel {
     private(set) var dataMode: DataMode
     private(set) var store: any CollectionStore
     let sampleStore = SampleStore()
-    private var liveStore: LiveReadStore?
+    private var liveStore: LiveStore?
 
-    private(set) var overlay = LocalOverlay()
+    let pendingPhotos = PendingPhotos()
     let toasts = ToastCenter()
     let ai = FakeAI()
     let network = NetworkMonitor()
@@ -91,6 +91,10 @@ final class AppModel {
     private(set) var feedbackLoad: Load = .idle
     private(set) var lastSyncedAt: Date?
 
+    // True while a save is on its way, so a screen can disable its Save
+    // button rather than let a second tap send the same write twice.
+    var isSaving = false
+
     // Developer switches.
     var forceOffline = false
     var dismissedBannerId: String?
@@ -100,7 +104,7 @@ final class AppModel {
     init(config: Result<AppConfig, AppConfig.Problem> = AppConfig.load()) {
         self.config = config
         if case .success(let ready) = config {
-            let live = LiveReadStore(config: ready)
+            let live = LiveStore(config: ready)
             liveStore = live
             store = live
             dataMode = .live
@@ -136,19 +140,19 @@ final class AppModel {
     // MARK: What the screens read
 
     var inventory: [Item] {
-        overlay.mergedInventory(inventoryRows).map { Mapping.fromDbItem($0) }
+        inventoryRows.map { Mapping.fromDbItem($0) }
     }
 
     var wishlist: [Want] {
-        overlay.mergedWishlist(wishlistRows).map(Mapping.fromDbWant)
+        wishlistRows.map(Mapping.fromDbWant)
     }
 
     var shareSettings: ShareSettings? {
-        overlay.mergedShare(shareRowLive).map(Mapping.fromDbShareSettings)
+        shareRowLive.map(Mapping.fromDbShareSettings)
     }
 
     var feedback: [FeedbackRow] {
-        overlay.mergedFeedback(feedbackRows)
+        feedbackRows
     }
 
     var siteBanner: SiteBanner {
@@ -159,13 +163,51 @@ final class AppModel {
         Mapping.shouldShowBanner(siteBanner, dismissedId: dismissedBannerId)
     }
 
-    func isLocal(itemId: String) -> Bool { overlay.isLocal(itemId: itemId) }
-
     func openItem(_ id: String) {
         focusItemId = id
         selectedTab = .collection
     }
-    func isLocal(wantId: String) -> Bool { overlay.isLocal(wantId: wantId) }
+
+    // MARK: Taking in what a save returned
+
+    // The actions (AppModel+Actions.swift, Wishlist.swift) call these with the
+    // row the store sent back, so the screen shows what was actually stored.
+
+    func took(item row: InventoryRow) {
+        if let index = inventoryRows.firstIndex(where: { $0.id == row.id }) {
+            inventoryRows[index] = row
+        } else {
+            inventoryRows = [row] + inventoryRows
+        }
+    }
+
+    func dropped(itemId: String) {
+        inventoryRows.removeAll { $0.id == itemId }
+    }
+
+    func took(want row: WishlistRow) {
+        if let index = wishlistRows.firstIndex(where: { $0.id == row.id }) {
+            wishlistRows[index] = row
+        } else {
+            wishlistRows = [row] + wishlistRows
+        }
+    }
+
+    func dropped(wantId: String) {
+        wishlistRows.removeAll { $0.id == wantId }
+    }
+
+    func took(share row: SharedCollectionRow) {
+        shareRowLive = row
+    }
+
+    func took(feedback row: FeedbackRow) {
+        feedbackRows = [row] + feedbackRows
+    }
+
+    func took(profile next: UserProfile) {
+        if case .signedIn = auth { auth = .signedIn(next) }
+    }
 
     // MARK: Lifecycle
 
@@ -224,7 +266,6 @@ final class AppModel {
         auth = .signedOut
         isAdmin = false
         clearRows()
-        overlay.revertAll()
     }
 
     private func clearRows() {
@@ -238,10 +279,11 @@ final class AppModel {
         feedbackLoad = .idle
         lastSyncedAt = nil
         photos.reset()
+        pendingPhotos.forgetAll()
     }
 
-    // Live <-> Sample. The overlay belongs to the data it sits on, so it goes
-    // with the switch; so does every row and signed URL from the old store.
+    // Live <-> Sample. Every row, signed URL and unsaved photo from the old
+    // store goes with the switch.
     func switchMode(to mode: DataMode) async {
         guard mode != dataMode else { return }
         if mode == .live, liveStore == nil { return }
@@ -250,7 +292,6 @@ final class AppModel {
         store = mode == .live ? liveStore! : sampleStore
         photos.attach(store)
         clearRows()
-        overlay.revertAll()
         featuredShelves = nil
         auth = .unknown
         isAdmin = false
@@ -344,7 +385,7 @@ final class AppModel {
             return
         }
         do {
-            let data = try await store.getSiteJSON(path: "/api/featured-shelves", authorized: false)
+            let data = try await store.getSiteJSON(path: "/api/v1/featured-shelves", authorized: false)
             featuredShelves = try JSONDecoder().decode(FeaturedShelvesResponse.self, from: data).shelves
         } catch {
             featuredShelves = []
@@ -353,7 +394,7 @@ final class AppModel {
 
     private func checkAdmin() async {
         struct Access: Decodable { let admin: Bool }
-        guard let data = try? await store.getSiteJSON(path: "/api/admin/access", authorized: true),
+        guard let data = try? await store.getSiteJSON(path: "/api/v1/admin/access", authorized: true),
               let access = try? JSONDecoder().decode(Access.self, from: data)
         else { return }
         isAdmin = access.admin

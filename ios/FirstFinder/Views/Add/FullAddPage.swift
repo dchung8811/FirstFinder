@@ -83,7 +83,7 @@ struct FullAddPage: View {
                         Button("Save to collection") { onSaved(draft) { draft = ItemDraft() } }
                             .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
                         Button("Reset form") {
-                            app.overlay.forgetPhotos((draft.itemPhotos + draft.receiptPhotos).map(\.path))
+                            app.pendingPhotos.forget((draft.itemPhotos + draft.receiptPhotos).map(\.path))
                             draft = ItemDraft()
                         }
                         .buttonStyle(FFButtonStyle(variant: .secondary, fullWidth: true))
