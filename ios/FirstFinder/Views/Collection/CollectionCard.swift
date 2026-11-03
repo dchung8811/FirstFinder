@@ -65,6 +65,10 @@ struct CollectionCard: View {
                 .frame(height: 224)
                 .frame(maxWidth: .infinity)
                 .clipped()
+                // clipped() trims only what's drawn. Without this, a tall
+                // photo's overflow stayed tappable and swallowed taps on the
+                // card above -- "Mark sold" there opened this item's photos.
+                .contentShape(Rectangle())
                 .overlay(alignment: .topTrailing) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.footnote)
@@ -212,17 +216,24 @@ struct CollectionTile: View {
         let label = entry.name.isEmpty ? "Untitled item" : entry.name
         let credit = ItemsLogic.credit(entry)
         VStack(alignment: .leading, spacing: 2) {
-            ZStack {
-                if let photo = entry.itemPhotos.first {
-                    Theme.pill
-                    SignedPhoto(path: photo.path)
-                } else {
-                    jacket(label: label, credit: credit)
+            // The 3:4 frame comes from an empty shape and the photo is laid
+            // over it. Inside a ZStack, a filling landscape photo set the
+            // stack's own width and spilled out across the next column.
+            Color.clear
+                .aspectRatio(3 / 4, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    if let photo = entry.itemPhotos.first {
+                        ZStack {
+                            Theme.pill
+                            SignedPhoto(path: photo.path)
+                        }
+                    } else {
+                        jacket(label: label, credit: credit)
+                    }
                 }
-            }
-            .aspectRatio(3 / 4, contentMode: .fit)
-            .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(highlighted ? Theme.green : Theme.border, lineWidth: highlighted ? 2 : 1)

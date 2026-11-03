@@ -202,6 +202,8 @@ struct ShelfCover: View {
             CoverImage(cover: cover.cover, label: label)
                 .frame(width: ShelfMarquee.coverWidth, height: ShelfMarquee.coverWidth * 4 / 3)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                // Taps too, not just drawing: see CollectionCard's cover.
+                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.adaptive(0xd3c1a4, dark: 0x665746)))
                 .shadow(color: Color(red: 48 / 255, green: 36 / 255, blue: 20 / 255).opacity(0.35), radius: 12, y: 10)
                 .padding(.bottom, 6)

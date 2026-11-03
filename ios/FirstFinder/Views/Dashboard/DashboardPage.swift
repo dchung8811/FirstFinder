@@ -478,6 +478,8 @@ private struct RecentFindCover: View {
             }
             .frame(width: 128, height: 128 * 4 / 3)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            // Taps too, not just drawing: see CollectionCard's cover.
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.border))
             .padding(.bottom, 6)
             Text(item.name.isEmpty ? "Untitled item" : item.name)
