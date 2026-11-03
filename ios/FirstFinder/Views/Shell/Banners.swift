@@ -46,7 +46,7 @@ struct OfflineBanner: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .foregroundStyle(Theme.warningInk)
-            .background(Theme.warningSurface)
+            .background(Theme.warningSurface, ignoresSafeAreaEdges: [])
             .accessibilityElement(children: .combine)
         }
     }
@@ -90,7 +90,9 @@ struct SiteBannerView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .foregroundStyle(cream)
-            .background(Theme.adaptive(0x123f38, dark: 0x123f38))
+            // Kept below the status bar, like the sample strip: with nothing
+            // above it, the green would otherwise sit behind the clock.
+            .background(Theme.adaptive(0x123f38, dark: 0x123f38), ignoresSafeAreaEdges: [])
             .overlay(alignment: .top) { Rectangle().fill(cream.opacity(0.12)).frame(height: 1) }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Announcement")
