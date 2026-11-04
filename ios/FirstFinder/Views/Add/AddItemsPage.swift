@@ -220,11 +220,13 @@ struct AddItemsPage: View {
                 Text("Research what it's worth.").font(.display(24, relativeTo: .title2).weight(.semibold))
                 Text("Photograph the cover and an AI model searches the web for comparable sales, then suggests the edition and a value range with its sources. It's a starting point, not an appraisal, and you review everything before it's saved.")
                     .foregroundStyle(Theme.brown)
-                Text("Limited to \(FakeAI.dailyLimit) a day per account, and it can pause if the budget runs out — each one is a live, search-grounded API call, and this is a self-funded app.")
+                Text("Limited to a few a day per account, and it can pause if the budget runs out — each one is a live, search-grounded API call, and this is a self-funded app.")
                     .font(.subheadline).foregroundStyle(Theme.brownMuted)
-                Text("In the prototype the research is simulated: a sample result after a moment, and no photo leaves the phone.")
-                    .font(.caption).foregroundStyle(Theme.warningInk).padding(10)
-                    .background(Theme.warningSurface, in: RoundedRectangle(cornerRadius: 12))
+                // The allowance before the camera, not after a refusal.
+                if let left = app.identifyAllowance?.remaining, let limit = app.identifyAllowance?.dailyLimit {
+                    Chip(text: left > 0 ? "\(left) of \(limit) left today" : "None left today · resets at midnight UTC",
+                         tone: left > 0 ? .tint : .warning, systemImage: "sparkle.magnifyingglass")
+                }
                 PhotoPickerButton(maxCount: 1, onPicked: identify) {
                     Label(identifying ? "Researching..." : "Research a photo", systemImage: "magnifyingglass")
                         .font(.body.weight(.medium))
@@ -233,9 +235,10 @@ struct AddItemsPage: View {
                         .background(Theme.adaptive(0xffffff, dark: 0x0f332d), in: Capsule())
                         .overlay(Capsule().strokeBorder(Theme.borderStrong))
                 }
-                .disabled(identifying || !app.isOnline)
+                .disabled(identifying || !app.isOnline || app.identifyAllowance?.remaining == 0)
             }
         }
+        .task { await app.refreshAllowance() }
     }
 
     // MARK: Actions
@@ -251,7 +254,7 @@ struct AddItemsPage: View {
         Task {
             defer { scanning = false; busyPhotos = [] }
             do {
-                let result = try await app.ai.scan(photoCount: photos.count)
+                let result = try await app.scanPhotos(photos)
                 let (fields, reasons) = ScanFill.fields(from: result)
                 let (merged, filled) = ScanFill.merge(quick.item, fields: fields)
                 quick.item = merged
@@ -263,7 +266,7 @@ struct AddItemsPage: View {
                     filledCount: filled.count
                 )
                 if filled.isEmpty { app.toasts.push("Read your photos, but every field it found already had something in it.", tone: .warning) }
-            } catch let failure as FakeAI.Failure {
+            } catch let failure as PhotoAI.Failure {
                 app.toasts.push(failure.message, tone: .error)
                 app.pendingPhotos.forget(photos.map(\.path))
             } catch {}
@@ -277,10 +280,10 @@ struct AddItemsPage: View {
         Task {
             defer { identifying = false; busyPhotos = [] }
             do {
-                let result = try await app.ai.identify(photoCount: 1)
+                let result = try await app.identifyPhotos([photo])
                 identifyDraft = IdentifyDraft(result: result, photos: [photo])
                 path.append(Route.identify)
-            } catch let failure as FakeAI.Failure {
+            } catch let failure as PhotoAI.Failure {
                 app.toasts.push(failure.message, tone: .error)
                 app.pendingPhotos.forget([photo.path])
             } catch {}
@@ -386,7 +389,7 @@ struct ScanNotesPanel: View {
                     .font(.subheadline).foregroundStyle(Theme.warningInk).padding(12)
                     .background(Theme.warningSurface, in: RoundedRectangle(cornerRadius: 12))
             }
-            Text("Read from your photos, not looked up. Check it against the book before you submit. In the prototype the reading is simulated and no photo leaves the phone.")
+            Text("Read from your photos, not looked up. Check it against the book before you submit.")
                 .font(.caption).foregroundStyle(Theme.adaptive(0x5c7a72, dark: 0xd8e6e2))
         }
         .padding(16)

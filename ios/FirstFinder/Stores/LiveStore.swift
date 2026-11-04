@@ -242,6 +242,9 @@ final class LiveStore: CollectionStore, @unchecked Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = body
+        // A photo identification searches the web before it answers, which
+        // can outlast the default 60 seconds.
+        request.timeoutInterval = 300
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         do {

@@ -5,12 +5,12 @@ import SwiftUI
 struct IdentifyDraft: Equatable {
     var form: ItemDraft
     var photos: [Photo]
-    var result: FakeAI.IdentifyResult
+    var result: PhotoAI.IdentifyResult
 
     var valueRange: (low: Double, high: Double)? { ItemsLogic.valueRange(low: result.estimatedValueLow, high: result.estimatedValueHigh) }
     var firstEditionRange: (low: Double, high: Double)? { ItemsLogic.valueRange(low: result.firstEditionLow, high: result.firstEditionHigh) }
 
-    init(result: FakeAI.IdentifyResult, photos: [Photo]) {
+    init(result: PhotoAI.IdentifyResult, photos: [Photo]) {
         self.result = result
         self.photos = photos
         form = ItemDraft()
@@ -24,7 +24,7 @@ struct IdentifyDraft: Equatable {
 
     // identifiedFields: the fields the research replaces on a re-check. What
     // the collector typed -- paid, date, source, notes -- is left alone.
-    mutating func apply(_ result: FakeAI.IdentifyResult) {
+    mutating func apply(_ result: PhotoAI.IdentifyResult) {
         self.result = result
         let category = result.category.isEmpty ? "Book" : result.category
         let authored = ItemsLogic.usesAuthorField(category)
@@ -62,9 +62,11 @@ struct IdentifyReviewPage: View {
                     Text("Is this right?").font(.display(38, relativeTo: .largeTitle).weight(.semibold))
                     Text("Everything below was read from your photo and can be changed. Nothing is saved until you submit.")
                         .foregroundStyle(Theme.brown)
-                    Text("Simulated in the prototype: this is a sample result, and the sources below are placeholders.")
-                        .font(.caption).foregroundStyle(Theme.warningInk).padding(10)
-                        .background(Theme.warningSurface, in: RoundedRectangle(cornerRadius: 12))
+                    if app.dataMode == .sample {
+                        Text("Sample mode: this is a sample result, and the sources below are placeholders.")
+                            .font(.caption).foregroundStyle(Theme.warningInk).padding(10)
+                            .background(Theme.warningSurface, in: RoundedRectangle(cornerRadius: 12))
+                    }
                 }
 
                 if let cover = draft.photos.first {
@@ -268,8 +270,8 @@ struct IdentifyReviewPage: View {
         Task {
             defer { rechecking = false }
             do {
-                draft.apply(try await app.ai.identify(photoCount: draft.photos.count))
-            } catch let failure as FakeAI.Failure {
+                draft.apply(try await app.identifyPhotos(draft.photos))
+            } catch let failure as PhotoAI.Failure {
                 app.toasts.push(failure.message, tone: .error)
             } catch {}
         }

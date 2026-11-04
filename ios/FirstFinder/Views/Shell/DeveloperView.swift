@@ -44,15 +44,15 @@ struct DeveloperView: View {
             }
 
             Section {
-                Picker("Next AI result", selection: Binding(get: { app.ai.outcome }, set: { app.ai.outcome = $0 })) {
+                Picker("Next AI result", selection: Binding(get: { app.fakeAI.outcome }, set: { app.fakeAI.outcome = $0 })) {
                     ForEach(FakeAI.Outcome.allCases) { Text($0.rawValue).tag($0) }
                 }
-                LabeledContent("Identifications left today", value: "\(app.ai.remainingToday) of \(FakeAI.dailyLimit)")
-                Button("Reset today's count") { app.ai.resetUsage() }
+                LabeledContent("Identifications left today", value: "\(app.fakeAI.remainingToday) of \(FakeAI.dailyLimit)")
+                Button("Reset today's count") { app.fakeAI.resetUsage() }
             } header: {
-                Text("Simulated AI")
+                Text("Sample mode's AI")
             } footer: {
-                Text("Identify and Snap a picture never call the real service here. They answer after 1.5 seconds with a sample result, or with the failure chosen above, in the web's words. The daily count resets at midnight UTC.")
+                Text("In Sample mode, Identify and Snap a picture never call the real service. They answer after 1.5 seconds with a sample result, or with the failure chosen above, in the web's words. Live mode uses the real service and your account's real daily allowance.")
             }
 
             Section("Reload") {

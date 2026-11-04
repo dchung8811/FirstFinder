@@ -1,11 +1,11 @@
 import Foundation
 import Observation
 
-// The AI features, faked. On the web, identify and scan-to-fill send photos
-// to paid model calls and spend the account's two daily identifications; the
-// prototype never makes either request. It waits 1.5 seconds and answers with
-// a canned result -- or, as chosen under More → Developer, with each of the
-// failures the real routes return, word for word.
+// The AI features in Sample mode. Live mode sends photos to the real routes
+// (AppModel+AI.swift); Sample mode never does. It waits 1.5 seconds and
+// answers with a canned result -- or, as chosen under More → Developer, with
+// each of the failures the real routes return, word for word -- so demos and
+// App Store screenshots don't spend real identifications.
 @MainActor
 @Observable
 final class FakeAI {
@@ -21,9 +21,10 @@ final class FakeAI {
         var id: String { rawValue }
     }
 
-    struct Failure: Error, Equatable {
-        let message: String
-    }
+    typealias Failure = PhotoAI.Failure
+    typealias Comparable = PhotoAI.Comparable
+    typealias Citation = PhotoAI.Citation
+    typealias IdentifyResult = PhotoAI.IdentifyResult
 
     var outcome: Outcome = .success
 
@@ -55,47 +56,9 @@ final class FakeAI {
         }
     }
 
-    static func capMessage(_ limit: Int) -> String {
-        "You've used your \(limit) photo identification\(limit == 1 ? "" : "s") for today. The count resets at midnight UTC."
-    }
+    static func capMessage(_ limit: Int) -> String { PhotoAI.capMessage(limit) }
 
     // MARK: Identify
-
-    struct Comparable: Hashable, Identifiable {
-        var source: String
-        var url: URL
-        var price: Double
-        var date: String
-        var saleType: String
-        var editionMatch: String
-        var id: String { url.absoluteString + date }
-    }
-
-    struct Citation: Hashable, Identifiable {
-        var title: String
-        var url: URL
-        var id: String { url.absoluteString }
-    }
-
-    struct IdentifyResult: Hashable {
-        var title: String
-        var author: String
-        var category: String
-        var genre: String
-        var edition: String
-        var printing: String
-        var condition: String
-        var summary: String
-        var conditionNotes: String
-        var editionRationale: String
-        var estimatedValueLow: Double?
-        var estimatedValueHigh: Double?
-        var firstEditionLow: Double?
-        var firstEditionHigh: Double?
-        var comparables: [Comparable]
-        var citations: [Citation]
-        var confidence: String
-    }
 
     func identify(photoCount: Int) async throws -> IdentifyResult {
         try checkCooldownAndCap()
@@ -136,7 +99,7 @@ final class FakeAI {
             edition: photoCount > 1 ? "First" : "",
             printing: photoCount > 1 ? "First" : "",
             condition: "Very Good/Good",
-            summary: "A sample identification: a 1987 fantasy novel from Hollow Oak Press, in its original jacket. Nothing here was looked up — the prototype answers every photo with this book.",
+            summary: "A sample identification: a 1987 fantasy novel from Hollow Oak Press, in its original jacket. Nothing here was looked up — Sample mode answers every photo with this book.",
             conditionNotes: "Light shelf wear on the jacket spine. A clean, unclipped jacket is most of the value on this title.",
             editionRationale: photoCount > 1
                 ? "The copyright page states \"First Edition\" and the number line runs down to 1."

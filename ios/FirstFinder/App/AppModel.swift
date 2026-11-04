@@ -32,7 +32,10 @@ final class AppModel {
 
     let pendingPhotos = PendingPhotos()
     let toasts = ToastCenter()
-    let ai = FakeAI()
+    // Sample mode's AI; live mode calls the site (AppModel+AI.swift).
+    let fakeAI = FakeAI()
+    // What /api/v1/identify-budget last said is left today. nil until asked.
+    var identifyAllowance: PhotoAI.Allowance?
     let network = NetworkMonitor()
     let photos: PhotoSigner
 
