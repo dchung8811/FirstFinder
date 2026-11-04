@@ -151,3 +151,19 @@ final class AppNavTests: XCTestCase {
         XCTAssertEqual(AppView.landing(.wishlist, isLoggedIn: true), .wishlist)
     }
 }
+
+final class AppearanceTests: XCTestCase {
+    func testNothingStoredFollowsThePhone() {
+        XCTAssertEqual(Appearance.stored(nil), .system)
+        XCTAssertEqual(Appearance.stored("sepia"), .system)
+    }
+
+    func testAStoredChoiceComesBack() {
+        XCTAssertEqual(Appearance.stored("dark"), .dark)
+        XCTAssertEqual(Appearance.stored("light"), .light)
+    }
+
+    func testTheChoicesReadInOrder() {
+        XCTAssertEqual(Appearance.allCases.map(\.title), ["System", "Light", "Dark"])
+    }
+}

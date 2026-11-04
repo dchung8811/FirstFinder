@@ -12,15 +12,27 @@ struct MoreView: View {
     @Environment(AppModel.self) private var app
     @State private var path = NavigationPath()
     @State private var confirmingSignOut = false
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.system.rawValue
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                Group {
                 Section {
                     row("Explore", "safari", .web(.explore))
                     row(AppView.insuranceExport.title, icon(for: .insuranceExport), .view(.insuranceExport))
                     row(AppView.feedback.title, icon(for: .feedback), .view(.feedback))
                     row(AppView.account.title, icon(for: .account), .view(.account))
+                }
+                Section {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(Appearance.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("System follows your iPhone's light or dark setting.")
                 }
                 Section("FirstFinder") {
                     ForEach([AppView.features, .roadmap, .about, .contribute]) { view in
@@ -46,6 +58,10 @@ struct MoreView: View {
                 Section {
                     Button("Sign out", role: .destructive) { confirmingSignOut = true }
                 }
+                }
+                // The app's card color rather than the system's white and
+                // dark gray, which looked foreign on the green in dark mode.
+                .listRowBackground(Theme.surface)
             }
             .scrollContentBackground(.hidden)
             .background(Theme.page)

@@ -15,8 +15,8 @@
     the shared page.
   - Customer support: feedback filed from the app.
 
-  UserDefaults (CA92.1): read only for development launch arguments, and only
-  by this app. Add any further required-reason API here when code starts
+  UserDefaults (CA92.1): the light/dark choice in More, and development launch
+  arguments; read and written only by this app. Add any further required-reason API here when code starts
   using one (the offline cache's file timestamps, for example).
 -->
 <plist version="1.0">
