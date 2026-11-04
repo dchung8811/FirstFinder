@@ -125,6 +125,7 @@ import { buildCsvTemplate, buildCsvExport, parseCsvBatch } from "../src/utils/cs
 import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters, recentFinds } from "../src/utils/dashboard";
 import { emailUpdatesMetadata, isSubscribedToEmailUpdates } from "../src/utils/emailUpdates";
 import { setPendingEmailUpdates, takePendingEmailUpdates } from "../src/lib/pendingEmailUpdates";
+import { isOAuthProviderReady } from "../src/lib/oauthReadiness";
 import { bannerDestination, bannerDismissalId, fromDbBanner, shouldShowBanner } from "../src/utils/siteBanner";
 import { readDismissedBanner, writeDismissedBanner } from "../src/lib/bannerDismissal";
 import { features } from "../src/content/features";
@@ -269,6 +270,15 @@ function Icon({ name, size = 20, className = "" }) {
         <path d="M6.2 13.7a6 6 0 0 1 0-3.4V7.6H2.9a10 10 0 0 0 0 8.8l3.3-2.7Z" />
         <path d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2 10 10 0 0 0 2.9 7.6l3.3 2.7C7 7.9 9.3 6.1 12 6.1Z" />
       </>
+    ),
+    // Filled rather than stroked, unlike its neighbours: Apple's guidelines
+    // want the logo as a solid mark, never an outline.
+    apple: (
+      <path
+        fill="currentColor"
+        stroke="none"
+        d="M12.15 6.9c-.95 0-2.42-1.08-3.96-1.04-2.04.03-3.91 1.18-4.96 3.01-2.12 3.68-.55 9.1 1.52 12.09 1.01 1.45 2.2 3.09 3.79 3.04 1.52-.07 2.09-.99 3.94-.99 1.83 0 2.35.99 3.96.95 1.64-.03 2.68-1.48 3.68-2.95 1.16-1.69 1.64-3.33 1.66-3.42-.04-.01-3.18-1.22-3.22-4.86-.03-3.04 2.48-4.49 2.6-4.56-1.43-2.09-3.62-2.32-4.39-2.38-2-.16-3.68 1.09-4.62 1.09Zm3.38-3.07c.84-1.01 1.4-2.43 1.25-3.83-1.21.05-2.66.8-3.53 1.82-.78.9-1.46 2.34-1.27 3.71 1.34.1 2.71-.69 3.55-1.7Z"
+      />
     ),
     arrow: <path d="m9 18 6-6-6-6" />,
     play: <path d="m8 5 12 7-12 7V5Z" />,
@@ -4286,7 +4296,7 @@ function TermsPage({ onViewPrivacy }) {
 // Everything below has to describe what the code actually does. When a service
 // provider changes, a column is added that holds something personal, or a
 // retention rule moves, this file is part of that change -- not a follow-up.
-const privacyLastUpdated = "October 13, 2026";
+const privacyLastUpdated = "November 4, 2026";
 
 const privacySummary = [
   "We collect what running a catalog needs: your email, what you record about your items, and your photos.",
@@ -4313,7 +4323,7 @@ const privacySections = [
       "Almost everything here is something you typed or uploaded on purpose. The exceptions are the last two groups, which are collected automatically."
     ],
     list: [
-      "Account information — your email address, and a password you set (stored only as a hash by our authentication provider, never as text we can read). If you sign in with Google instead, we receive the email address and account identifier that sign-in hands us, and no password at all.",
+      "Account information — your email address, and a password you set (stored only as a hash by our authentication provider, never as text we can read). If you sign in with Google or Apple instead, we receive the email address and account identifier that sign-in hands us, and no password at all. Apple lets you hide your real address, in which case we only ever see the private relay address Apple forwards to you.",
       "Your email preference — whether you've opted in to update emails, and when you last changed that choice, so there is a record of what you agreed to.",
       "Collection records — everything you enter about an item: name, maker, edition, printing, category, condition, status, notes, and its reference number.",
       "Purchase and sale information — purchase date, source, price paid, your estimated value, and, if you mark an item sold, the sale price and date. We never see or handle a payment: FirstFinder charges nothing, and these are numbers you type about deals you made elsewhere.",
@@ -4356,6 +4366,7 @@ const privacySections = [
       "OpenAI — receives the photos you scan or submit to photo identification, along with the prompt describing what to look for, and returns the suggested details. This happens only when you press scan or research, and only for the photos in that request. Don't submit a photo you aren't comfortable having processed this way.",
       "Google Analytics — receives the page views and events in section 2. It does not receive your email address, your collection, or your photos.",
       "Google — only if you choose to sign in with it, and only to the extent that sign-in requires.",
+      "Apple — only if you choose to sign in with it, and only to the extent that sign-in requires.",
       "GitHub — receives your feedback. Every submission is filed as an issue in the public FirstFinder repository. The description is scanned first and obvious personal details (email addresses, phone numbers, street addresses, long card- or account-shaped numbers) are masked, but that is a pattern matcher, not a promise: don't write anything into feedback you would not want published. Your email address and account identifier are not included in the issue."
     ],
     closing: "Beyond those, we disclose personal information only when the law requires it, when we respond to a valid legal request, or when it is necessary to investigate abuse or protect someone from harm — the circumstances set out in sections 5 and 6 of the Terms. If FirstFinder were ever transferred to someone else, your information would move with it and you'd be told before it did."
@@ -4380,7 +4391,7 @@ const privacySections = [
       "A copy of your collection — so the app opens with your items when you have no connection, say in a shop. It includes what you've recorded about each item, prices and values included, but not the photos themselves.",
       "Temporary photo links — so photos don't have to be fetched fresh on every visit. Each lasts up to a week, and anyone who has one can open that photo without logging in, so treat a shared computer accordingly.",
       "Saves made while offline — items and their photos waiting to upload, removed once they do.",
-      "Your sign-up email choice — only if you tick \"Email me\" and then continue with Google, held for up to 15 minutes so it survives the trip to their sign-in page and removed as soon as you're back.",
+      "Your sign-up email choice — only if you tick \"Email me\" and then continue with Google or Apple, held for up to 15 minutes so it survives the trip to their sign-in page and removed as soon as you're back.",
       "The app itself — FirstFinder's own code and icons, so it can start offline. No personal information.",
       "Your layout choice on shared collection pages — grid or list. No personal information.",
       "Which announcement you've closed — so a banner you dismissed stays dismissed until there's a new one. No personal information.",
@@ -5138,7 +5149,9 @@ function HomePage({ onGetStarted }) {
 const authModeCopy = {
   signin: {
     heading: "Log in to your collection.",
-    sub: `Use your email and password, or continue with Google, to get back to your collection.`,
+    // A function because Apple only appears once its web sign-in is set up;
+    // see src/lib/oauthReadiness.js.
+    sub: (providers) => `Use your email and password, or continue with ${providers}, to get back to your collection.`,
     formTitle: "Log in",
     formSub: "Enter the email and password you signed up with.",
     submit: "Log in",
@@ -5209,12 +5222,14 @@ function AuthModeTabs({ mode, onChange }) {
   );
 }
 
-function SocialAuthButton({ icon, children, onClick }) {
+// textClassName exists for Apple, whose guidelines ask for the white button's
+// logo and label in black rather than in our green.
+function SocialAuthButton({ icon, children, onClick, textClassName = "text-[#123f38]" }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#cdbb9c] bg-white px-6 text-base font-semibold text-[#123f38] shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]"
+      className={`flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#cdbb9c] bg-white px-6 text-base font-semibold ${textClassName} shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]`}
     >
       <Icon name={icon} size={20} />
       <span>{children}</span>
@@ -5231,11 +5246,11 @@ function AuthLink({ children, onClick }) {
 }
 
 // Consent notice covering the account-creating controls in view: the email
-// sign-up submit and the Google button, which signs up and signs in through the
-// same click. One notice sits at the foot of the card rather than one per
+// sign-up submit and the Google and Apple buttons, each of which signs up and
+// signs in through the same click. One notice sits at the foot of the card rather than one per
 // button, so sign-up doesn't stack the same sentence twice. Deliberately absent
 // from the forgot-password form, where no account is being created and no
-// Google button is shown.
+// social buttons are shown.
 function AuthTermsNotice({ onViewTerms, onViewPrivacy, action }) {
   return (
     <p className="mt-4 text-xs leading-5 text-[#7d6c5a]">
@@ -5263,6 +5278,22 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
   const [loading, setLoading] = useState(false);
 
   const copy = authModeCopy[mode];
+
+  // Hidden until Supabase confirms the web redirect works, so the button never
+  // leads to a raw error page. Every sentence that names the sign-in options
+  // follows the same flag, so the consent notice never covers a button that
+  // isn't there or misses one that is.
+  const [appleReady, setAppleReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    isOAuthProviderReady("apple").then((ready) => {
+      if (active) setAppleReady(ready);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const socialProviders = appleReady ? "Google or Apple" : "Google";
 
   // A failed OAuth round trip comes back as a redirect to the app with the
   // reason in the URL, not as a rejected promise -- signInWithOAuth only builds
@@ -5295,9 +5326,8 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     setForm((current) => ({ ...current, password: "", confirmPassword: "" }));
   }
 
-  // Takes the provider as an argument even with Google the only one, so a
-  // second provider would be a button, not a second copy of the error handling
-  // and redirect target.
+  // Takes the provider as an argument so Google and Apple share one copy of the
+  // error handling and redirect target.
   async function handleOAuthLogin(provider, label) {
     trackEvent(`${provider}_login_clicked`, { source_page: "login" });
     // The box is only on the sign-up form, so only a click from there carries
@@ -5442,7 +5472,7 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     <section className="mx-auto grid max-w-6xl gap-8 px-6 py-12 md:grid-cols-[0.9fr_1.1fr] md:items-start">
       <div>
         <h1 className="text-5xl font-semibold tracking-tight">{copy.heading}</h1>
-        <p className="mt-5 max-w-xl text-lg leading-8 text-[#665746]">{copy.sub}</p>
+        <p className="mt-5 max-w-xl text-lg leading-8 text-[#665746]">{typeof copy.sub === "function" ? copy.sub(socialProviders) : copy.sub}</p>
       </div>
 
       <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
@@ -5460,7 +5490,7 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
               {mode === "signup" && (
                 <Field label="Confirm password" type="password" value={form.confirmPassword} onChange={(value) => setForm({ ...form, confirmPassword: value })} />
               )}
-              {/* Covers the Google button below as well as this
+              {/* Covers the Google and Apple buttons below as well as this
                   form: the choice rides through their redirect in browser
                   storage (src/lib/pendingEmailUpdates.js). Everyone can change
                   it later in My account. */}
@@ -5496,6 +5526,11 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
                 <SocialAuthButton icon="google" onClick={() => handleOAuthLogin("google", "Google")}>
                   Continue with Google
                 </SocialAuthButton>
+                {appleReady && (
+                  <SocialAuthButton icon="apple" textClassName="text-black" onClick={() => handleOAuthLogin("apple", "Apple")}>
+                    Continue with Apple
+                  </SocialAuthButton>
+                )}
               </div>
             </div>
           )}
@@ -5513,7 +5548,7 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
             <AuthTermsNotice
               onViewTerms={onViewTerms}
               onViewPrivacy={onViewPrivacy}
-              action={mode === "signup" ? `Creating an account, or continuing with Google` : `Continuing with Google`}
+              action={mode === "signup" ? `Creating an account, or continuing with ${socialProviders},` : `Continuing with ${socialProviders}`}
             />
           )}
         </CardContent>
