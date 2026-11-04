@@ -17,7 +17,7 @@
 			<string>Email sign-in links</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>app.firstfinder.prototype</string>
+				<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			</array>
 		</dict>
 	</array>

@@ -20,9 +20,16 @@ final class AuthFlowTests: XCTestCase {
         XCTAssertFalse(AuthFlow.isRecovery(recoverySentAt: now.addingTimeInterval(-3700), now: now))
     }
 
+    func testTheCallbackFollowsTheBundleID() {
+        XCTAssertEqual(AuthFlow.callbackURL(bundleID: "app.firstfinder").absoluteString, "app.firstfinder://auth-callback")
+        XCTAssertEqual(AuthFlow.callbackURL.scheme, Bundle.main.bundleIdentifier)
+    }
+
     func testOnlyTheAppsOwnCallbackIsHandled() {
-        XCTAssertTrue(AuthFlow.isCallback(URL(string: "app.firstfinder.prototype://auth-callback?code=abc")!))
-        XCTAssertFalse(AuthFlow.isCallback(URL(string: "app.firstfinder.prototype://somewhere-else")!))
+        let scheme = AuthFlow.callbackURL.scheme!
+        XCTAssertTrue(AuthFlow.isCallback(URL(string: "\(scheme)://auth-callback?code=abc")!))
+        XCTAssertFalse(AuthFlow.isCallback(URL(string: "\(scheme)://somewhere-else")!))
+        XCTAssertFalse(AuthFlow.isCallback(URL(string: "app.firstfinder.other://auth-callback")!))
         XCTAssertFalse(AuthFlow.isCallback(URL(string: "https://firstfinder.app/auth-callback")!))
     }
 

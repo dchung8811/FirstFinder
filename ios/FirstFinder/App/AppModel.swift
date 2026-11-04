@@ -120,10 +120,12 @@ final class AppModel {
             dataMode = .sample
         }
         photos = PhotoSigner()
-        // Launch arguments for review and screenshots, e.g.
-        //   xcrun simctl launch booted app.firstfinder.prototype -FFDataMode Sample -FFSampleSignedIn NO
+        // Launch arguments for screenshots, e.g.
+        //   xcrun simctl launch booted app.firstfinder -FFDataMode Sample -FFSampleSignedIn NO
         // They arrive in the arguments domain of UserDefaults, which is never
-        // written to disk.
+        // written to disk. Development builds only: a store build is always
+        // the collector's real account.
+        #if DEBUG
         let arguments = UserDefaults.standard
         if arguments.string(forKey: "FFDataMode") == DataMode.sample.rawValue {
             store = sampleStore
@@ -132,6 +134,7 @@ final class AppModel {
         if arguments.object(forKey: "FFSampleSignedIn") != nil {
             sampleStore.setSignedIn(arguments.bool(forKey: "FFSampleSignedIn"))
         }
+        #endif
         photos.attach(store)
         network.start()
     }
@@ -434,7 +437,7 @@ final class NetworkMonitor {
             let online = path.status == .satisfied
             Task { @MainActor in self?.isOnline = online }
         }
-        monitor.start(queue: DispatchQueue(label: "app.firstfinder.prototype.network"))
+        monitor.start(queue: DispatchQueue(label: "app.firstfinder.network"))
     }
 }
 

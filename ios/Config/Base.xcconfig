@@ -1,3 +1,10 @@
+// The app's bundle ID. It comes before the include so Secrets.xcconfig can
+// override it: bundle IDs are unique across all of Apple, so a contributor
+// running on their own iPhone signs a variant of their own, and the free
+// personal team never claims the real one before the paid team registers it.
+// It also names the email-link URL scheme and the sign-in keychain item.
+FF_BUNDLE_ID = app.firstfinder
+
 // Settings shared by every configuration. The Supabase values live in
 // Secrets.xcconfig, which is gitignored; the optional include keeps a fresh
 // clone building (in Sample mode) before anyone has created it.

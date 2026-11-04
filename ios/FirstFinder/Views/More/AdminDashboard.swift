@@ -320,7 +320,7 @@ private struct BannerPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.adaptive(0x123f38, dark: 0x123f38), in: RoundedRectangle(cornerRadius: 12))
                 }
-                Button("Save banner") { note = "Disabled in the prototype. The live banner is unchanged." }
+                Button("Save banner") { note = "Change the banner from the admin page on the website. The live banner is unchanged." }
                     .buttonStyle(.ffPrimary)
                 if !note.isEmpty { Text(note).font(.subheadline).foregroundStyle(Theme.warningInk) }
                 Text("Saving shows the banner again to anyone who closed the previous one.").font(.caption).foregroundStyle(Theme.brownMuted)

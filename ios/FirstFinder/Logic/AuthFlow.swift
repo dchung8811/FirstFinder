@@ -3,10 +3,15 @@ import Foundation
 // Sign-up, password reset and the email links that finish them, as rules the
 // screens and the store share. Pure, so each is tested.
 enum AuthFlow {
-    // Where every email link returns: the one address on the Supabase
-    // Redirect URLs list. Supabase accepts it exactly -- a path or a query
-    // added to it is refused -- so a link can't say which flow it came from.
-    static let callbackURL = URL(string: "app.firstfinder.prototype://auth-callback")!
+    // Where every email link returns: <bundle ID>://auth-callback, the URL
+    // scheme Info.plist registers. It must be on the Supabase Redirect URLs
+    // list exactly -- a path or a query added to it is refused -- so a link
+    // can't say which flow it came from.
+    static let callbackURL = callbackURL(bundleID: Bundle.main.bundleIdentifier)
+
+    static func callbackURL(bundleID: String?) -> URL {
+        URL(string: "\(bundleID ?? "app.firstfinder")://auth-callback")!
+    }
 
     static func isCallback(_ url: URL) -> Bool {
         url.scheme == callbackURL.scheme && url.host() == callbackURL.host()

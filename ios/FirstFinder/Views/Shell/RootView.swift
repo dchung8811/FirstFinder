@@ -130,8 +130,10 @@ struct SiteHeader: View {
                 Button(AppView.features.title) { path.append(AppView.features) }
                 Button(AppView.contribute.title) { path.append(AppView.contribute) }
                 Button("Book guides") { path.append(WebRoute.bookGuides) }
+                #if DEBUG
                 Divider()
                 Button("Developer") { path.append(DeveloperRoute()) }
+                #endif
             } label: {
                 Image(systemName: "line.3.horizontal")
                     .font(.body.weight(.medium))

@@ -40,7 +40,7 @@ final class LiveStore: CollectionStore, @unchecked Sendable {
             supabaseKey: config.anonKey,
             options: SupabaseClientOptions(
                 auth: .init(
-                    storage: KeychainLocalStorage(service: "app.firstfinder.prototype.auth"),
+                    storage: KeychainLocalStorage(service: "\(Bundle.main.bundleIdentifier ?? "app.firstfinder").auth"),
                     // Emit the stored session straight away instead of waiting
                     // on a refresh. A refresh that fails offline then leaves
                     // the collector signed in with their last data, not on the

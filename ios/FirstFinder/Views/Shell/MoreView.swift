@@ -37,7 +37,11 @@ struct MoreView: View {
                     if app.isAdmin {
                         row("Admin", "gauge.with.dots.needle.33percent", .admin)
                     }
+                    // Sample data and the failure switches: development
+                    // builds only, never in the App Store build.
+                    #if DEBUG
                     row("Developer", "wrench.and.screwdriver", .developer)
+                    #endif
                 }
                 Section {
                     Button("Sign out", role: .destructive) { confirmingSignOut = true }
