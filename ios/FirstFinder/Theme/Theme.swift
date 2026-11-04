@@ -16,13 +16,21 @@ enum Theme {
     static let pill = adaptive(0xf7efe3, dark: 0x0f332d)
     static let tint = adaptive(0xedf4f2, dark: 0x0f332d)
 
-    // Fields: text inputs, pickers, the search bar and the controls beside it.
-    // The one dark tone that isn't on the web: with fields and cards both deep
-    // green, an input inside a card had only a hairline to show it was there
-    // (issue #277). A lifted shade of the same green reads as "type here"
-    // without bringing in a new hue. Light mode is unchanged.
-    static let field = adaptive(0xfffdf8, dark: 0x265b52)
-    static let fieldBorder = adaptive(0xd8c7ad, dark: 0x8a7a64)
+    // In dark mode, fields and cards were the same deep green, so an input
+    // inside a card had only a hairline to show it was there (issue #277).
+    // Light mode is unchanged by both of these.
+    //
+    // Form fields (Field, SelectField, the item-name box) take the web's
+    // beige page color, so filling in a find reads as filling in a form.
+    // What sits inside one takes its light-mode inks, through fieldInks().
+    static let field = adaptive(0xfffdf8, dark: 0xf6efe3)
+    static let fieldBorder = adaptive(0xd8c7ad, dark: 0xd8c7ad)
+
+    // Controls and filters (the dashboard pickers, search, sort, Filters,
+    // the layout switch) and the other text boxes take a lifted shade of the
+    // same green: distinct from the card, but still part of the page.
+    static let control = adaptive(0xfffdf8, dark: 0x265b52)
+    static let controlBorder = adaptive(0xd8c7ad, dark: 0x8a7a64)
 
     // Ink
     static let ink = adaptive(0x201a14, dark: 0xfff7ea)
@@ -225,6 +233,14 @@ struct LocalChip: View {
 // content in glass, which slid over the login page's mode switch; the web's
 // header is a solid bar, so pushed pages get one too.
 extension View {
+    // A field's contents (typed text, placeholder, icons, the selected
+    // segment) resolve as in light mode, so they stay dark on the beige
+    // field. Applied before the field's own background, which must still
+    // resolve in the real scheme to come out beige rather than white.
+    func fieldInks() -> some View {
+        environment(\.colorScheme, .light)
+    }
+
     func solidNavigationBar() -> some View {
         toolbarBackground(Theme.page, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)

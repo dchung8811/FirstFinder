@@ -268,8 +268,8 @@ struct FilterMenu: View {
                 .foregroundStyle(Theme.ink)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Theme.field, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.fieldBorder))
+                .background(Theme.control, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.controlBorder))
             }
             .accessibilityLabel("\(label): \(options.first { $0.value == selection }?.label ?? "")")
         }

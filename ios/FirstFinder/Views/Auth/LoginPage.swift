@@ -380,6 +380,7 @@ struct Field: View {
             input
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                .fieldInks()
                 .background(Theme.field, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.fieldBorder))
                 .accessibilityLabel(label)

@@ -300,8 +300,8 @@ private struct BannerPanel: View {
                 TextField("", text: Binding(get: { draft.message }, set: { draft.message = String($0.prefix(160)) }), axis: .vertical)
                     .lineLimit(2...4)
                     .padding(10)
-                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.fieldBorder))
+                    .background(Theme.control, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.controlBorder))
                 Text("\(draft.message.count)/160").font(.caption).foregroundStyle(Theme.brownMuted).frame(maxWidth: .infinity, alignment: .trailing)
                 Field(label: "Link text", text: Binding(get: { draft.linkLabel }, set: { draft.linkLabel = String($0.prefix(40)) }), placeholder: "Optional")
                 Picker("Link goes to", selection: $draft.linkView) {

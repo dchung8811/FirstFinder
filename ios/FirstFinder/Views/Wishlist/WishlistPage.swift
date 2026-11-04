@@ -279,8 +279,8 @@ struct WantDialog: View {
                         TextField("What would make you pass?", text: $draft.notes, axis: .vertical)
                             .lineLimit(3...6)
                             .padding(12)
-                            .background(Theme.field, in: RoundedRectangle(cornerRadius: 16))
-                            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.fieldBorder))
+                            .background(Theme.control, in: RoundedRectangle(cornerRadius: 16))
+                            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.controlBorder))
                     }
                     Toggle(isOn: $draft.hiddenFromShare) {
                         VStack(alignment: .leading, spacing: 2) {
