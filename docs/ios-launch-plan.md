@@ -116,9 +116,10 @@ Done without enrollment (2026-11-04):
 
 After enrollment, in order:
 
-1. Register `app.firstfinder` on the paid team; delete the `FF_BUNDLE_ID`
-   override from `Secrets.xcconfig` and set `DEVELOPMENT_TEAM` to the paid
-   team.
+1. Done 2026-11-04: enrollment upgraded the existing team (39625L3BAQ) to a
+   paid Individual team in place. The `FF_BUNDLE_ID` override is gone,
+   `app.firstfinder` is registered with Sign in with Apple through Xcode's
+   automatic signing, and `ITSAppUsesNonExemptEncryption` is NO.
 2. Add `app.firstfinder://auth-callback` to Supabase's Redirect URLs (keep the
    `.prototype` one until no build uses it). Without it, Google sign-in and
    email links fail on the store build.

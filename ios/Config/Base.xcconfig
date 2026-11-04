@@ -5,6 +5,11 @@
 // It also names the email-link URL scheme and the sign-in keychain item.
 FF_BUNDLE_ID = app.firstfinder
 
+// The app's entitlements: Sign in with Apple. A free personal team can't sign
+// that capability, so a contributor on one sets FF_ENTITLEMENTS to nothing in
+// Secrets.xcconfig to run on their own iPhone; the simulator needs neither.
+FF_ENTITLEMENTS = Config/FirstFinder.entitlements
+
 // Settings shared by every configuration. The Supabase values live in
 // Secrets.xcconfig, which is gitignored; the optional include keeps a fresh
 // clone building (in Sample mode) before anyone has created it.

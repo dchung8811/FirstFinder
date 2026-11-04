@@ -10,6 +10,8 @@
 	<string>$(FIRSTFINDER_SITE_URL)</string>
 	<key>FFAppleSignIn</key>
 	<string>$(APPLE_SIGN_IN)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
