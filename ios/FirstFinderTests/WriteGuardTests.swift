@@ -29,11 +29,14 @@ final class WriteGuardTests: XCTestCase {
         ".insert(", ".update(", ".upsert(", ".delete(", ".upload(", ".remove(", ".move(", ".list(", ".rpc(",
     ]
 
-    // Never, anywhere: storage moves, and auth calls that change an account's
-    // email or password or send mail. Sign-up and reset come with their own
-    // narrower rules when the app gains them.
-    private static let forbiddenEverywhere = [
-        ".move(", ".signUp(", ".updateUser(", ".resetPasswordForEmail(",
+    // Never, anywhere: storage moves, and the web client's spelling of an
+    // account change (the phone's is .update(user:), in the writer only).
+    private static let forbiddenEverywhere = [".move(", ".updateUser("]
+
+    // Auth calls that create an account, send mail or sign in another way.
+    // Each is a door into auth, so each is allowed in the writer only.
+    private static let writerOnlyAuth = [
+        ".signUp(", ".resetPasswordForEmail(", ".signInWithIdToken(", ".signInWithOAuth(",
     ]
 
     // Server-side only: the spending routes call these with the service role.
@@ -65,10 +68,12 @@ final class WriteGuardTests: XCTestCase {
                     failures.append("\(at) uses \(call)")
                 }
 
-                // Google sign-in, in the writer only: a second door into auth
-                // elsewhere would be one this test doesn't watch.
-                if line.contains(".signInWithOAuth("), !isWriter {
-                    failures.append("\(at) starts an OAuth sign-in outside \(Self.writer)")
+                for call in Self.writerOnlyAuth where line.contains(call) && !isWriter {
+                    failures.append("\(at) uses \(call) outside \(Self.writer)")
+                }
+                // The two sign-in providers the app offers, and no others.
+                if line.contains(".signInWithIdToken("), !text.contains("OpenIDConnectCredentials(provider: .apple") {
+                    failures.append("\(at) signs in with an ID token from a provider other than Apple")
                 }
                 if line.contains(".signInWithOAuth("), !line.contains("provider: .google") {
                     failures.append("\(at) starts an OAuth sign-in with a provider other than Google")

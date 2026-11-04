@@ -20,6 +20,8 @@ struct FirstFinderApp: App {
             RootView()
                 .environment(app)
                 .task { await app.start() }
+                // Confirmation and reset links from email come back here.
+                .onOpenURL { url in Task { await app.openAuthLink(url) } }
         }
     }
 }

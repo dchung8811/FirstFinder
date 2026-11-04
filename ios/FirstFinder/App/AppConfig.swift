@@ -38,6 +38,11 @@ struct AppConfig: Sendable, Equatable {
 
     static let defaultSiteURL = URL(string: "https://firstfinder.app")!
 
+    // Sign in with Apple's switch, from APPLE_SIGN_IN in Base.xcconfig.
+    static func appleSignInEnabled(bundle: Bundle = .main) -> Bool {
+        (bundle.object(forInfoDictionaryKey: "FFAppleSignIn") as? String)?.uppercased() == "YES"
+    }
+
     static func load(bundle: Bundle = .main) -> Result<AppConfig, Problem> {
         let url = bundle.object(forInfoDictionaryKey: "FFSupabaseURL") as? String
         let key = bundle.object(forInfoDictionaryKey: "FFSupabaseAnonKey") as? String

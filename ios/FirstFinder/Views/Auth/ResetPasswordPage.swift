@@ -1,12 +1,15 @@
 import SwiftUI
 
-// ResetPasswordPage: where the reset email's one-time link lands, to choose a
-// new password. The prototype never sends that email, so this is reached from
-// the signed-out menu and stops short of changing anything.
+// ResetPasswordPage: where a password-reset link lands. The link has already
+// signed the collector in (AppModel.openAuthLink); this sets the new password
+// on that session, with the web's checks and words.
 struct ResetPasswordPage: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.dismiss) private var dismiss
     @State private var password = ""
     @State private var confirm = ""
     @State private var message: AuthMessage.Message?
+    @State private var saving = false
 
     var body: some View {
         ScrollView {
@@ -17,8 +20,9 @@ struct ResetPasswordPage: View {
                         if let message { AuthMessage(message: message) { _ in } }
                         Field(label: "New password", text: $password, kind: .newPassword)
                         Field(label: "Confirm new password", text: $confirm, kind: .newPassword)
-                        Button("Save new password") { save() }
+                        Button(saving ? "Saving..." : "Save new password") { Task { await save() } }
                             .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
+                            .disabled(saving)
                             .padding(.top, 6)
                     }
                 }
@@ -30,13 +34,24 @@ struct ResetPasswordPage: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func save() {
-        if password.count < 8 {
-            message = .init(kind: .error, text: "Use a password of at least 8 characters.")
-        } else if password != confirm {
-            message = .init(kind: .error, text: "The passwords don't match.")
-        } else {
-            message = .init(kind: .info, text: "Changing a password is UI-only in the prototype. Nothing was changed.")
+    private func save() async {
+        if let problem = AuthFlow.passwordProblem(password, confirm: confirm) {
+            message = .init(kind: .error, text: problem)
+            return
+        }
+        // Reached without a reset link (the signed-out menu), there is no
+        // session to change the password on.
+        guard app.profile != nil else {
+            message = .init(kind: .error, text: "Open the reset link from your email on this phone first, then choose your new password here.")
+            return
+        }
+        saving = true
+        defer { saving = false }
+        do {
+            try await app.setNewPassword(password)
+            dismiss()
+        } catch {
+            message = .init(kind: .error, text: error.localizedDescription)
         }
     }
 }

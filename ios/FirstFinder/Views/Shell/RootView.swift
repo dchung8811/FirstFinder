@@ -18,6 +18,10 @@ struct RootView: View {
             ToastStack().padding(.bottom, 56)
         }
         .tint(Theme.green)
+        // A reset link signs in first, then asks for the new password.
+        .sheet(isPresented: Binding(get: { app.choosingNewPassword }, set: { app.choosingNewPassword = $0 })) {
+            NavigationStack { ResetPasswordPage().solidNavigationBar() }
+        }
     }
 
     @ViewBuilder private var content: some View {

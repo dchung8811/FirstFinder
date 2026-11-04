@@ -8,6 +8,19 @@
 	<string>$(SUPABASE_ANON_KEY)</string>
 	<key>FFSiteURL</key>
 	<string>$(FIRSTFINDER_SITE_URL)</string>
+	<key>FFAppleSignIn</key>
+	<string>$(APPLE_SIGN_IN)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Email sign-in links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app.firstfinder.prototype</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Fraunces-Variable.ttf</string>

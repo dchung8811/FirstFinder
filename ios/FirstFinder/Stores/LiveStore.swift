@@ -93,7 +93,7 @@ final class LiveStore: CollectionStore, @unchecked Sendable {
 
     // Where Google sends the collector back. Must be listed under Redirect
     // URLs in the Supabase dashboard (Authentication → URL Configuration).
-    static let oauthRedirect = URL(string: "app.firstfinder.prototype://auth-callback")!
+    static let oauthRedirect = AuthFlow.callbackURL
 
     func signInWithGoogle() async throws -> UserProfile {
         do {
@@ -107,6 +107,59 @@ final class LiveStore: CollectionStore, @unchecked Sendable {
             if (error as NSError).domain == "com.apple.AuthenticationServices.WebAuthenticationSession", (error as NSError).code == 1 {
                 throw StoreError.failed("Sign-in was cancelled or failed. Try again.")
             }
+            throw StoreError.failed(Self.describeAuthError(error))
+        }
+    }
+
+    func signInWithApple(idToken: String, nonce: String) async throws -> UserProfile {
+        do {
+            let session = try await client.auth.signInWithIdToken(
+                credentials: OpenIDConnectCredentials(provider: .apple, idToken: idToken, nonce: nonce)
+            )
+            return Self.profile(from: session.user)
+        } catch {
+            throw StoreError.failed(Self.describeAuthError(error))
+        }
+    }
+
+    func createAccount(email: String, password: String, emailUpdates: Bool) async throws -> AuthFlow.SignUpOutcome {
+        // Only written when ticked, as on the web: an account that said
+        // nothing carries no record of having said no either.
+        let data: [String: AnyJSON]? = emailUpdates
+            ? ["email_updates": .bool(true), "email_updates_changed_at": .string(ISO8601DateFormatter().string(from: Date()))]
+            : nil
+        let response: AuthResponse
+        do {
+            response = try await client.auth.signUp(email: email, password: password, data: data, redirectTo: AuthFlow.callbackURL)
+        } catch {
+            throw StoreError.failed(Self.describeAuthError(error))
+        }
+        if let session = response.session { return .signedIn(Self.profile(from: session.user)) }
+        if response.user.identities?.isEmpty == true { return .alreadyRegistered }
+        return .confirmEmail
+    }
+
+    func sendPasswordReset(email: String) async throws {
+        do {
+            try await client.auth.resetPasswordForEmail(email, redirectTo: AuthFlow.callbackURL)
+        } catch {
+            throw StoreError.failed(Self.describeAuthError(error))
+        }
+    }
+
+    func completeAuthLink(_ url: URL) async throws -> (profile: UserProfile, isRecovery: Bool) {
+        do {
+            let session = try await client.auth.session(from: url)
+            return (Self.profile(from: session.user), AuthFlow.isRecovery(recoverySentAt: session.user.recoverySentAt))
+        } catch {
+            throw StoreError.failed(AuthFlow.linkFailedMessage)
+        }
+    }
+
+    func setPassword(_ password: String) async throws {
+        do {
+            _ = try await client.auth.update(user: UserAttributes(password: password))
+        } catch {
             throw StoreError.failed(Self.describeAuthError(error))
         }
     }

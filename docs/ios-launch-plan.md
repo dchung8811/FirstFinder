@@ -58,9 +58,20 @@ go to `main` as separate small PRs, each merged before the app depends on it.
 
 ### 4. Auth
 
-- Sign in with Apple (needs enrollment), Google (done), email.
-- Sign-up and password reset for real, with the reset link opening the app
-  (universal link on `firstfinder.app`, needs enrollment for the entitlement).
+- Google and email sign-in: done.
+- Sign-up and password reset: done. Their email links return to
+  `app.firstfinder.prototype://auth-callback` (the one address on Supabase's
+  Redirect URLs list) and open the app, signed in; a reset link then asks for
+  the new password. A universal link on `firstfinder.app` would avoid iOS's
+  "Open in FirstFinder?" prompt, but needs enrollment for the entitlement.
+- Sign in with Apple: code done, switched off (`APPLE_SIGN_IN = NO` in
+  `ios/Config/Base.xcconfig`). To turn it on, after enrollment:
+  1. Add the Sign in with Apple capability to the app ID, and an
+     entitlements file with `com.apple.developer.applesignin` to the target.
+  2. In Supabase (Authentication → Providers → Apple), enable Apple and add the
+     app's bundle ID under Client IDs. The native flow needs no Services ID
+     or key; the website's Apple button would.
+  3. Set `APPLE_SIGN_IN = YES`, and try it on a real device.
 - My Account handles Apple's private-relay addresses honestly.
 - Delete account through `/api/v1/delete-account` (Apple requires in-app deletion).
 

@@ -32,6 +32,10 @@ final class AppModel {
 
     let pendingPhotos = PendingPhotos()
     let toasts = ToastCenter()
+    // Set when a password-reset link signs the collector in: the app then
+    // asks for the new password before anything else.
+    var choosingNewPassword = false
+
     // Sample mode's AI; live mode calls the site (AppModel+AI.swift).
     let fakeAI = FakeAI()
     // What /api/v1/identify-budget last said is left today. nil until asked.
@@ -259,7 +263,7 @@ final class AppModel {
         becomeSignedOut()
     }
 
-    private func becomeSignedIn(_ profile: UserProfile) async {
+    func becomeSignedIn(_ profile: UserProfile) async {
         auth = .signedIn(profile)
         await refreshAll()
         await checkAdmin()

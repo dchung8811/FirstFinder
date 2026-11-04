@@ -1,12 +1,13 @@
+import AuthenticationServices
 import SwiftUI
 
 // LoginPage from app/InventoryApp.jsx: one page with three modes (log in,
 // create account, forgot password), the same copy as authModeCopy on the web.
 //
-// Email and Google log-in are wired; both sign in to an existing account and
-// change nothing about it. Sign-up and the reset email would create an
-// account or send mail, so in the prototype they validate and stop. Apple is
-// drawn but not set up, as it isn't configured for the site either.
+// Email, Google, sign-up and the reset email all work as they do on the web.
+// The confirmation and reset links come back to the app (AuthFlow), so a
+// collector who opens them on this phone lands signed in. Sign in with Apple
+// waits on its switch in Base.xcconfig; see AppConfig.appleSignInEnabled.
 struct LoginPage: View {
     enum Mode: String { case signin, signup, forgot }
 
@@ -87,7 +88,13 @@ struct LoginPage: View {
                             OrDivider().padding(.vertical, 22)
                             VStack(spacing: 12) {
                                 SocialAuthButton(systemImage: "g.circle", title: "Continue with Google") { Task { await google() } }
-                                SocialAuthButton(systemImage: "apple.logo", title: "Continue with Apple") { notSetUp("Apple") }
+                                if AppConfig.appleSignInEnabled() {
+                                    AppleSignInButton { message = .init(kind: .error, text: $0) }
+                                } else {
+                                    SocialAuthButton(systemImage: "apple.logo", title: "Continue with Apple") {
+                                        message = .init(kind: .error, text: "Sign in with Apple isn't available yet. Use Google or your email.")
+                                    }
+                                }
                             }
                         }
 
@@ -142,10 +149,6 @@ struct LoginPage: View {
         }
     }
 
-    private func notSetUp(_ provider: String) {
-        message = .init(kind: .error, text: "\(provider) sign-in is not set up in the prototype. Use your email and password.")
-    }
-
     private func submit() async {
         let trimmed = email.trimmingCharacters(in: .whitespaces)
         switch mode {
@@ -162,20 +165,41 @@ struct LoginPage: View {
                 message = .init(kind: .error, text: error.localizedDescription)
             }
         case .signup:
-            if trimmed.isEmpty || password.isEmpty {
-                message = .init(kind: .error, text: "Enter an email and a password.")
-            } else if password.count < 8 {
-                message = .init(kind: .error, text: "Use a password of at least 8 characters.")
-            } else if password != confirmPassword {
-                message = .init(kind: .error, text: "The passwords don't match.")
-            } else {
-                message = .init(kind: .info, text: "Sign-up is UI-only in the prototype. No account was created.", action: (.signin, "Log in instead"))
+            guard !trimmed.isEmpty else {
+                message = .init(kind: .error, text: "Enter your email address first.")
+                return
+            }
+            if let problem = AuthFlow.passwordProblem(password, confirm: confirmPassword) {
+                message = .init(kind: .error, text: problem)
+                return
+            }
+            loading = true
+            defer { loading = false }
+            do {
+                switch try await app.createAccount(email: trimmed, password: password, emailUpdates: emailUpdates) {
+                case .signedIn:
+                    break
+                case .alreadyRegistered:
+                    message = .init(kind: .error, text: "An account with this email already exists.", action: (.signin, "Log in instead"))
+                case .confirmEmail:
+                    switchMode(.signin)
+                    message = .init(kind: .info, text: AuthFlow.confirmationMessage(trimmed))
+                }
+            } catch {
+                message = .init(kind: .error, text: error.localizedDescription)
             }
         case .forgot:
-            if trimmed.isEmpty {
-                message = .init(kind: .error, text: "Enter your account email.")
-            } else {
-                message = .init(kind: .info, text: "Password reset is UI-only in the prototype. No email was sent.")
+            guard !trimmed.isEmpty else {
+                message = .init(kind: .error, text: "Enter your email address first.")
+                return
+            }
+            loading = true
+            defer { loading = false }
+            do {
+                try await app.sendPasswordReset(email: trimmed)
+                message = .init(kind: .info, text: AuthFlow.resetSentMessage(trimmed))
+            } catch {
+                message = .init(kind: .error, text: error.localizedDescription)
             }
         }
     }
@@ -240,6 +264,40 @@ struct AuthMessage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(message.kind == .error ? Theme.errorSurface : Theme.tint, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
+    }
+}
+
+// Apple's own button, as App Review expects it to look. The request carries
+// the hash of a fresh nonce; Supabase is given the nonce itself.
+struct AppleSignInButton: View {
+    let onError: (String) -> Void
+    @Environment(AppModel.self) private var app
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var nonce = ""
+
+    var body: some View {
+        SignInWithAppleButton(.continue) { request in
+            nonce = AppleNonce.make()
+            request.requestedScopes = [.email, .fullName]
+            request.nonce = AppleNonce.sha256(nonce)
+        } onCompletion: { result in
+            switch result {
+            case .success(let authorization):
+                guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                      let token = credential.identityToken.flatMap({ String(data: $0, encoding: .utf8) })
+                else { return onError("Apple didn't send a sign-in token. Try again.") }
+                Task {
+                    do { try await app.signInWithApple(idToken: token, nonce: nonce) }
+                    catch { onError(error.localizedDescription) }
+                }
+            case .failure(let error):
+                // Closing Apple's sheet isn't an error worth showing.
+                if (error as? ASAuthorizationError)?.code != .canceled { onError(error.localizedDescription) }
+            }
+        }
+        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+        .frame(height: 48)
+        .clipShape(Capsule())
     }
 }
 

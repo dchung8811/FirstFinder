@@ -89,6 +89,30 @@ final class SampleStore: CollectionStore, @unchecked Sendable {
         return signedIn
     }
 
+    func signInWithApple(idToken: String, nonce: String) async throws -> UserProfile {
+        try await signInWithGoogle()
+    }
+
+    // Sample mode never creates an account or sends mail; it answers as
+    // Supabase does when confirmation is on.
+    func createAccount(email: String, password: String, emailUpdates: Bool) async throws -> AuthFlow.SignUpOutcome {
+        try await Task.sleep(for: latency)
+        return .confirmEmail
+    }
+
+    func sendPasswordReset(email: String) async throws {
+        try await Task.sleep(for: latency)
+    }
+
+    func completeAuthLink(_ url: URL) async throws -> (profile: UserProfile, isRecovery: Bool) {
+        let profile = lock.withLock { _signedIn = true; return self.profile }
+        return (profile, false)
+    }
+
+    func setPassword(_ password: String) async throws {
+        try await Task.sleep(for: latency)
+    }
+
     func signOut() async {
         lock.withLock { _signedIn = false }
         broadcast(.signedOut)

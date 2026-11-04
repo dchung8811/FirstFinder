@@ -58,6 +58,15 @@ protocol CollectionStore: AnyObject, Sendable {
     // Google". For an account that exists it only signs in; like the web's
     // button, a Google account Supabase has never seen would get a new one.
     func signInWithGoogle() async throws -> UserProfile
+    // Native Sign in with Apple: the identity token Apple handed the app, and
+    // the raw nonce whose hash went into that request.
+    func signInWithApple(idToken: String, nonce: String) async throws -> UserProfile
+    func createAccount(email: String, password: String, emailUpdates: Bool) async throws -> AuthFlow.SignUpOutcome
+    func sendPasswordReset(email: String) async throws
+    // An email link that opened the app: signs in, and says whether it was a
+    // password reset so the app can ask for the new password.
+    func completeAuthLink(_ url: URL) async throws -> (profile: UserProfile, isRecovery: Bool)
+    func setPassword(_ password: String) async throws
     func signOut() async
     func accessToken() async -> String?
 
