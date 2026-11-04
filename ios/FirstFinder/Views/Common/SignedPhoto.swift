@@ -11,6 +11,9 @@ struct SignedPhoto: View {
     // Said in the frame when the photo can't be shown. Without one, nothing
     // is drawn. Either way, never a broken image.
     var missingLabel: String?
+    // Told the pixel size once the image is in, for a caller that lays out
+    // around the photo itself rather than its frame (the zoom viewer).
+    var onImageSize: ((CGSize) -> Void)?
 
     @Environment(AppModel.self) private var app
     @State private var image: UIImage?
@@ -44,6 +47,9 @@ struct SignedPhoto: View {
             }
         }
         .task(id: taskKey) { await load() }
+        .onChange(of: image?.size) { _, size in
+            if let size { onImageSize?(size) }
+        }
     }
 
     private var taskKey: String {

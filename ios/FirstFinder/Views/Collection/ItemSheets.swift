@@ -1,13 +1,14 @@
-import PhotosUI
 import SwiftUI
 
 // PhotoViewerModal: every photo of an item (or just its receipts), large.
 // The web also repairs photo records it finds in storage but not on the row,
-// which writes; the prototype only shows what the row lists.
+// which writes; the prototype only shows what the row lists. Tapping a photo
+// opens it full screen to zoom in on a number line or a receipt total.
 struct PhotoViewerModal: View {
     let request: PhotoViewerRequest
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @State private var zoomStart: PhotoZoomViewer.Start?
 
     var body: some View {
         let entry = app.inventory.first { $0.id == request.itemId }
@@ -29,13 +30,28 @@ struct PhotoViewerModal: View {
                             .foregroundStyle(Theme.brown)
                             .background(Theme.pill, in: RoundedRectangle(cornerRadius: 16))
                     }
-                    ForEach(photos, id: \.0.path) { photo, label in
+                    ForEach(Array(photos.enumerated()), id: \.element.0.path) { index, entry in
+                        let (photo, label) = entry
                         VStack(alignment: .leading, spacing: 0) {
-                            ZStack {
-                                Theme.adaptive(0xf3ece0, dark: 0x0f332d)
-                                SignedPhoto(path: photo.path, contentMode: .fit, accessibilityLabel: photo.name, missingLabel: "Photo didn't load")
+                            Button { zoomStart = PhotoZoomViewer.Start(index: index) } label: {
+                                ZStack(alignment: .bottomTrailing) {
+                                    Theme.adaptive(0xf3ece0, dark: 0x0f332d)
+                                    SignedPhoto(path: photo.path, contentMode: .fit, accessibilityLabel: photo.name, missingLabel: "Photo didn't load")
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 32, height: 32)
+                                        .background(Color.black.opacity(0.55), in: Circle())
+                                        .padding(10)
+                                        .accessibilityHidden(true)
+                                }
+                                .frame(height: 288)
+                                .contentShape(Rectangle())
                             }
-                            .frame(height: 288)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(label), \(photo.name)")
+                            .accessibilityHint("Opens the photo full screen to zoom in.")
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(label).font(.headline)
                                 Text(photo.name).font(.subheadline).foregroundStyle(Theme.brown).lineLimit(1)
@@ -55,6 +71,9 @@ struct PhotoViewerModal: View {
                     Button("Close") { dismiss() }.accessibilityLabel("Close photo viewer")
                 }
             }
+        }
+        .fullScreenCover(item: $zoomStart) { start in
+            PhotoZoomViewer(pages: photos.map { PhotoZoomViewer.Page(photo: $0.0, label: $0.1) }, start: start.index)
         }
     }
 }
@@ -233,7 +252,7 @@ struct EditPhotoSection: View {
     var original: [Photo] = []
 
     @Environment(AppModel.self) private var app
-    @State private var picked: [PhotosPickerItem] = []
+    @State private var zoomStart: PhotoZoomViewer.Start?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -243,8 +262,13 @@ struct EditPhotoSection: View {
                 Text("\(photos.count)").font(.caption).padding(.horizontal, 10).padding(.vertical, 3)
                     .foregroundStyle(Theme.green).background(Theme.tint, in: Capsule())
             }
-            PhotosPicker(selection: $picked, matching: .images) {
-                Text("Add photos")
+            // The same "Take photo / Choose from library" choice as adding an
+            // item: a collector editing a record is usually holding the thing.
+            PhotoPickerButton(onPicked: { new in
+                photos.append(contentsOf: new)
+                added += new.count
+            }) {
+                Text("Take or add photos")
                     .font(.subheadline.weight(.medium))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
@@ -252,18 +276,26 @@ struct EditPhotoSection: View {
                     .background(Theme.adaptive(0xf7ecdc, dark: 0x0f332d), in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.adaptive(0xcbb894, dark: 0x7d6c5a), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             }
-            .onChange(of: picked) { _, items in
-                Task { await load(items) }
-            }
+            .buttonStyle(.plain)
             if !photos.isEmpty {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                    ForEach(photos) { photo in
+                    ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
                         ZStack(alignment: .topTrailing) {
-                            ZStack { Theme.pill; SignedPhoto(path: photo.path, missingLabel: "Photo") }
-                                .frame(height: 80)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            // Tap to check a photo full screen -- a blurry
+                            // number line is better caught before saving.
+                            Button { zoomStart = PhotoZoomViewer.Start(index: index) } label: {
+                                ZStack { Theme.pill; SignedPhoto(path: photo.path, missingLabel: "Photo") }
+                                    .frame(height: 80)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("View \(photo.name) full screen")
                             Button {
                                 photos.removeAll { $0.path == photo.path }
+                                // A photo picked and removed before saving
+                                // shouldn't sit in memory until the sheet closes.
+                                if PendingPhotos.isPending(photo) { app.pendingPhotos.forget([photo.path]) }
                             } label: {
                                 Image(systemName: "xmark").font(.caption2.weight(.bold)).foregroundStyle(.white)
                                     .frame(width: 26, height: 26).background(Color.black.opacity(0.7), in: Circle())
@@ -284,15 +316,9 @@ struct EditPhotoSection: View {
         .padding(16)
         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
-    }
-
-    private func load(_ items: [PhotosPickerItem]) async {
-        for item in items {
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            photos.append(app.pendingPhotos.store(data, name: "photo-\(photos.count + 1).jpg"))
-            added += 1
+        .fullScreenCover(item: $zoomStart) { start in
+            PhotoZoomViewer(pages: photos.map { PhotoZoomViewer.Page(photo: $0, label: title) }, start: start.index)
         }
-        picked = []
     }
 }
 
