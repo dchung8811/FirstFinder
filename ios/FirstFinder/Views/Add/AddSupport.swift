@@ -211,8 +211,8 @@ struct BookNameField: View {
                 .focused($focused)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.border))
+                .background(Theme.field, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.fieldBorder))
                 .accessibilityLabel(label)
                 .onChange(of: draft.item.name) { _, query in search(query) }
             if focused, enabled, !suggestions.isEmpty {

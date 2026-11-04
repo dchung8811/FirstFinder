@@ -16,6 +16,14 @@ enum Theme {
     static let pill = adaptive(0xf7efe3, dark: 0x0f332d)
     static let tint = adaptive(0xedf4f2, dark: 0x0f332d)
 
+    // Fields: text inputs, pickers, the search bar and the controls beside it.
+    // The one dark tone that isn't on the web: with fields and cards both deep
+    // green, an input inside a card had only a hairline to show it was there
+    // (issue #277). A lifted shade of the same green reads as "type here"
+    // without bringing in a new hue. Light mode is unchanged.
+    static let field = adaptive(0xfffdf8, dark: 0x265b52)
+    static let fieldBorder = adaptive(0xd8c7ad, dark: 0x8a7a64)
+
     // Ink
     static let ink = adaptive(0x201a14, dark: 0xfff7ea)
     static let brown = adaptive(0x665746, dark: 0xd8c7ad)

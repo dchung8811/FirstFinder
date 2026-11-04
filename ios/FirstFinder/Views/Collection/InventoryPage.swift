@@ -201,8 +201,8 @@ struct InventoryPage: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 44)
-                .background(Theme.surfaceRaised, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.border))
+                .background(Theme.field, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.fieldBorder))
                 .accessibilityLabel("Search your collection")
 
                 // Icons rather than words: most people never change layout.
@@ -223,8 +223,8 @@ struct InventoryPage: View {
                     }
                 }
                 .padding(4)
-                .background(Theme.surfaceRaised, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.border))
+                .background(Theme.field, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.fieldBorder))
             }
 
             HStack(spacing: 8) {
@@ -245,8 +245,8 @@ struct InventoryPage: View {
                     .foregroundStyle(Theme.ink)
                     .padding(.horizontal, 16)
                     .frame(height: 44)
-                    .background(Theme.surfaceRaised, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Theme.border))
+                    .background(Theme.field, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.fieldBorder))
                 }
                 Menu {
                     Picker("Sort", selection: $sortOrder) {
@@ -263,8 +263,8 @@ struct InventoryPage: View {
                     .foregroundStyle(Theme.ink)
                     .padding(.horizontal, 16)
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(Theme.surfaceRaised, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Theme.border))
+                    .background(Theme.field, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.fieldBorder))
                 }
                 .accessibilityLabel("Sort: \(ItemsLogic.sortOptions.first { $0.value == sortOrder }?.label ?? "")")
             }

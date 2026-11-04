@@ -232,8 +232,8 @@ struct ExploreSettings: View {
                 ), axis: .vertical)
                 .lineLimit(3...6)
                 .padding(12)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
+                .background(Theme.field, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.fieldBorder))
                 Text("\(draft.blurb.count)/\(PublicCollection.blurbMax)").font(.caption).foregroundStyle(Theme.brownMuted)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -275,7 +275,7 @@ struct ExploreSettings: View {
             if sharedItems.count > 12 {
                 TextField("Find an item", text: $filter)
                     .padding(10)
-                    .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 12))
                     .accessibilityLabel("Find an item to feature on Explore")
             }
             if sharedItems.isEmpty {
