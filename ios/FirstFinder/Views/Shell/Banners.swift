@@ -7,7 +7,7 @@ struct SampleModeBanner: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        if app.dataMode == .sample {
+        if app.dataMode == .sample, !app.screenshotMode {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
                     .accessibilityHidden(true)

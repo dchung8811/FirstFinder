@@ -81,6 +81,7 @@ struct SignedPhoto: View {
 // path so each sample item keeps the same cover between launches.
 struct SamplePlaceholderCover: View {
     let seed: String
+    @Environment(AppModel.self) private var app
 
     private var palette: (Color, Color) {
         let options: [(Color, Color)] = [
@@ -103,10 +104,14 @@ struct SamplePlaceholderCover: View {
                 Image(systemName: seed.contains("receipt") ? "receipt" : "book.closed")
                     .font(.system(size: 22, weight: .light))
                     .foregroundStyle(ink)
-                Text("SAMPLE")
-                    .font(.ledger(9, relativeTo: .caption2))
-                    .tracking(2)
-                    .foregroundStyle(ink.opacity(0.8))
+                // Labelled so a demo can't pass for a real shelf -- except in
+                // App Store screenshots, where the label would be noise.
+                if !app.screenshotMode {
+                    Text("SAMPLE")
+                        .font(.ledger(9, relativeTo: .caption2))
+                        .tracking(2)
+                        .foregroundStyle(ink.opacity(0.8))
+                }
                 Rectangle().fill(ink.opacity(0.7)).frame(height: 2)
             }
             .padding(.horizontal, 18)

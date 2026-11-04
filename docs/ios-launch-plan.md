@@ -90,11 +90,45 @@ go to `main` as separate small PRs, each merged before the app depends on it.
 
 ### 7. Submission
 
-- Bundle ID `app.firstfinder` (the prototype's `.prototype` ID is retired),
-  signing, `PrivacyInfo.xcprivacy`, privacy nutrition labels.
-- App Store screenshots from sample mode (never live data).
-- A **demo account for App Review** with sample data in it — Review signs in.
-- TestFlight with a few collectors, then submit.
+Done without enrollment (2026-11-04):
+
+- Bundle ID `app.firstfinder`, set as `FF_BUNDLE_ID` in
+  `ios/Config/Base.xcconfig`. Until the paid team exists, `Secrets.xcconfig`
+  overrides it to `app.firstfinder.prototype`: a free personal team building
+  the real ID could register it and keep it from the paid team. The email-link
+  scheme (`<bundle ID>://auth-callback`) and the sign-in keychain item follow
+  the bundle ID.
+- Version 1.0 (build 1).
+- `PrivacyInfo.xcprivacy`: no tracking; email, name, user ID, photos, other
+  user content and customer support, all linked, all for app functionality.
+  The App Store Connect privacy labels must say the same.
+- The Developer screen and the sample-data launch arguments exist only in
+  development builds.
+- Privacy Policy URL: https://firstfinder.app/privacy. Support URL:
+  https://firstfinder.app/support (PR #278).
+- Screenshots: 6.9" (1320×2868), sample data, made on the iPhone 17 Pro Max
+  simulator with a 9:41 status bar:
+  `xcrun simctl status_bar <device> override --time 9:41 --batteryState discharging --batteryLevel 100`
+  then launch with `-FFDataMode Sample -FFSampleSignedIn YES -FFScreenshots YES`
+  (hides the sample strip, the sample site banner and the covers' SAMPLE
+  label). The sample covers are plain cloth placeholders; real photos of
+  books from the demo account would sell the app better.
+
+After enrollment, in order:
+
+1. Register `app.firstfinder` on the paid team; delete the `FF_BUNDLE_ID`
+   override from `Secrets.xcconfig` and set `DEVELOPMENT_TEAM` to the paid
+   team.
+2. Add `app.firstfinder://auth-callback` to Supabase's Redirect URLs (keep the
+   `.prototype` one until no build uses it). Without it, Google sign-in and
+   email links fail on the store build.
+3. Sign in with Apple (section 4). Required, not optional: the app offers
+   Google sign-in, so App Review guideline 4.8 asks for Apple's too.
+4. App Store Connect: the listing (name, subtitle, description, keywords,
+   category), age rating, privacy labels to match the manifest, export
+   compliance (standard HTTPS only), price free.
+5. A **demo account for App Review** with sample data in it — Review signs in.
+6. Archive, upload, TestFlight with a few collectors, then submit.
 
 ## Only you can do
 
@@ -103,4 +137,5 @@ go to `main` as separate small PRs, each merged before the app depends on it.
   Supabase (Authentication → Providers → Apple).
 - Merge each server PR.
 - Decide the mobile identify cap.
+- Add `app.firstfinder://auth-callback` to Supabase's Redirect URLs.
 - Create the App Store Connect listing, the review demo account, and press Submit.

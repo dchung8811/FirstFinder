@@ -105,6 +105,10 @@ final class AppModel {
     // Developer switches.
     var forceOffline = false
     var dismissedBannerId: String?
+    // App Store screenshots (-FFScreenshots YES, development builds only):
+    // sample data without the strips that say so, since the store's images
+    // show the app as a collector sees it. Never set in a store build.
+    private(set) var screenshotMode = false
 
     private var authTask: Task<Void, Never>?
 
@@ -134,6 +138,8 @@ final class AppModel {
         if arguments.object(forKey: "FFSampleSignedIn") != nil {
             sampleStore.setSignedIn(arguments.bool(forKey: "FFSampleSignedIn"))
         }
+        // Only over sample data: real collections never go in a screenshot.
+        screenshotMode = dataMode == .sample && arguments.bool(forKey: "FFScreenshots")
         #endif
         photos.attach(store)
         network.start()
@@ -170,7 +176,7 @@ final class AppModel {
     }
 
     var showsSiteBanner: Bool {
-        Mapping.shouldShowBanner(siteBanner, dismissedId: dismissedBannerId)
+        !screenshotMode && Mapping.shouldShowBanner(siteBanner, dismissedId: dismissedBannerId)
     }
 
     func openItem(_ id: String) {
