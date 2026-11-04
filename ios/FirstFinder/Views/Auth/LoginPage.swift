@@ -29,7 +29,7 @@ struct LoginPage: View {
     private var copy: Copy {
         switch mode {
         case .signin:
-            Copy(heading: "Log in to your collection.", sub: "Use your email and password, or continue with Google, to get back to your collection.", formTitle: "Log in", formSub: "Enter the email and password you signed up with.", submit: "Log in", submitting: "Logging in...")
+            Copy(heading: "Log in to your collection.", sub: "Use your email and password, or continue with Google or Apple, to get back to your collection.", formTitle: "Log in", formSub: "Enter the email and password you signed up with.", submit: "Log in", submitting: "Logging in...")
         case .signup:
             Copy(heading: "Start your collection.", sub: "Create a free account to track item photos, receipts, what you paid, and what it's worth now.", formTitle: "Create your account", formSub: "Sign up with your email and a password of at least 8 characters.", submit: "Create account", submitting: "Creating account...")
         case .forgot:
@@ -114,7 +114,7 @@ struct LoginPage: View {
 
                         if mode != .forgot {
                             AuthTermsNotice(
-                                action: mode == .signup ? "Creating an account, or continuing with Google" : "Continuing with Google",
+                                action: mode == .signup ? "Creating an account, or continuing with Google or Apple," : "Continuing with Google or Apple",
                                 onViewTerms: onViewTerms,
                                 onViewPrivacy: onViewPrivacy
                             )

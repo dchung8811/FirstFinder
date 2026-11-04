@@ -5,10 +5,17 @@
   it, so it must match the Privacy Policy and the App Store Connect labels.
 
   No tracking and no tracking domains: the app has no analytics, ads or
-  third-party SDKs that profile anyone. Everything listed is collected only to
-  make the app work, and all of it is linked to the collector's account:
+  third-party SDKs that profile anyone. Everything listed is linked to the
+  collector's account and collected to make the app work, with two additions
+  that must stay in step with the App Store Connect answers:
 
-  - Email address, name and user ID: the account itself.
+  - Email address, name and user ID: the account itself. Email is also
+    marketing (developer advertising) because sign-up and My account offer the
+    opt-in "email me about new features" list.
+  - Product interaction: the server keeps one row per sign-in (login_events,
+    counted on the admin dashboard, so analytics) and per-day scan and identify
+    counts (scan_usage, identify_usage, which enforce the daily caps). Both are
+    keyed by user ID, which is why user ID carries analytics too.
   - Photos: item and receipt photos the collector uploads, and photos sent to
     be identified or scanned, which go to OpenAI to be read, as the Privacy Policy says.
   - Other user content: the collection (items, prices, notes), the wishlist,
@@ -48,6 +55,7 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeDeveloperAdvertising</string>
 			</array>
 		</dict>
 		<dict>
@@ -72,6 +80,20 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
 		<dict>
