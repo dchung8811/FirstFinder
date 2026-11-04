@@ -36,6 +36,15 @@ describe("landingView", () => {
     expect(landingView(null, true)).toBe("dashboard");
   });
 
+  // /support is the App Store listing's Support URL: it has to open for
+  // someone who has never signed in, not bounce them to a login form.
+  it("opens Support for anyone, at its own address", () => {
+    expect(landingView("support", false)).toBe("support");
+    expect(landingView("support", true)).toBe("support");
+    expect(viewForPath("/support")).toBe("support");
+    expect(isPrivateView("support")).toBe(false);
+  });
+
   it("opens public pages for a collector too", () => {
     expect(landingView("privacy", true)).toBe("privacy");
     expect(landingView("features", true)).toBe("features");

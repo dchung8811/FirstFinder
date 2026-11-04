@@ -25,6 +25,7 @@ export const VIEW_PATHS = {
   contribute: "/contribute",
   privacy: "/privacy",
   terms: "/terms",
+  support: "/support",
   login: "/login",
   signup: "/signup",
   resetPassword: "/reset-password"
@@ -66,6 +67,7 @@ const VIEW_TITLES = {
   contribute: "Contribute",
   privacy: "Privacy Policy",
   terms: "Terms of Service",
+  support: "Support",
   login: "Log in",
   signup: "Sign up",
   resetPassword: "Reset password"
@@ -84,7 +86,7 @@ export function documentTitle(view) {
 // one is sent to log in, and lands on it afterwards.
 const PRIVATE_VIEWS = new Set(["dashboard", "inventory", "wishlist", "addItems", "tutorial", "identify", "insuranceExport", "feedback", "account"]);
 // Open to anyone, signed in or not.
-const PUBLIC_VIEWS = new Set(["about", "roadmap", "features", "contribute", "privacy", "terms"]);
+const PUBLIC_VIEWS = new Set(["about", "roadmap", "features", "contribute", "privacy", "terms", "support"]);
 // Only for someone signed out: a collector has nothing to do on a login form,
 // and home is the pitch to people who haven't started yet.
 const SIGNED_OUT_ONLY_VIEWS = new Set(["home", "login", "signup"]);
