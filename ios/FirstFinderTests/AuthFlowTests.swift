@@ -45,8 +45,11 @@ final class AuthFlowTests: XCTestCase {
         XCTAssertNotEqual(AppleNonce.make(), AppleNonce.make())
     }
 
-    func testAppleSignInIsOffUntilItsSwitchIsOn() {
-        XCTAssertFalse(AppConfig.appleSignInEnabled())
+    // The App Store build offers Google sign-in, so App Review requires Sign
+    // in with Apple beside it (guideline 4.8): on for app.firstfinder, off for
+    // a contributor's own bundle ID, which Supabase doesn't know.
+    func testAppleSignInIsOnExactlyForTheStoreBundleID() {
+        XCTAssertEqual(AppConfig.appleSignInEnabled(), Bundle.main.bundleIdentifier == "app.firstfinder")
     }
 
     @MainActor
