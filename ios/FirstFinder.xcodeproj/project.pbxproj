@@ -275,8 +275,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = FirstFinder;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Photos of an item stay on this phone in the prototype.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Photos of an item stay on this phone in the prototype.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "FirstFinder uses the camera to photograph items and receipts for your collection, and to read a cover or copyright page when you ask it to.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "FirstFinder adds the photos you choose to items in your collection, or reads them when you ask it to identify or scan an item.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -305,8 +305,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = FirstFinder;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Photos of an item stay on this phone in the prototype.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Photos of an item stay on this phone in the prototype.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "FirstFinder uses the camera to photograph items and receipts for your collection, and to read a cover or copyright page when you ask it to.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "FirstFinder adds the photos you choose to items in your collection, or reads them when you ask it to identify or scan an item.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
