@@ -20,9 +20,10 @@ FF_ENTITLEMENTS = Config/FirstFinder.entitlements
 // compares against :3000, but the phone reads the same live database either way.
 FIRSTFINDER_SITE_URL = https:/$()/firstfinder.app
 
-// Sign in with Apple, off until it can work: it needs a paid Apple Developer
-// team, the Sign in with Apple capability on the app ID, and the Apple
-// provider turned on in Supabase with this bundle ID as an authorized client.
-// Until then the button says it isn't available rather than failing in
-// Apple's sheet. Set to YES once all three exist (docs/ios-launch-plan.md).
-APPLE_SIGN_IN = NO
+// Sign in with Apple. It needs a paid Apple Developer team, the capability on
+// the app ID, and the Apple provider in Supabase with the bundle ID as a
+// client -- all three exist for app.firstfinder (2026-11-04). A contributor
+// building another bundle ID, or on a free team, sets this to NO in
+// Secrets.xcconfig, and the button says it isn't available rather than
+// failing in Apple's sheet.
+APPLE_SIGN_IN = YES
