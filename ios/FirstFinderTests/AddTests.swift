@@ -97,62 +97,12 @@ final class ScanFillTests: XCTestCase {
     }
 }
 
-// Ported from src/utils/csv.test.js.
+// The export half of src/utils/csv.test.js; the app has no import.
 final class CsvTests: XCTestCase {
-    private let existing = [
-        Item(id: "a", referenceNumber: 1, name: "Dune"),
-        Item(id: "b", referenceNumber: 2, name: "Emma"),
-    ]
-
-    func testParsesQuotedFieldsAndCRLF() {
-        let rows = Csv.parseRows("name,notes\r\n\"Dune, 1st\",\"He said \"\"hi\"\"\"\r\n\r\n")
-        XCTAssertEqual(rows, [["name", "notes"], ["Dune, 1st", "He said \"hi\""]])
-    }
-
     func testRoundTripsAnExport() {
         let text = Csv.export([Item(id: "a", referenceNumber: 7, name: "A, B", estimatedValue: nil)])
         XCTAssertTrue(text.hasPrefix(Vocab.csvHeaders.joined(separator: ",")))
         XCTAssertTrue(text.contains("FF-0007,\"A, B\""))
-    }
-
-    func testSortsAFileIntoAddsUpdatesDeletesAndSkips() {
-        let csv = """
-        ref,name,status,delete
-        ,New one,Owned,
-        FF-0001,Dune renamed,Sold,
-        FF-0002,,,yes
-        FF-0099,Ghost,,
-        ,No ref delete,,yes
-        """
-        let batch = Csv.parseBatch(csv, existing: existing)
-        XCTAssertNil(batch.error)
-        XCTAssertEqual(batch.creates.map(\.name), ["New one"])
-        XCTAssertEqual(batch.updates.first?.fields["name"], "Dune renamed")
-        XCTAssertEqual(batch.deletes.map(\.id), ["b"])
-        XCTAssertEqual(batch.rejected.map(\.line), [5, 6])
-    }
-
-    func testRefusesAFileThatNamesAReferenceTwice() {
-        let batch = Csv.parseBatch("ref,name\nFF-0001,a\n1,b", existing: existing)
-        XCTAssertEqual(batch.error, "FF-0001 appears on both line 2 and line 3. Each reference can only appear once per file, so nothing was changed.")
-        XCTAssertTrue(batch.creates.isEmpty && batch.updates.isEmpty)
-    }
-
-    func testNeedsANameOrRefColumn() {
-        XCTAssertNotNil(Csv.parseBatch("title,author\nDune,Herbert", existing: []).error)
-        XCTAssertEqual(Csv.parseBatch("name", existing: []).error, "That file has no data rows.")
-    }
-
-    func testSanitizesVocabularies() {
-        let fields = Csv.sanitize(["status": "Wishlist", "condition": "Mint", "bookEdition": "First"], presentHeaders: ["status", "condition", "bookEdition"])
-        XCTAssertEqual(fields["status"], "Researching")
-        XCTAssertEqual(fields["condition"], "")
-        XCTAssertEqual(fields["bookEdition"], "First")
-    }
-
-    func testABlankEstimateInACsvIsNil() {
-        let batch = Csv.parseBatch("name,estimatedValue,purchasePrice\nDune,,", existing: [])
-        XCTAssertNil(batch.creates.first?.estimatedValue)
     }
 }
 

@@ -1,9 +1,9 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 // AddItemsPage from app/InventoryApp.jsx: one place to add an item, where a
 // photo is the quick way to fill it and typing is the fallback. Below it,
-// CSV import and the optional AI research.
+// the optional AI research. The web's CSV import is left out on purpose:
+// bulk editing through a spreadsheet belongs at a desk.
 struct AddItemsPage: View {
     enum Route: Hashable { case tutorial, identify }
 
@@ -27,9 +27,6 @@ struct AddItemsPage: View {
     @State private var identifyDraft: IdentifyDraft?
     @State private var duplicates: [ItemsLogic.DuplicateMatch]?
     @State private var pendingSave: (() -> Void)?
-    @State private var importing = false
-    @State private var pendingImport: (name: String, batch: Csv.Batch)?
-    @State private var bulkMessage = ""
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -39,7 +36,6 @@ struct AddItemsPage: View {
                         header(proxy)
                         summaryCards
                         quickAdd.id("quick-add")
-                        bulkUpload
                         identifyCard
                     }
                     .padding(.horizontal, 16)
@@ -73,20 +69,6 @@ struct AddItemsPage: View {
                 DuplicateWarningDialog(matches: duplicates) { pendingSave?() }
             }
         }
-        .sheet(isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } })) {
-            if let pendingImport {
-                BulkImportPreviewDialog(fileName: pendingImport.name, batch: pendingImport.batch) {
-                    Task {
-                        guard let message = await app.applyImport(pendingImport.batch, fileName: pendingImport.name) else { return }
-                        bulkMessage = message
-                        app.selectedTab = .collection
-                    }
-                }
-            }
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
-            readCsv(result)
-        }
     }
 
     // MARK: Header
@@ -97,7 +79,7 @@ struct AddItemsPage: View {
                 .font(.display(38, relativeTo: .largeTitle).weight(.semibold))
                 .foregroundStyle(Theme.ink)
                 .accessibilityAddTraits(.isHeader)
-            Text("Snap a picture to fill in quick add, or type it in. Use CSV for bulk import, or open the tutorial for the guided flow.")
+            Text("Snap a picture to fill in quick add, or type it in. Open the tutorial for the guided flow.")
                 .foregroundStyle(Theme.brown)
             FlowLayout(spacing: 10) {
                 Button("Quick Add") { withAnimation { proxy.scrollTo("quick-add", anchor: .top) } }.buttonStyle(.ffPrimary)
@@ -155,60 +137,6 @@ struct AddItemsPage: View {
                     .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
             }
         }
-    }
-
-    // MARK: CSV
-
-    private var bulkUpload: some View {
-        Card(padding: 22) {
-            VStack(alignment: .leading, spacing: 12) {
-                Chip(text: "Bulk upload", tone: .tint, systemImage: "doc.text")
-                Text("Import your collection by CSV.").font(.display(24, relativeTo: .title2).weight(.semibold))
-                Text("Download the template, fill it out, then upload it here. Leave the ref column empty for new items — FirstFinder assigns those. Photos can be added later item-by-item.")
-                    .font(.subheadline).foregroundStyle(Theme.brown)
-                Text("You can also edit in bulk: export your collection, change what you need in a spreadsheet, and upload it back. Rows keep their ref so they update instead of duplicating, and putting yes in the delete column removes them. You'll see exactly what will change before anything is saved.")
-                    .font(.subheadline).foregroundStyle(Theme.brown)
-                if !bulkMessage.isEmpty {
-                    Text(bulkMessage).font(.subheadline).foregroundStyle(Theme.green).padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.tint, in: RoundedRectangle(cornerRadius: 16))
-                }
-                FlowLayout(spacing: 10) {
-                    ShareLink(item: CsvFile(name: "firstfinder-collection-template.csv", text: Csv.template()), preview: SharePreview("firstfinder-collection-template.csv")) {
-                        Label("Download CSV template", systemImage: "arrow.down.doc")
-                    }
-                    .buttonStyle(.ffSecondary)
-                    ShareLink(item: CsvFile(name: "firstfinder-collection.csv", text: Csv.export(app.inventory)), preview: SharePreview("firstfinder-collection.csv")) {
-                        Label("Export my collection", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.ffSecondary)
-                    Button { importing = true } label: { Label("Upload CSV", systemImage: "square.and.arrow.down") }
-                        .buttonStyle(.ffPrimary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Text("TEMPLATE COLUMNS").font(.caption).tracking(1.4).foregroundStyle(Theme.brownMuted)
-                Text(Vocab.csvHeaders.joined(separator: ", ")).font(.ledger(12, relativeTo: .caption)).foregroundStyle(Theme.brown)
-            }
-        }
-    }
-
-    private func readCsv(_ result: Result<URL, any Error>) {
-        guard case .success(let url) = result else { return }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
-            app.toasts.push("Couldn't read that file.", tone: .error)
-            return
-        }
-        let batch = Csv.parseBatch(text, existing: app.inventory)
-        if let error = batch.error, batch.rejected.isEmpty {
-            app.toasts.push(error, tone: .error)
-            return
-        }
-        if let error = batch.error {
-            app.toasts.push(error, tone: .warning)
-        }
-        pendingImport = (url.lastPathComponent, batch)
     }
 
     // MARK: AI research

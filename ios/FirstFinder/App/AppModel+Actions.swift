@@ -268,57 +268,6 @@ extension AppModel {
         return true
     }
 
-    // MARK: CSV import
-
-    // A reviewed import: adds get the next reference numbers in file order,
-    // updates write only the columns the file changed, deletes go the way a
-    // single delete does.
-    @discardableResult
-    func applyImport(_ batch: Csv.Batch, fileName: String) async -> String? {
-        guard let userId = profile?.id else { return nil }
-        guard isOnline else {
-            toasts.push(Self.offlineSaveMessage, tone: .error)
-            return nil
-        }
-        isSaving = true
-        defer { isSaving = false }
-
-        do {
-            if !batch.creates.isEmpty {
-                let start = try await store.maxReferenceNumber(userId: userId) + 1
-                let payloads = batch.creates.enumerated().map { index, item in
-                    var numbered = item
-                    numbered.referenceNumber = start + index
-                    return Writes.itemInsert(Mapping.toDbItem(numbered, userId: userId))
-                }
-                for row in try await store.insertItems(payloads) { took(item: row) }
-            }
-            for update in batch.updates {
-                guard let current = row(for: update.existing.id).map({ Mapping.fromDbItem($0) }) else { continue }
-                took(item: try await store.updateItem(id: current.id, Writes.fieldUpdate(current: current, fields: update.fields)))
-            }
-        } catch {
-            // Whatever landed before the failure is already on screen.
-            toasts.push("The import stopped partway: \(error.localizedDescription)", tone: .error)
-            return nil
-        }
-
-        isSaving = false
-        for item in batch.deletes { await deleteQuietly(item.id) }
-
-        let summary = "\(batch.creates.count) added, \(batch.updates.count) updated, \(batch.deletes.count) deleted."
-        toasts.push(summary, tone: .success)
-        return "Applied \(fileName): \(summary)"
-    }
-
-    private func deleteQuietly(_ itemId: String) async {
-        guard let userId = profile?.id, let current = row(for: itemId) else { return }
-        guard (try? await store.deleteItem(id: itemId)) != nil else { return }
-        let rowPaths = (current.itemPhotos.records + current.receiptPhotos.records).compactMap(\.path)
-        try? await store.removePhotos(paths: await store.listItemPhotoPaths(userId: userId, itemId: itemId) ?? rowPaths)
-        dropped(itemId: itemId)
-    }
-
     // MARK: Sharing
 
     // shareSettings as the dialog sees them: the saved row, or the defaults

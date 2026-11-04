@@ -329,7 +329,7 @@ struct InventoryPage: View {
             EmptyState(
                 systemImage: "receipt",
                 title: isSoldView ? "Nothing sold yet" : "Nothing in your collection yet",
-                message: isSoldView ? "Items you mark sold are kept here with what they sold for." : "Add an item or import a CSV to start building your cost-basis record.",
+                message: isSoldView ? "Items you mark sold are kept here with what they sold for." : "Add an item to start building your cost-basis record.",
                 actionTitle: isSoldView ? nil : "Add to collection",
                 action: isSoldView ? nil : { app.selectedTab = .add }
             )

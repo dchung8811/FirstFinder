@@ -17,7 +17,6 @@ enum Vocab {
 
     static let csvItemFields = ["name", "category", "author", "maker", "edition", "bookGenre", "bookEdition", "bookPrinting", "status", "condition", "purchaseDate", "source", "purchasePrice", "estimatedValue", "soldPrice", "soldDate", "notes"]
     static let csvHeaders = ["ref"] + csvItemFields + ["delete"]
-    static let csvDeleteTokens = ["y", "yes", "true", "x", "1", "delete", "remove"]
 
     // sampleItems, as the web's "Load sample" button fills them in.
     static let sampleItems: [Item] = [

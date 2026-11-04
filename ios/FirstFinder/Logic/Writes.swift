@@ -120,8 +120,8 @@ enum Writes {
         ], restored)
     }
 
-    // csvUpdateRow, minus id and user_id: the records view's inline edits and
-    // an import's updates. Only the columns named in `fields` are written, so
+    // csvUpdateRow, minus id and user_id: the records view's inline edits.
+    // Only the columns named in `fields` are written, so
     // an inline edit can't clobber a field changed on another device.
     static func fieldUpdate(current: Item, fields: [String: String], now: Date = Date()) -> RowPayload {
         var row: RowPayload = ["updated_at": timestamp(now)]
