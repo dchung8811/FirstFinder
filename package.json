@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed:books": "node scripts/seed-book-catalog.mjs"
+    "seed:books": "node scripts/seed-book-catalog.mjs",
+    "photos:orphans": "node scripts/find-orphaned-photos.mjs"
   },
   "dependencies": {
     "@next/third-parties": "^16.4.3",

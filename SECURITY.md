@@ -67,7 +67,12 @@ If you're auditing, these are where the sharp edges are:
   inside route handlers (`src/lib/supabaseAdmin.js`). Anything that leaks it
   into a client bundle is a critical finding.
 - **`app/api/delete-account`** — it deletes data on the caller's behalf, so the
-  authorization check there matters.
+  authorization check there matters. It is also the only thing that deletes a
+  user's photos: storage doesn't cascade from `auth.users`, so a user removed
+  from the Supabase dashboard or the Admin API leaves every photo behind,
+  receipts included. Remove accounts through the app. After any removal that
+  didn't, run `npm run photos:orphans` to see what was left, then
+  `npm run photos:orphans -- --delete` to remove it.
 - **`app/api/identify-book`** — authenticated, throttled, and billed per call.
 
 ## Out of scope
