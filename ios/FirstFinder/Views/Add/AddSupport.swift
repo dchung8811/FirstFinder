@@ -47,10 +47,15 @@ struct ItemDraft: Equatable {
 // Picked photos are held in the overlay's memory and nowhere else.
 struct PhotoPickerButton<Label: View>: View {
     var maxCount: Int?
+    // Set where the picked photos go to OpenAI: asks before the camera opens,
+    // so nobody takes a picture only to learn where it's headed.
+    var sendsToAI = false
     let onPicked: ([Photo]) -> Void
     @ViewBuilder var label: Label
 
     @Environment(AppModel.self) private var app
+    @Environment(\.openURL) private var openURL
+    @State private var askingConsent = false
     @State private var choosing = false
     @State private var showingLibrary = false
     @State private var showingCamera = false
@@ -60,9 +65,22 @@ struct PhotoPickerButton<Label: View>: View {
 
     var body: some View {
         Button {
-            if cameraAvailable { choosing = true } else { showingLibrary = true }
+            if sendsToAI, !app.hasAIPhotoConsent { askingConsent = true } else { openPicker() }
         } label: {
             label
+        }
+        .alert(AIPhotoConsent.title, isPresented: $askingConsent) {
+            Button("Allow") {
+                app.grantAIPhotoConsent()
+                openPicker()
+            }
+            Button("Privacy Policy") {
+                let site = (try? app.config.get().siteURL) ?? AppConfig.defaultSiteURL
+                openURL(site.appending(path: "privacy"))
+            }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text(AIPhotoConsent.message)
         }
         .confirmationDialog("Add a photo", isPresented: $choosing) {
             Button("Take photo") { showingCamera = true }
@@ -88,6 +106,10 @@ struct PhotoPickerButton<Label: View>: View {
             }
             .ignoresSafeArea()
         }
+    }
+
+    private func openPicker() {
+        if cameraAvailable { choosing = true } else { showingLibrary = true }
     }
 }
 

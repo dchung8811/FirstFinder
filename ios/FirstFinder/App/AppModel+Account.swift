@@ -105,6 +105,7 @@ extension AppModel {
             toasts.push(error.localizedDescription.isEmpty ? "Could not delete your account. Please try again." : error.localizedDescription, tone: .error)
             return false
         }
+        AIPhotoConsent.forget(userId: profile?.id)
         await signOut()
         selectedTab = .dashboard
         return true

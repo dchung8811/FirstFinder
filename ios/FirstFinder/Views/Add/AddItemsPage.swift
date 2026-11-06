@@ -113,7 +113,7 @@ struct AddItemsPage: View {
                     .foregroundStyle(Theme.brown)
 
                 VStack(spacing: 6) {
-                    PhotoPickerButton(maxCount: 3, onPicked: scan) {
+                    PhotoPickerButton(maxCount: 3, sendsToAI: true, onPicked: scan) {
                         Label(scanning ? "Reading..." : scanNotes != nil ? "Snap another page" : "Snap a picture", systemImage: "camera")
                             .font(.body.weight(.medium))
                             .foregroundStyle(Theme.onAction)
@@ -155,7 +155,7 @@ struct AddItemsPage: View {
                     Chip(text: left > 0 ? "\(left) of \(limit) left today" : "None left today · resets at midnight UTC",
                          tone: left > 0 ? .tint : .warning, systemImage: "sparkle.magnifyingglass")
                 }
-                PhotoPickerButton(maxCount: 1, onPicked: identify) {
+                PhotoPickerButton(maxCount: 1, sendsToAI: true, onPicked: identify) {
                     Label(identifying ? "Researching..." : "Research a photo", systemImage: "magnifyingglass")
                         .font(.body.weight(.medium))
                         .foregroundStyle(Theme.brown)
