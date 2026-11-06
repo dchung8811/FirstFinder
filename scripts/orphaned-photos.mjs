@@ -28,6 +28,16 @@ export function classifyPhotoFolders(folderNames, userIds) {
   return { owned, orphaned, unrecognized };
 }
 
+// Reads one auth.admin.getUserById answer. "gone" needs Supabase to say exactly
+// that: an outage, an expired key or a rate limit is also an error, and treating
+// any error as "no such user" would delete a real collector's photos because the
+// auth service had a bad minute. Anything unclear is "unknown", and the run stops.
+export function ownerLookupVerdict({ data, error } = {}) {
+  if (error?.status === 404 && error?.code === "user_not_found") return "gone";
+  if (error) return "unknown";
+  return data?.user ? "exists" : "unknown";
+}
+
 // Returns why a delete run must stop, or null when it may go ahead.
 //
 // Both refusals guard the same mistake: pointing the script at a key or project

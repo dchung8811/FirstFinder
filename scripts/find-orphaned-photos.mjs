@@ -20,7 +20,7 @@
 
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { classifyPhotoFolders, deletionBlocker } from "./orphaned-photos.mjs";
+import { classifyPhotoFolders, deletionBlocker, ownerLookupVerdict } from "./orphaned-photos.mjs";
 
 const PHOTO_BUCKET = "item-photos";
 
@@ -92,6 +92,22 @@ async function listAllUserIds(admin) {
   }
 }
 
+// Asks about each candidate by id before anything acts on it. The paged user
+// list can't be trusted alone: listUsers pages by position, so an account deleted
+// between two pages shifts the rest up, and whoever crosses the page boundary is
+// missing from the list while still very much existing. Throws on any unclear
+// answer, so a run either finishes knowing who is gone or changes nothing.
+async function confirmOrphans(admin, candidates) {
+  const confirmed = [];
+  const stillOwned = [];
+  for (const folder of candidates) {
+    const verdict = ownerLookupVerdict(await admin.auth.admin.getUserById(folder));
+    if (verdict === "unknown") throw new Error(`Could not confirm whether ${folder} still exists. Nothing was deleted.`);
+    (verdict === "gone" ? confirmed : stillOwned).push(folder);
+  }
+  return { confirmed, stillOwned };
+}
+
 async function main() {
   loadEnvLocal();
   const shouldDelete = process.argv.slice(2).includes("--delete");
@@ -114,8 +130,11 @@ async function main() {
   // writes there. Report them with the other unrecognized names.
   const folderNames = topLevel.filter((entry) => !entry.id).map((entry) => entry.name);
   const rootFiles = topLevel.filter((entry) => entry.id).map((entry) => entry.name);
-  const { owned, orphaned, unrecognized } = classifyPhotoFolders(folderNames, userIds);
+  const { owned, orphaned: candidates, unrecognized } = classifyPhotoFolders(folderNames, userIds);
   unrecognized.push(...rootFiles);
+
+  const { confirmed: orphaned, stillOwned } = await confirmOrphans(admin, candidates);
+  owned.push(...stillOwned);
 
   console.log(`${userIds.length} users, ${folderNames.length} photo folders.`);
   console.log(`  ${owned.length} belong to an existing user`);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyPhotoFolders, deletionBlocker } from "./orphaned-photos.mjs";
+import { classifyPhotoFolders, deletionBlocker, ownerLookupVerdict } from "./orphaned-photos.mjs";
 
 const alice = "0b7e4c1a-2f3d-4e5f-8a9b-0c1d2e3f4a5b";
 const bob = "9f8e7d6c-5b4a-4321-8fed-cba987654321";
@@ -53,5 +53,33 @@ describe("deletionBlocker", () => {
 
   it("refuses when every folder looks orphaned", () => {
     expect(deletionBlocker({ userCount: 5, owned: [], orphaned: [gone, alice] })).toMatch(/Every photo folder looks orphaned/);
+  });
+});
+
+// Shapes below are what auth.admin.getUserById returned from the real project.
+describe("ownerLookupVerdict", () => {
+  it("calls a user gone only on Supabase's own not-found answer", () => {
+    const error = { status: 404, code: "user_not_found" };
+    expect(ownerLookupVerdict({ data: { user: null }, error })).toBe("gone");
+  });
+
+  it("recognizes a user who still exists", () => {
+    expect(ownerLookupVerdict({ data: { user: { id: alice } }, error: null })).toBe("exists");
+  });
+
+  // Each of these would otherwise delete a real collector's photos.
+  it.each([
+    ["an outage", { status: 500, code: "unexpected_failure" }],
+    ["a bad key", { status: 401, code: "bad_jwt" }],
+    ["a rate limit", { status: 429, code: "over_request_rate_limit" }],
+    ["a network failure with no status", { message: "fetch failed" }],
+    ["a 404 from something other than auth", { status: 404 }]
+  ])("is unsure after %s", (_name, error) => {
+    expect(ownerLookupVerdict({ data: { user: null }, error })).toBe("unknown");
+  });
+
+  it("is unsure when the answer has neither a user nor an error", () => {
+    expect(ownerLookupVerdict({ data: { user: null }, error: null })).toBe("unknown");
+    expect(ownerLookupVerdict()).toBe("unknown");
   });
 });
