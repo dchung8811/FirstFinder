@@ -356,6 +356,7 @@ export default function AdminDashboard() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [fetchedAt, setFetchedAt] = useState(null);
   // Re-renders the "updated Ns ago" label without refetching, so a stale
   // number never looks fresh just because nothing has moved.
@@ -398,6 +399,13 @@ export default function AdminDashboard() {
 
   useVisiblePoll(load, POLL_MS);
 
+  // Only for a tap on a button: the poll runs quietly on its own.
+  async function refresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
   useEffect(() => {
     const timer = setInterval(() => setTick((n) => n + 1), 10000);
     return () => clearInterval(timer);
@@ -416,10 +424,11 @@ export default function AdminDashboard() {
         <p className="text-sm font-medium text-[#8f3524]">{error}</p>
         <button
           type="button"
-          onClick={load}
-          className="mt-3 rounded-full bg-[#123f38] px-4 py-2 text-sm font-medium text-[#fff7ea] hover:bg-[#0f332d]"
+          onClick={refresh}
+          disabled={refreshing}
+          className="mt-3 rounded-full bg-[#123f38] px-4 py-2 text-sm font-medium text-[#fff7ea] hover:bg-[#0f332d] disabled:opacity-50"
         >
-          Try again
+          {refreshing ? "Trying..." : "Try again"}
         </button>
       </div>
     );
@@ -436,10 +445,11 @@ export default function AdminDashboard() {
           <StatusChip status={data?.status || STATUS.OK} />
           <button
             type="button"
-            onClick={load}
-            className="rounded-full bg-[#123f38] px-4 py-2 text-sm font-medium text-[#fff7ea] hover:bg-[#0f332d]"
+            onClick={refresh}
+            disabled={refreshing}
+            className="rounded-full bg-[#123f38] px-4 py-2 text-sm font-medium text-[#fff7ea] hover:bg-[#0f332d] disabled:opacity-50"
           >
-            Refresh
+            {refreshing ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </div>

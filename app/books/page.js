@@ -92,7 +92,7 @@ export default function BooksIndexPage() {
         </p>
         <a
           href="/"
-          className="mt-6 inline-flex h-12 items-center rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
+          className="pressable mt-6 inline-flex h-12 items-center rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
         >
           Check your copy
         </a>

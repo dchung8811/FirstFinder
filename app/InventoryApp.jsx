@@ -893,6 +893,11 @@ export default function FirstFinderApp({ initialView = "home" }) {
   // did, shown beside Quick Add. Cleared with the form.
   const [scanNotes, setScanNotes] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  // The disabled button only arrives with the next render, and both item writes
+  // wait on a session check before they get going. This is set in the same tick
+  // as the tap, so a double tap can't file the same find twice.
+  const itemWriteInFlightRef = useRef(false);
   const [toasts, setToasts] = useState([]);
   // Which account the server confirmed as an admin, rather than a bare
   // boolean. Admin-ness belongs to a user, not to the app, so holding the id
@@ -1692,7 +1697,9 @@ export default function FirstFinderApp({ initialView = "home" }) {
 
 
   async function logout() {
+    setLoggingOut(true);
     const { error } = await supabase.auth.signOut();
+    setLoggingOut(false);
 
     if (error) {
       console.error("Logout error:", error.message);
@@ -1777,7 +1784,23 @@ export default function FirstFinderApp({ initialView = "home" }) {
 
   // Inserts the item row, uploads its photos to Supabase Storage, then stores
   // the photo paths back on the row. Returns the final row, or null on failure.
-  async function insertItemWithPhotos(sourceItem, itemPhotoList, receiptPhotoList, entryType) {
+  async function oneItemWriteAtATime(write) {
+    if (itemWriteInFlightRef.current) return null;
+    itemWriteInFlightRef.current = true;
+    setSaving(true);
+    try {
+      return await write();
+    } finally {
+      itemWriteInFlightRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  function insertItemWithPhotos(sourceItem, itemPhotoList, receiptPhotoList, entryType) {
+    return oneItemWriteAtATime(() => writeNewItem(sourceItem, itemPhotoList, receiptPhotoList, entryType));
+  }
+
+  async function writeNewItem(sourceItem, itemPhotoList, receiptPhotoList, entryType) {
     if (!currentUser) {
       pushToast("Please log in before saving to your collection.", "error");
       return null;
@@ -2142,7 +2165,11 @@ export default function FirstFinderApp({ initialView = "home" }) {
     pushToast(`Restored to ${restoredStatus}.`, "success");
   }
 
-  async function updateInventoryItem({ draft, newItemPhotos, newReceiptPhotos, removedItemPhotoPaths, removedReceiptPhotoPaths }) {
+  function updateInventoryItem(edit) {
+    return oneItemWriteAtATime(() => writeItemEdit(edit));
+  }
+
+  async function writeItemEdit({ draft, newItemPhotos, newReceiptPhotos, removedItemPhotoPaths, removedReceiptPhotoPaths }) {
     if (!currentUser) {
       pushToast("Please log in before saving to your collection.", "error");
       return;
@@ -2371,18 +2398,23 @@ export default function FirstFinderApp({ initialView = "home" }) {
 
   async function deleteWant(id) {
     if (!requireOnline("deleting a want")) return;
+    setSavingWant(true);
 
-    const { error } = await supabase.from("wishlist_items").delete().eq("id", id);
+    try {
+      const { error } = await supabase.from("wishlist_items").delete().eq("id", id);
 
-    if (error) {
-      console.error("Delete want error:", error.message);
-      pushToast(error.message, "error");
-      return;
+      if (error) {
+        console.error("Delete want error:", error.message);
+        pushToast(error.message, "error");
+        return;
+      }
+
+      setWishlist((current) => current.filter((entry) => entry.id !== id));
+      setEditingWant(null);
+      pushToast("Removed from your wishlist.", "success");
+    } finally {
+      setSavingWant(false);
     }
-
-    setWishlist((current) => current.filter((entry) => entry.id !== id));
-    setEditingWant(null);
-    pushToast("Removed from your wishlist.", "success");
   }
 
   // The acquisition: a want becomes an owned item.
@@ -3126,7 +3158,9 @@ export default function FirstFinderApp({ initialView = "home" }) {
         onHome={() => go(isLoggedIn ? "dashboard" : "home")}
         account={
           isLoggedIn ? (
-            <Button variant="outline" onClick={logout} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Log out</Button>
+            // Dims rather than changing its label: the nav has no room to spare at
+            // phone width, and a longer word here would push it off the screen.
+            <Button variant="outline" onClick={logout} disabled={loggingOut} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Log out</Button>
           ) : (
             <Button onClick={() => setActiveView("login")} className="rounded-full bg-[#123f38] px-5 text-[#fff7ea] hover:bg-[#0f332d]">Log in</Button>
           )
@@ -3740,7 +3774,7 @@ function ContributePage({ onGoToFeedback }) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => trackOutbound("repository")}
-          className="inline-flex h-12 items-center gap-2 rounded-full bg-[#123f38] px-7 text-base font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
+          className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-[#123f38] px-7 text-base font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
         >
           <Icon name="github" size={18} /> View the source
         </a>
@@ -3749,7 +3783,7 @@ function ContributePage({ onGoToFeedback }) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => trackOutbound("contributing_guide_hero")}
-          className="inline-flex h-12 items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-6 text-base font-medium text-[#665746] transition hover:bg-white"
+          className="pressable inline-flex h-12 items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-6 text-base font-medium text-[#665746] transition hover:bg-white"
         >
           Contributing guide <Icon name="arrow" size={16} />
         </a>
@@ -4000,7 +4034,7 @@ function AboutPage({ onGoToFeedback, onGoToContribute }) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => trackEvent("donation_link_clicked", { source_page: "about" })}
-          className="mt-5 inline-flex h-11 items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-6 text-sm font-medium text-[#665746] hover:bg-white"
+          className="pressable mt-5 inline-flex h-11 items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-6 text-sm font-medium text-[#665746] hover:bg-white"
         >
           <Icon name="heart" size={16} /> Buy me a coffee
         </a>
@@ -4999,7 +5033,7 @@ function FeaturedShelves() {
               <li key={shelf.slug}>
                 <a
                   href={`/c/${shelf.slug}`}
-                  className="inline-flex items-center gap-2.5 rounded-full border border-[#d3c1a4] bg-[#fffdf8] py-1 pl-1 pr-3.5 text-sm text-[#201a14] transition hover:border-[#123f38]/40"
+                  className="pressable inline-flex items-center gap-2.5 rounded-full border border-[#d3c1a4] bg-[#fffdf8] py-1 pl-1 pr-3.5 text-sm text-[#201a14] transition hover:border-[#123f38]/40"
                 >
                   <span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full bg-[#123f38] text-[11px] font-semibold text-[#fff7ea]">
                     {collectionMonogram(shelf.title)}
@@ -5048,7 +5082,7 @@ function HomePage({ onGetStarted }) {
                 leaves the app for a real route, so it is a link. */}
             <a
               href="/explore"
-              className="inline-flex h-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-[#123f38]/30 bg-[#fffdf8] px-7 text-base font-medium text-[#123f38] transition hover:border-[#123f38]/60 hover:bg-white"
+              className="pressable inline-flex h-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-[#123f38]/30 bg-[#fffdf8] px-7 text-base font-medium text-[#123f38] transition hover:border-[#123f38]/60 hover:bg-white"
             >
               Explore collections
             </a>
@@ -5224,12 +5258,13 @@ function AuthModeTabs({ mode, onChange }) {
 
 // textClassName exists for Apple, whose guidelines ask for the white button's
 // logo and label in black rather than in our green.
-function SocialAuthButton({ icon, children, onClick, textClassName = "text-[#123f38]" }) {
+function SocialAuthButton({ icon, children, onClick, disabled = false, textClassName = "text-[#123f38]" }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#cdbb9c] bg-white px-6 text-base font-semibold ${textClassName} shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md active:scale-[0.99]`}
+      disabled={disabled}
+      className={`flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#cdbb9c] bg-white px-6 text-base font-semibold ${textClassName} shadow-sm transition hover:bg-[#f8f4ec] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60`}
     >
       <Icon name={icon} size={20} />
       <span>{children}</span>
@@ -5276,6 +5311,20 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
   const [emailUpdates, setEmailUpdates] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Which provider the browser is on its way to. Left set on success, since the
+  // page is about to be replaced by the provider's.
+  const [oauthProvider, setOauthProvider] = useState(null);
+
+  // Coming back from the provider with the Back button can restore this page
+  // from the browser's cache exactly as it was left, buttons still waiting on
+  // a redirect that already happened.
+  useEffect(() => {
+    function handlePageShow(event) {
+      if (event.persisted) setOauthProvider(null);
+    }
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, []);
 
   const copy = authModeCopy[mode];
 
@@ -5329,6 +5378,7 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
   // Takes the provider as an argument so Google and Apple share one copy of the
   // error handling and redirect target.
   async function handleOAuthLogin(provider, label) {
+    setOauthProvider(provider);
     trackEvent(`${provider}_login_clicked`, { source_page: "login" });
     // The box is only on the sign-up form, so only a click from there carries
     // it. Anything else clears a flag a cancelled earlier attempt left behind.
@@ -5341,6 +5391,7 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     });
 
     if (error) {
+      setOauthProvider(null);
       console.error(`${label} login error:`, error.message);
       // Supabase answers a provider that isn't switched on in the dashboard with
       // "Unsupported provider", which tells a collector nothing about what to do
@@ -5523,12 +5574,12 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
                 <span className="h-px flex-1 bg-[#e6d8bf]" />
               </div>
               <div className="mt-6 grid gap-3">
-                <SocialAuthButton icon="google" onClick={() => handleOAuthLogin("google", "Google")}>
-                  Continue with Google
+                <SocialAuthButton icon="google" disabled={oauthProvider !== null} onClick={() => handleOAuthLogin("google", "Google")}>
+                  {oauthProvider === "google" ? "Opening Google..." : "Continue with Google"}
                 </SocialAuthButton>
                 {appleReady && (
-                  <SocialAuthButton icon="apple" textClassName="text-black" onClick={() => handleOAuthLogin("apple", "Apple")}>
-                    Continue with Apple
+                  <SocialAuthButton icon="apple" textClassName="text-black" disabled={oauthProvider !== null} onClick={() => handleOAuthLogin("apple", "Apple")}>
+                    {oauthProvider === "apple" ? "Opening Apple..." : "Continue with Apple"}
                   </SocialAuthButton>
                 )}
               </div>
@@ -5860,14 +5911,16 @@ function PendingSyncPanel({ summary, operations, items, online, flushing, onSync
                     <button
                       type="button"
                       onClick={() => onRetry(operation.id)}
-                      className="rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-3 py-1 text-xs font-medium transition hover:bg-white"
+                      disabled={flushing}
+                      className="rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-3 py-1 text-xs font-medium transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Try again
                     </button>
                     <button
                       type="button"
                       onClick={() => onDiscard(operation.id)}
-                      className="rounded-full border border-[#e0b4aa] bg-[#fff5f3] px-3 py-1 text-xs font-medium text-[#8a3527] transition hover:bg-white"
+                      disabled={flushing}
+                      className="rounded-full border border-[#e0b4aa] bg-[#fff5f3] px-3 py-1 text-xs font-medium text-[#8a3527] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Discard
                     </button>
@@ -6092,7 +6145,7 @@ function MyAccountPage({ currentUser, inventory, pushToast }) {
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => trackEvent("donation_link_clicked", { source_page: "my_account" })}
-            className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-6 text-sm font-medium text-[#665746] hover:bg-[#fff8ee]"
+            className="pressable inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-6 text-sm font-medium text-[#665746] hover:bg-[#fff8ee]"
           >
             <Icon name="heart" size={16} /> Buy me a coffee
           </a>
@@ -7369,7 +7422,7 @@ function RecentFinds({ inventory, onCollection, onOpenItem }) {
               /* A cover is a picture of one book, so tapping it goes to that
                  book's record rather than to the collection in general. */
               aria-label={`Show "${item.name || "this item"}" in your collection`}
-              className="group w-32 shrink-0 rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#123f38]/40"
+              className="group w-32 shrink-0 rounded-2xl text-left"
             >
               <div className="overflow-hidden rounded-2xl border border-[#d8c7ad] bg-[#f7efe3]">
                 {hasPhoto && !signed.ready ? (
@@ -7694,7 +7747,7 @@ function SnapPictureButton({ onScan, scanning, scanned }) {
     <div className="flex shrink-0 flex-col items-stretch gap-2 md:items-end">
       <label
         onClick={() => trackEvent("scan_button_clicked", { source_page: "add_items", scanned })}
-        className={`flex h-12 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${scanning ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}
+        className={`flex h-12 items-center justify-center gap-2 rounded-full bg-[#123f38] px-7 font-medium text-[#fff7ea] ${scanning ? "cursor-not-allowed opacity-60" : "pressable cursor-pointer hover:bg-[#0f332d]"}`}
       >
         <Icon name="camera" size={18} />
         {scanning ? "Reading..." : scanned ? "Snap another page" : "Snap a picture"}
@@ -7777,7 +7830,7 @@ function IdentifyPhotoCard({ onPhoto, identifying }) {
         </div>
         <label
           onClick={() => trackEvent("identify_button_clicked", { source_page: "add_items" })}
-          className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-7 font-medium text-[#665746] ${identifying ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#fff8ee]"}`}
+          className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-7 font-medium text-[#665746] ${identifying ? "cursor-not-allowed opacity-60" : "pressable cursor-pointer hover:bg-[#fff8ee]"}`}
         >
           <Icon name="search" size={18} />
           {identifying ? "Researching..." : "Research a photo"}
@@ -7892,7 +7945,7 @@ function IdentifyReviewPage({ draft, setDraft, onSubmit, onDiscard, saving, onAd
               )}
 
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <label className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-5 text-sm font-medium text-[#665746] ${identifying || saving || atPhotoLimit ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-[#fff8ee]"}`}>
+                <label className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-full border border-[#cdbb9d] bg-white px-5 text-sm font-medium text-[#665746] ${identifying || saving || atPhotoLimit ? "cursor-not-allowed opacity-50" : "pressable cursor-pointer hover:bg-[#fff8ee]"}`}>
                   <Icon name="camera" size={16} />
                   {atPhotoLimit ? "4 photo limit reached" : "Add photos"}
                   {/* No capture attribute, here or on any photo input: it makes mobile browsers open the camera
@@ -8161,7 +8214,7 @@ function InlineCell({ value, display, options, type = "text", label, onSave }) {
         type="button"
         onClick={() => setEditing(true)}
         aria-label={`Edit ${label}`}
-        className="-mx-2 w-full rounded-lg px-2 py-1 text-left transition hover:bg-[#f0e2cf] focus:outline-none focus:ring-2 focus:ring-[#123f38]/20"
+        className="-mx-2 w-full rounded-lg px-2 py-1 text-left transition hover:bg-[#f0e2cf]"
       >
         {display ?? (value || <span className="text-[#a2947f]">—</span>)}
       </button>
@@ -8390,7 +8443,7 @@ function MarkSoldDialog({ entry, submitting, onCancel, onConfirm }) {
 
 function BulkUploadCard({ onDownloadTemplate, onBulkUpload, bulkUploading, bulkMessage }) {
   return (
-    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import your collection by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Leave the <span className="font-medium">ref</span> column empty for new items — FirstFinder assigns those. Photos can be added later item-by-item.</p><p className="mt-3 leading-7 text-[#665746]">You can also edit in bulk: export your collection from the My Collection page, change what you need in a spreadsheet, and upload it back. Rows keep their <span className="font-medium">ref</span> so they update instead of duplicating, and putting <span className="font-medium">yes</span> in the <span className="font-medium">delete</span> column removes them. You'll see exactly what will change before anything is saved.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className={`flex h-11 items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] ${bulkUploading ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-[#0f332d]"}`}><Icon name="upload" size={17} className="mr-2" /> {bulkUploading ? "Importing..." : "Upload CSV"}<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} disabled={bulkUploading} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
+    <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="inline-flex items-center gap-2 rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]"><Icon name="file" size={15} /> Bulk upload</div><h2 className="mt-4 text-2xl font-semibold">Import your collection by CSV.</h2><p className="mt-3 leading-7 text-[#665746]">Download the template, fill it out, then upload it here. Leave the <span className="font-medium">ref</span> column empty for new items — FirstFinder assigns those. Photos can be added later item-by-item.</p><p className="mt-3 leading-7 text-[#665746]">You can also edit in bulk: export your collection from the My Collection page, change what you need in a spreadsheet, and upload it back. Rows keep their <span className="font-medium">ref</span> so they update instead of duplicating, and putting <span className="font-medium">yes</span> in the <span className="font-medium">delete</span> column removes them. You'll see exactly what will change before anything is saved.</p><div className="mt-5 grid gap-3"><Button type="button" onClick={() => { trackEvent("csv_template_downloaded", { source_page: "add_inventory" }); onDownloadTemplate(); }} variant="outline" className="h-11 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white"><Icon name="file" size={17} className="mr-2" /> Download CSV template</Button><label className={`flex h-11 items-center justify-center rounded-full bg-[#123f38] px-5 font-medium text-[#fff7ea] ${bulkUploading ? "cursor-not-allowed opacity-60" : "pressable cursor-pointer hover:bg-[#0f332d]"}`}><Icon name="upload" size={17} className="mr-2" /> {bulkUploading ? "Importing..." : "Upload CSV"}<input type="file" accept=".csv,text/csv" onChange={onBulkUpload} disabled={bulkUploading} className="hidden" /></label></div>{bulkMessage && <div className="mt-5 rounded-2xl bg-[#edf4f2] p-4 text-sm leading-6 text-[#123f38]">{bulkMessage}</div>}<div className="mt-5 rounded-2xl bg-[#f7efe3] p-4 text-xs leading-6 text-[#665746]"><div className="font-semibold">Template columns</div><div className="mt-1 break-words">{csvHeaders.join(", ")}</div></div></CardContent></Card>
   );
 }
 
@@ -8633,6 +8686,18 @@ const visibilityChoices = [
 
 function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLink, onClose, pushToast, focus = null }) {
   const [draft, setDraft] = useState(settings);
+  // Reset and Save share the one saving flag, so this says which one is running.
+  const [resetting, setResetting] = useState(false);
+
+  async function handleResetLink() {
+    setResetting(true);
+    try {
+      await onResetLink();
+    } finally {
+      setResetting(false);
+    }
+  }
+
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState("");
   // Read during render rather than in an effect. Safe here specifically
   // because this dialog only ever mounts after a click, so it is never part
@@ -8794,7 +8859,7 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
                   rel="noopener noreferrer"
                   aria-disabled={dirty || draft.visibility === "off"}
                   className={`inline-flex h-10 items-center rounded-full border border-[#cdbb9d] px-5 text-sm font-medium ${
-                    dirty || draft.visibility === "off" ? "cursor-not-allowed bg-[#f3ece1] text-[#a2957f]" : "bg-[#fff8ee] text-[#665746] hover:bg-white"
+                    dirty || draft.visibility === "off" ? "cursor-not-allowed bg-[#f3ece1] text-[#a2957f]" : "pressable bg-[#fff8ee] text-[#665746] hover:bg-white"
                   }`}
                   onClick={(event) => {
                     if (dirty || draft.visibility === "off") event.preventDefault();
@@ -8802,8 +8867,8 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
                 >
                   Open preview
                 </a>
-                <Button type="button" variant="outline" onClick={onResetLink} disabled={saving} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 text-sm hover:bg-white">
-                  Reset link
+                <Button type="button" variant="outline" onClick={handleResetLink} disabled={saving} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 text-sm hover:bg-white">
+                  {resetting ? "Resetting..." : "Reset link"}
                 </Button>
               </div>
               <p className="mt-3 text-xs leading-5 text-[#7d6c5a]">
@@ -8920,7 +8985,7 @@ function ShareCollectionDialog({ settings, inventory, saving, onSave, onResetLin
           Cancel
         </Button>
         <Button type="button" onClick={() => onSave(draft)} disabled={saving || !dirty} className="h-11 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
-          {saving ? "Saving..." : draft.visibility === "off" ? "Save" : "Save and publish"}
+          {saving && !resetting ? "Saving..." : draft.visibility === "off" ? "Save" : "Save and publish"}
         </Button>
       </div>
     </ModalShell>
@@ -9126,7 +9191,7 @@ function EditPhotoSection({ title, icon, existingPhotos, newPhotos, onUpload, on
         <div className="flex items-center gap-2 font-semibold"><Icon name={icon} size={17} /> {title}</div>
         <span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs text-[#123f38]">{total}</span>
       </div>
-      <label className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">
+      <label className="pressable flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">
         Add photos
         <input type="file" accept="image/*" multiple onChange={onUpload} className="hidden" />
       </label>
@@ -9434,7 +9499,7 @@ function WantCard({ want, upgradeFor, onEdit, onFound }) {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => trackEvent("want_search_opened", { marketplace: "abebooks" })}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-4 py-2 text-[13px] font-medium hover:bg-white"
+                  className="pressable inline-flex items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-4 py-2 text-[13px] font-medium hover:bg-white"
                 >
                   Search AbeBooks
                 </a>
@@ -9443,7 +9508,7 @@ function WantCard({ want, upgradeFor, onEdit, onFound }) {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => trackEvent("want_search_opened", { marketplace: "ebay" })}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-4 py-2 text-[13px] font-medium hover:bg-white"
+                  className="pressable inline-flex items-center gap-2 rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-4 py-2 text-[13px] font-medium hover:bg-white"
                 >
                   eBay
                 </a>
@@ -9583,6 +9648,18 @@ function ChoiceRow({ label, options, value, onChange, hint }) {
 }
 
 function WantDialog({ want, inventory, saving, onSave, onDelete, onClose }) {
+  // Remove and Save share the one saving flag, so this says which one is running.
+  const [removing, setRemoving] = useState(false);
+
+  async function handleRemove() {
+    setRemoving(true);
+    try {
+      await onDelete(draft.id);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   const [draft, setDraft] = useState(want);
   const isNew = !want.id;
 
@@ -9702,15 +9779,15 @@ function WantDialog({ want, inventory, saving, onSave, onDelete, onClose }) {
         </p>
         <div className="flex gap-2">
           {!isNew && (
-            <Button variant="outline" onClick={() => onDelete(draft.id)} disabled={saving} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
-              Remove
+            <Button variant="outline" onClick={handleRemove} disabled={saving} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
+              {removing ? "Removing..." : "Remove"}
             </Button>
           )}
           <Button variant="outline" onClick={onClose} disabled={saving} className="rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">
             Cancel
           </Button>
           <Button onClick={() => onSave(draft)} disabled={saving || !isWantSaveable(draft)} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
-            {saving ? "Saving..." : isNew ? "Add to wishlist" : "Save"}
+            {saving && !removing ? "Saving..." : isNew ? "Add to wishlist" : "Save"}
           </Button>
         </div>
       </div>
@@ -10089,8 +10166,8 @@ function SelectField({ label, value, options, onChange, placeholder }) {
   );
 }
 function TextAreaField({ label, value, onChange, placeholder, rows = 6 }) { return <label className="block"><div className="mb-2 text-sm font-medium text-[#665746]">{label}</div><textarea value={value || ""} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={rows} className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15" /></label>; }
-function PhotoUploader({ title, eyebrow, description, prompts, photos, onUpload, onRemove }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">{eyebrow}</div><h2 className="mt-1 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#665746]">{description}</p></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">{photos.length}</div></div><label className="mt-5 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-[#cbb894] bg-[#f7ecdc] p-6 text-center transition hover:bg-[#fff4e6]"><Icon name={title.toLowerCase().includes("receipt") ? "receipt" : "camera"} size={36} className="text-[#123f38]" /><div className="mt-3 text-lg font-semibold">Take or upload</div><div className="mt-1 max-w-sm text-xs leading-5 text-[#6b5b4c]">Works with camera or photo library on mobile.</div><input type="file" accept="image/*" multiple onChange={onUpload} className="hidden" /></label><div className="mt-4 flex flex-wrap gap-2">{prompts.map((prompt) => <div key={prompt} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs text-[#665746]">{prompt}</div>)}</div>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} />}</CardContent></Card>; }
-function CompactUploader({ title, icon, photos, onUpload, onRemove }) { return <div className="rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] p-4"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2 font-semibold"><Icon name={icon} size={17} /> {title}</div><span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs text-[#123f38]">{photos.length}</span></div><label className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">Take or upload<input type="file" accept="image/*" multiple onChange={onUpload} className="hidden" /></label>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} compact />}</div>; }
+function PhotoUploader({ title, eyebrow, description, prompts, photos, onUpload, onRemove }) { return <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm"><CardContent className="p-6"><div className="flex items-start justify-between gap-4"><div><div className="text-sm uppercase tracking-[0.18em] text-[#7d6c5a]">{eyebrow}</div><h2 className="mt-1 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#665746]">{description}</p></div><div className="rounded-full bg-[#edf4f2] px-3 py-1 text-sm font-medium text-[#123f38]">{photos.length}</div></div><label className="pressable mt-5 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-[#cbb894] bg-[#f7ecdc] p-6 text-center transition hover:bg-[#fff4e6]"><Icon name={title.toLowerCase().includes("receipt") ? "receipt" : "camera"} size={36} className="text-[#123f38]" /><div className="mt-3 text-lg font-semibold">Take or upload</div><div className="mt-1 max-w-sm text-xs leading-5 text-[#6b5b4c]">Works with camera or photo library on mobile.</div><input type="file" accept="image/*" multiple onChange={onUpload} className="hidden" /></label><div className="mt-4 flex flex-wrap gap-2">{prompts.map((prompt) => <div key={prompt} className="rounded-full bg-[#f0e2cf] px-3 py-1 text-xs text-[#665746]">{prompt}</div>)}</div>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} />}</CardContent></Card>; }
+function CompactUploader({ title, icon, photos, onUpload, onRemove }) { return <div className="rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] p-4"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2 font-semibold"><Icon name={icon} size={17} /> {title}</div><span className="rounded-full bg-[#edf4f2] px-3 py-1 text-xs text-[#123f38]">{photos.length}</span></div><label className="pressable flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-[#cbb894] bg-[#f7ecdc] px-4 py-4 text-sm font-medium hover:bg-[#fff4e6]">Take or upload<input type="file" accept="image/*" multiple onChange={onUpload} className="hidden" /></label>{photos.length > 0 && <PhotoGrid photos={photos} onRemove={onRemove} compact />}</div>; }
 // One stored photo, and every way it can fail to arrive.
 //
 // A photo is served through a signed URL that stops working an hour after it
@@ -10406,7 +10483,7 @@ function CollectionCard({ entry, coverPath, coverUrl, focused = false, anchor = 
         <div className="mt-5 flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => onEdit(entry)} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Edit</Button>
           {entry.status === "Sold" ? (
-            <Button variant="outline" disabled={restoring} onClick={() => onRestore()} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Restore</Button>
+            <Button variant="outline" disabled={restoring} onClick={() => onRestore()} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">{restoring ? "Restoring..." : "Restore"}</Button>
           ) : (
             <Button variant="outline" onClick={() => onMarkSold()} className="h-10 rounded-full border-[#cdbb9d] bg-[#fff8ee] px-5 hover:bg-white">Mark sold</Button>
           )}
