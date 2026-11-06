@@ -110,7 +110,8 @@ export async function POST(request) {
     // orphans them permanently and reports success for a deletion that did not
     // happen. Better to leave the account in place and let them retry: an
     // account that still exists can be deleted again, files nobody owns cannot
-    // be found.
+    // be found. (A user removed from the Supabase dashboard skips this route
+    // entirely; scripts/find-orphaned-photos.mjs cleans up after that.)
     try {
       const filePaths = await listAllFiles(supabaseAdmin, PHOTO_BUCKET, userId);
       if (filePaths.length > 0) {
