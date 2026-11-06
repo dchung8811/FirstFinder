@@ -20,7 +20,7 @@ export default function FeaturesLayout({ children }) {
         </a>
         <a
           href="/"
-          className="shrink-0 rounded-full bg-[#123f38] px-5 py-2.5 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
+          className="pressable shrink-0 rounded-full bg-[#123f38] px-5 py-2.5 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
         >
           Open the app
         </a>

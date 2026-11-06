@@ -135,7 +135,7 @@ export default async function SharedCollectionPage({ params }) {
         </p>
         <Link
           href="/"
-          className="mt-6 inline-flex h-11 items-center rounded-full bg-[#123f38] px-6 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
+          className="pressable mt-6 inline-flex h-11 items-center rounded-full bg-[#123f38] px-6 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
         >
           Start your collection
         </Link>

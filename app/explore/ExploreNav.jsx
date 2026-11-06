@@ -25,6 +25,7 @@ export default function ExploreNav() {
   // drawing the signed-out list first and swapping nine tabs in a moment
   // later under a collector's cursor.
   const [session, setSession] = useState(undefined);
+  const [loggingOut, setLoggingOut] = useState(false);
   const isLoggedIn = session === undefined ? null : Boolean(session);
   const [counts, setCounts] = useState({ inventoryCount: null, wishlistCount: null });
   const userId = session?.user?.id;
@@ -75,12 +76,15 @@ export default function ExploreNav() {
           // cached in this browser with it, exactly as the app's Log out does.
           <button
             type="button"
+            disabled={loggingOut}
             onClick={async () => {
+              setLoggingOut(true);
               const userId = session?.user?.id;
               const { error } = await supabase.auth.signOut();
               if (!error) await forgetAccountOnDevice(userId);
+              setLoggingOut(false);
             }}
-            className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-5 py-3 text-sm font-medium text-[#201a14] transition hover:bg-white"
+            className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-[#cdbb9d] bg-[#fff8ee] px-5 py-3 text-sm font-medium text-[#201a14] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             Log out
           </button>

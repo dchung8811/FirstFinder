@@ -13,6 +13,52 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* What every button does under a finger or a mouse. Written once here rather
+   than as utilities on each of a hundred buttons, so a new button gets it by
+   being a button. Hover does nothing on a touchscreen, so without this a tap on
+   a phone looked like it hadn't landed, and people tapped again.
+
+   .pressable is for what looks like a button but isn't one to the browser: the
+   pill-shaped links and the labels that open a file picker. Put it only on the
+   live state of those, because :disabled can't see that they're disabled.
+
+   scale rather than transform, since Tailwind positions things with its own
+   translate and this has to leave those alone. Unlayered on purpose, like
+   .shelf-marquee below: a button with an opacity utility of its own, such as a
+   toast's dismiss button, would otherwise show nothing at all to someone with
+   reduced motion on. */
+button:not(:disabled):active,
+.pressable:active {
+  scale: 0.97;
+  opacity: 0.8;
+}
+
+/* Layered, unlike the rule above, because here the utilities should win: a
+   button with Tailwind's transition keeps its colors easing too, and this only
+   gives the press an ease on the buttons that have none. */
+@layer base {
+  button:not(:disabled),
+  .pressable {
+    transition-property: scale, opacity;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
+    /* A finger held on a button is a press, not the start of selecting its label,
+       which on iOS would pop up Copy and Look Up over the page. */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Two tones so it shows on anything: green for the cream pages, and the cream
+     halo for the dark banner and the photo viewer, where green would vanish. */
+  button:focus-visible,
+  a:focus-visible,
+  .pressable:focus-visible {
+    outline: 2px solid #123f38;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px #fff7ea;
+  }
+}
+
 /* Every dropdown draws its own arrow. The browser's arrow ignores padding, so
    in a pill-shaped select it sat jammed against the rounded edge -- and each
    browser drew a different one. This one sits a fixed 1rem in, with room kept
@@ -50,6 +96,15 @@ select:not([multiple]) {
 
 .shelf-marquee-track {
   will-change: transform;
+}
+
+/* Less motion means no shrinking. The dimming above isn't motion, so a press
+   still shows. */
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):active,
+  .pressable:active {
+    scale: none;
+  }
 }
 
 /* No drifting at all for anyone who has asked for less motion: the script

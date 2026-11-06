@@ -19,7 +19,7 @@ export default function BooksLayout({ children }) {
         </a>
         <a
           href="/"
-          className="rounded-full bg-[#123f38] px-5 py-2.5 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
+          className="pressable rounded-full bg-[#123f38] px-5 py-2.5 text-sm font-medium text-[#fff7ea] transition hover:bg-[#0f332d]"
         >
           Open the app
         </a>

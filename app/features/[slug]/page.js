@@ -124,7 +124,7 @@ export default async function FeatureGuidePage({ params }) {
       )}
 
       <div className="mt-12 flex flex-wrap items-center gap-4">
-        <a href="/" className="rounded-full bg-[#123f38] px-6 py-3 text-sm font-medium text-[#fff7ea] hover:bg-[#0f332d]">
+        <a href="/" className="pressable rounded-full bg-[#123f38] px-6 py-3 text-sm font-medium text-[#fff7ea] hover:bg-[#0f332d]">
           Try it in FirstFinder
         </a>
       </div>
