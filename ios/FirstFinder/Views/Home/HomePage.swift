@@ -55,7 +55,7 @@ struct HomePage: View {
             .padding(.horizontal, 24)
             .padding(.top, 48)
 
-            FeaturedShelvesView(shelves: app.featuredShelves) { path.append($0) }
+            FeaturedShelvesView(shelves: app.visibleFeaturedShelves) { path.append($0) }
                 .padding(.top, 48)
                 .padding(.bottom, 56)
         }

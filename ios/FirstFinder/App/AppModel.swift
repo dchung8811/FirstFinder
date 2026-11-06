@@ -91,6 +91,7 @@ final class AppModel {
     // The home page's strip. nil while loading; [] hides the section, which
     // is also what a failed fetch does -- as on the web.
     private(set) var featuredShelves: [FeaturedShelf]?
+    var blocks: [ContentReports.Block] = []
 
     private(set) var inventoryLoad: Load = .idle
     private(set) var wishlistLoad: Load = .idle
@@ -289,6 +290,7 @@ final class AppModel {
         wishlistRows = []
         shareRowLive = nil
         feedbackRows = []
+        blocks = []
         inventoryLoad = .idle
         wishlistLoad = .idle
         shareLoad = .idle
@@ -328,7 +330,8 @@ final class AppModel {
         async let c: Void = refreshShare(userId: userId)
         async let d: Void = refreshFeedback(userId: userId)
         async let e: Void = loadBanner()
-        _ = await (a, b, c, d, e)
+        async let f: Void = refreshBlocks()
+        _ = await (a, b, c, d, e, f)
     }
 
     func refreshInventory(userId: String? = nil) async {

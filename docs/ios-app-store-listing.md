@@ -91,11 +91,13 @@ Things to try:
 - Add > "Research a photo": identifies a book from a cover photo and suggests a value. Each account gets 2 of these a day, because each one is a paid call to an AI service; the remaining count is shown before the camera opens.
 - More > Appearance: System, Light or Dark.
 
+Photos and AI: the first time an account uses "Snap a picture" or "Research a photo", the app asks permission to send photos to OpenAI, before the camera opens. Choosing "Not now" sends nothing, and the rest of the app works without it.
+
 Account deletion: More > My Account > Delete my account. It permanently deletes the account, its records and its photos.
 
 Sign in with Apple, Google and email/password are all supported.
 
-Explore (More > Explore) shows collections whose owners chose to publish them.
+Explore (More > Explore) shows collections whose owners chose to publish them. Open any collection and use the menu at the top of the page (the "..." button) to report it or block its owner. A blocked collector disappears from Explore and the home page immediately, and blocking also notifies the developer. Blocks can be undone in More > My Account. Reports go to a private moderation queue; pages can be taken down from it, and a page comes down automatically after several separate reports while it is reviewed. Using FirstFinder means agreeing to the Terms, which forbid objectionable content. They are linked from sign-up.
 
 The app is free, with no in-app purchases or ads.
 ```
@@ -105,9 +107,6 @@ The app is free, with no in-app purchases or ads.
 Expected **4+**. Answer No to violence, profanity, mature themes, gambling,
 medical, contests and unrestricted web access.
 
-**Watch the user-generated content question.** Explore and shared collection
-pages show other people's photos and notes. If App Store Connect asks whether
-the app shows user-generated content, the honest answer is yes, and guideline
-1.2 then expects a way to report objectionable content and to block it. Today
-that is only the support email. See the open question in issue #279 before
-answering.
+**User-generated content:** answer yes. Explore and shared collection pages show
+other people's photos and notes. Guideline 1.2 is met by report and block in the
+page menu, the moderation queue at `/admin`, and the support email.

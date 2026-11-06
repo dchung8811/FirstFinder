@@ -152,6 +152,8 @@ struct MyAccountPage: View {
                     }
                 }
 
+                BlockedCollectorsCard()
+
                 Card(padding: 22) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Enjoying FirstFinder?").font(.headline)
