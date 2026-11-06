@@ -4051,7 +4051,7 @@ function AboutPage({ onGoToFeedback, onGoToContribute }) {
 //
 // Update termsLastUpdated whenever the substance below changes -- section 12
 // tells people that date is how they know the terms moved.
-const termsLastUpdated = "October 13, 2026";
+const termsLastUpdated = "November 6, 2026";
 
 // A plain-English gloss shown above the binding text. It is explicitly not a
 // substitute for the sections themselves, and it stays short enough that
@@ -4151,6 +4151,7 @@ const termsSections = [
     heading: "7. Reporting abuse",
     paragraphs: [
       "If you come across something on FirstFinder that breaks these rules, tell us at thebookbarterer@gmail.com and include enough detail for us to find it. Logged-in users can also use Send feedback.",
+      "In the iPhone app, open a shared collection and use the menu at the top of the page to report it or block its owner. Blocking hides that collector's pages from you and tells us too. A page may come down automatically after several separate reports while we review it.",
       "If someone is in immediate danger, contact local emergency services first."
     ]
   },
@@ -4331,7 +4332,7 @@ function TermsPage({ onViewPrivacy }) {
 // Everything below has to describe what the code actually does. When a service
 // provider changes, a column is added that holds something personal, or a
 // retention rule moves, this file is part of that change -- not a follow-up.
-const privacyLastUpdated = "November 4, 2026";
+const privacyLastUpdated = "November 6, 2026";
 
 const privacySummary = [
   "We collect what running a catalog needs: your email, what you record about your items, and your photos.",
@@ -4365,6 +4366,7 @@ const privacySections = [
       "Photos — item photos and receipt photos you upload. Receipts often carry a name, an address, or the last digits of a card, which is why the photo store is private and served only through short-lived signed links.",
       "Wishlist entries — the copies you're hunting and the specification you'd accept.",
       "Feedback — what you write in Send feedback, and any screenshots you attach. Read section 4 before you send one: feedback becomes a public GitHub issue.",
+      "Reports and blocks — if you report or block a shared collection: which page, the reason, anything you add, and your account. The owner is not told who reported or blocked them.",
       "Sign-in activity — a timestamped record of each sign-in, kept so the maintainer can see how many people use FirstFinder and how often they come back.",
       "Photo identification usage — a per-day count of how many identifications your account has run, which is how the daily cap is enforced.",
       "Analytics — page views and in-app events (for example, opening the identification flow or exporting a report), collected through Google Analytics along with the technical data it gathers: a device or browser identifier, approximate location derived from IP address, referring page, and general device and browser details."
@@ -4440,6 +4442,7 @@ const privacySections = [
     paragraphs: [
       "Your collection records, photos, and wishlist stay until you delete them or delete your account. There is no automatic expiry — a catalog that quietly forgot things would be worse than useless.",
       "Deleting an item deletes its photos with it. Deleting your account from My Account removes your account, every record under it, and every photo in your storage folder, and it is permanent — we cannot restore it afterwards, so export your CSV first if you want one.",
+      "Reports you've made stay after you delete your account, with your account removed from them, so that a page that broke the rules stays on record. Your blocks are deleted with your account.",
       "Some things survive that deletion, and you should know which. Copies inside routine encrypted backups age out on their own schedule. Sign-in counts and analytics are aggregate figures that no longer identify you. Feedback already filed as a public GitHub issue stays on GitHub, because the issue is public and other people may have replied to it. And anything we are legally required to preserve or have already reported to authorities is kept, as section 6 of the Terms says."
     ]
   },

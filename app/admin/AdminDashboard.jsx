@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../../src/lib/supabaseClient";
 import { STATUS, formatPercent } from "../../src/utils/platformLimits";
+import { AUTO_HIDE_REPORTERS, REPORT_REASONS } from "../../src/utils/contentReports";
 import {
   BANNER_DESTINATIONS,
   BANNER_LINK_LABEL_MAX,
@@ -310,6 +311,104 @@ function BannerPanel() {
 // The same look as the app's banner, for the preview. Kept visually in step
 // with SiteBanner in app/InventoryApp.jsx by hand -- the two files share no
 // components, and pulling one out for a preview isn't worth the coupling.
+// The moderation queue. A manual refresh rather than the dashboard's poll: this
+// is where a page gets taken down, and a list that moves under the cursor is how
+// the wrong one gets pressed.
+function ReportsPanel() {
+  const [queue, setQueue] = useState({ pages: [], hidden: [] });
+  const [status, setStatus] = useState({ type: "loading", text: "" });
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    return adminFetch("/api/admin/reports")
+      .then((next) => {
+        setQueue(next);
+        setStatus({ type: "idle", text: "" });
+      })
+      .catch((error) => setStatus({ type: "error", text: error.message }));
+  }, []);
+
+  function refresh() {
+    setStatus({ type: "loading", text: "" });
+    load();
+  }
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function act(ownerId, action, alreadyDown = false) {
+    if (action === "hide" && !alreadyDown && !window.confirm("Take this page down for everyone?")) return;
+    setBusy(true);
+    try {
+      setQueue(await adminFetch("/api/admin/reports", { method: "POST", body: JSON.stringify({ ownerId, action }) }));
+      setStatus({ type: "idle", text: "" });
+    } catch (error) {
+      setStatus({ type: "error", text: error.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const buttonClass = "rounded-full border border-[#d8c7ad] bg-white px-3 py-1.5 text-xs font-medium text-[#123f38] hover:bg-[#f6efe3] disabled:opacity-50";
+
+  return (
+    <div className="mt-4 rounded-2xl border border-[#e6d9c4] bg-[#fffdf8] p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-4">
+        <div className="font-medium text-[#201a14]">
+          {status.type === "loading" ? "Loading..." : `${queue.pages.length} ${queue.pages.length === 1 ? "page" : "pages"} to review`}
+        </div>
+        <button type="button" onClick={refresh} disabled={busy} className={buttonClass}>Refresh</button>
+      </div>
+      {status.type === "error" && <p className="mt-3 text-sm text-[#8a3b22]">{status.text}</p>}
+
+      <div className="mt-4 space-y-4">
+        {queue.pages.map((page) => (
+          <div key={page.ownerId} className="rounded-xl border border-[#e6d9c4] bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <a href={`/c/${page.slug}`} target="_blank" rel="noopener noreferrer" className="font-medium text-[#123f38] underline underline-offset-4">
+                {page.title}
+              </a>
+              <div className="flex gap-2">
+                <button type="button" disabled={busy} onClick={() => act(page.ownerId, "hide", page.hidden)} className={buttonClass}>
+                  {page.hidden ? "Keep down" : "Take down"}
+                </button>
+                <button type="button" disabled={busy} onClick={() => act(page.ownerId, page.hidden ? "restore" : "dismiss")} className={buttonClass}>
+                  {page.hidden ? "Restore page" : "Dismiss"}
+                </button>
+              </div>
+            </div>
+            {page.hidden && <p className="mt-2 text-xs text-[#8a3b22]">Down now, after several separate reports. Keep it down, or restore it.</p>}
+            <ul className="mt-3 space-y-2 text-sm text-[#665746]">
+              {page.reports.map((report) => (
+                <li key={report.id}>
+                  <span className="font-medium text-[#201a14]">{report.reason === "blocked" ? "Blocked by a collector" : REPORT_REASONS.find((reason) => reason.value === report.reason)?.label || report.reason}</span>
+                  {" · "}{relativeTime(report.createdAt)}
+                  {report.details && <span className="block whitespace-pre-wrap">{report.details}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {queue.hidden.length > 0 && (
+        <div className="mt-6">
+          <div className="text-xs uppercase tracking-[0.18em] text-[#8a7a64]">Pages down</div>
+          <ul className="mt-2 space-y-2 text-sm text-[#665746]">
+            {queue.hidden.map((page) => (
+              <li key={page.ownerId} className="flex items-center justify-between gap-3">
+                <span>{page.title} · {page.source === "auto" ? "automatically" : "by you"} · {relativeTime(page.hiddenAt)}</span>
+                <button type="button" disabled={busy} onClick={() => act(page.ownerId, "restore")} className={buttonClass}>Restore</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SiteBannerPreview({ message, linkLabel }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-[#123f38] px-4 py-2.5 text-sm text-[#fff7ea]">
@@ -462,6 +561,12 @@ export default function AdminDashboard() {
         <h2 className="text-lg font-semibold text-[#201a14]">Site banner</h2>
         <p className="mt-1 text-sm leading-6 text-[#665746]">An announcement across the top of the app, with an optional link to one of its pages.</p>
         <BannerPanel />
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold text-[#201a14]">Reports</h2>
+        <p className="mt-1 text-sm leading-6 text-[#665746]">Pages collectors have reported or blocked. Nothing here notifies you, so check it daily. A page comes down by itself after {AUTO_HIDE_REPORTERS} separate reports.</p>
+        <ReportsPanel />
       </section>
 
       <Section

@@ -231,6 +231,32 @@ async function loadSharedWants(admin, userId, settings) {
   }));
 }
 
+// Takedowns (supabase/content-moderation.sql). A failed read counts as "not
+// hidden": it almost always means the same database trouble that would fail the
+// page anyway, or a deploy ahead of the patch, and turning that into a 404 on
+// every public page would be the larger harm.
+async function isOwnerHidden(admin, ownerId) {
+  const { data, error } = await admin
+    .from("moderated_collections")
+    .select("owner_id")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  if (error) {
+    console.error("Takedown lookup error:", error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+async function loadHiddenOwnerIds(admin) {
+  const { data, error } = await admin.from("moderated_collections").select("owner_id");
+  if (error) {
+    console.error("Takedown list error:", error.message);
+    return new Set();
+  }
+  return new Set(data.map((row) => row.owner_id));
+}
+
 // Loads everything /c/<slug> needs, or null when there is nothing to serve --
 // unknown slug, or the owner has switched sharing off. The caller turns null
 // into a 404, so those two cases are indistinguishable from outside: a
@@ -245,9 +271,10 @@ async function loadSharedWants(admin, userId, settings) {
 export async function sharedCollectionExists(slug) {
   if (!isValidShareSlug(slug)) return false;
 
-  const { data, error } = await createSupabaseAdminClient()
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
     .from("shared_collections")
-    .select("slug")
+    .select("user_id")
     .eq("slug", slug)
     .neq("visibility", "off")
     .maybeSingle();
@@ -257,7 +284,7 @@ export async function sharedCollectionExists(slug) {
     return false;
   }
 
-  return Boolean(data);
+  return Boolean(data) && !(await isOwnerHidden(admin, data.user_id));
 }
 
 export async function loadSharedCollection(slug) {
@@ -280,6 +307,7 @@ export async function loadSharedCollection(slug) {
   }
 
   if (!shareRow) return null;
+  if (await isOwnerHidden(admin, shareRow.user_id)) return null;
 
   const settings = settingsFromRow(shareRow);
 
@@ -360,7 +388,7 @@ export async function listListedCollectionSlugs() {
     const admin = createSupabaseAdminClient();
     const { data, error } = await admin
       .from("shared_collections")
-      .select("slug, updated_at")
+      .select("user_id, slug, updated_at")
       .eq("visibility", "listed");
 
     if (error) {
@@ -368,7 +396,10 @@ export async function listListedCollectionSlugs() {
       return [];
     }
 
-    return data || [];
+    const hidden = await loadHiddenOwnerIds(admin);
+    return (data || [])
+      .filter((row) => !hidden.has(row.user_id))
+      .map(({ slug, updated_at }) => ({ slug, updated_at }));
   } catch (error) {
     // The sitemap is generated at build time too, where the service-role key
     // may legitimately be absent (a contributor running `next build` without
@@ -438,8 +469,10 @@ export async function loadExploreCollections({ pick = (collections) => collectio
       return [];
     }
 
+    const hidden = await loadHiddenOwnerIds(admin);
+
     const rows = await Promise.all(
-      (shareRows || []).map(async (shareRow) => {
+      (shareRows || []).filter((shareRow) => !hidden.has(shareRow.user_id)).map(async (shareRow) => {
         // Only the shelf flags matter to which items appear; every money and
         // notes flag is forced off so no optional group can leak onto Explore
         // even if buildExploreCollection's allowlist were ever loosened.
