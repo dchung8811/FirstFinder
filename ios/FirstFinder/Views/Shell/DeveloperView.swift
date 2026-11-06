@@ -66,6 +66,7 @@ struct DeveloperView: View {
                 LabeledContent("Photo URLs", value: "Signed for \(PhotoSigning.ttlSeconds / 60) min, memory only")
             }
         }
+        .buttonStyle(.automatic)
         .scrollContentBackground(.hidden)
         .background(Theme.page)
         .navigationTitle("Developer")

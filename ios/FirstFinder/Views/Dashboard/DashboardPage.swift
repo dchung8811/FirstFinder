@@ -451,7 +451,7 @@ struct RecentFinds: View {
                             Button { app.openItem(item.id) } label: {
                                 RecentFindCover(item: item)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.ffPress)
                             .accessibilityLabel("Show \"\(item.name.isEmpty ? "this item" : item.name)\" in your collection")
                         }
                     }

@@ -159,7 +159,7 @@ struct PhotoUploader: View {
                 .background(Theme.adaptive(0xf7ecdc, dark: 0x0f332d), in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.adaptive(0xcbb894, dark: 0x7d6c5a), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.ffPress)
             if !prompts.isEmpty {
                 FlowLayout(spacing: 6) { ForEach(prompts, id: \.self) { Chip(text: $0) } }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -235,7 +235,7 @@ struct BookNameField: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.ffPress)
                         Divider().overlay(Theme.borderSoft)
                     }
                 }

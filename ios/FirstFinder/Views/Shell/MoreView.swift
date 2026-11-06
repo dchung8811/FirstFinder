@@ -56,7 +56,7 @@ struct MoreView: View {
                     #endif
                 }
                 Section {
-                    Button("Sign out", role: .destructive) { confirmingSignOut = true }
+                    Button("Sign out", role: .destructive) { confirmingSignOut = true }.buttonStyle(.automatic)
                 }
                 }
                 // The app's card color rather than the system's white and

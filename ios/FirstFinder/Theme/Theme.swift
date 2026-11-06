@@ -123,6 +123,41 @@ struct Card<Content: View>: View {
     }
 }
 
+// What every button does under a finger: it shrinks a little and dims, so a tap
+// is seen to land even before anything else happens. Reduce Motion drops the
+// shrink and keeps the dimming, which isn't motion. The web's press state in
+// app/globals.css uses the same numbers.
+struct PressFeedback: ViewModifier {
+    var isPressed: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPressed && !reduceMotion ? 0.97 : 1)
+            .opacity(isPressed ? 0.8 : 1)
+            .animation(.easeOut(duration: 0.12), value: isPressed)
+    }
+}
+
+// The style for a button that draws itself. RootView sets it on the whole app,
+// so a new Button gets it by being a Button. Unlike the system's default it
+// doesn't paint its label in the tint: a button that wants green says so.
+//
+// Lists, forms and toolbars opt back out with .buttonStyle(.automatic), since
+// there the system already draws a highlight, a full-width row and a toolbar
+// bubble that this would take away. Alerts and menus never see it.
+struct FFPressStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? 1 : 0.5)
+            .modifier(PressFeedback(isPressed: configuration.isPressed))
+    }
+}
+
 // Button variants, matching the web's Button component: primary is the
 // filled deep-green pill, secondary the outlined cream one.
 struct FFButtonStyle: ButtonStyle {
@@ -144,6 +179,7 @@ struct FFButtonStyle: ButtonStyle {
             .overlay(Capsule().strokeBorder(border))
             .opacity(isEnabled ? 1 : 0.5)
             .contentShape(Capsule())
+            .modifier(PressFeedback(isPressed: configuration.isPressed))
     }
 
     private var foreground: Color {
@@ -169,6 +205,10 @@ struct FFButtonStyle: ButtonStyle {
         default: .clear
         }
     }
+}
+
+extension ButtonStyle where Self == FFPressStyle {
+    static var ffPress: FFPressStyle { FFPressStyle() }
 }
 
 extension ButtonStyle where Self == FFButtonStyle {

@@ -88,6 +88,7 @@ struct LoginPage: View {
                             OrDivider().padding(.vertical, 22)
                             VStack(spacing: 12) {
                                 SocialAuthButton(systemImage: "g.circle", title: "Continue with Google") { Task { await google() } }
+                                    .disabled(loading)
                                 if AppConfig.appleSignInEnabled() {
                                     AppleSignInButton { message = .init(kind: .error, text: $0) }
                                 } else {
@@ -233,7 +234,7 @@ struct AuthModeTabs: View {
                 // The whole half takes the tap, not just the word.
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ffPress)
         .accessibilityAddTraits(mode == value ? [.isSelected] : [])
     }
 }
@@ -315,7 +316,7 @@ struct SocialAuthButton: View {
                 .background(Theme.adaptive(0xffffff, dark: 0x0f332d), in: Capsule())
                 .overlay(Capsule().strokeBorder(Theme.borderStrong))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ffPress)
     }
 }
 
@@ -345,8 +346,8 @@ struct AuthTermsNotice: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("\(action) means you agree to FirstFinder's Terms of Service and Privacy Policy, including the acceptable use rules and the acknowledgment that FirstFinder is a hobby project that may lose data or go away.")
             HStack(spacing: 14) {
-                Button("Terms of Service", action: onViewTerms).underline()
-                Button("Privacy Policy", action: onViewPrivacy).underline()
+                Button("Terms of Service", action: onViewTerms).underline().foregroundStyle(Theme.green)
+                Button("Privacy Policy", action: onViewPrivacy).underline().foregroundStyle(Theme.green)
             }
         }
         .font(.caption)
@@ -420,7 +421,7 @@ struct CheckboxToggleStyle: ToggleStyle {
                 configuration.label
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ffPress)
         .accessibilityAddTraits(configuration.isOn ? [.isSelected] : [])
     }
 }

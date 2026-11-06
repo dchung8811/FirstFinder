@@ -293,11 +293,11 @@ struct WantDialog: View {
                         .font(.caption).foregroundStyle(Theme.brownSoft)
                     HStack {
                         if !isNew {
-                            Button("Remove") { confirmingRemove = true }.buttonStyle(.ffSecondary)
+                            Button("Remove") { confirmingRemove = true }.buttonStyle(.ffSecondary).disabled(app.isSaving)
                         }
-                        Button("Cancel") { dismiss() }.buttonStyle(.ffSecondary)
+                        Button("Cancel") { dismiss() }.buttonStyle(.ffSecondary).disabled(app.isSaving)
                         Spacer()
-                        Button(isNew ? "Add to wishlist" : "Save") {
+                        Button(app.isSaving ? "Saving…" : isNew ? "Add to wishlist" : "Save") {
                             var next = draft
                             next.maxPrice = Format.optionalAmount(maxPrice)
                             Task { if await app.saveWant(next) { dismiss() } }
@@ -376,9 +376,9 @@ struct FoundItDialog: View {
                     Text("It joins your collection. The hunt stays on record rather than being deleted.")
                         .font(.caption).foregroundStyle(Theme.brownSoft)
                     HStack {
-                        Button("Not yet") { dismiss() }.buttonStyle(.ffSecondary)
+                        Button("Not yet") { dismiss() }.buttonStyle(.ffSecondary).disabled(app.isSaving)
                         Spacer()
-                        Button("Add to collection") {
+                        Button(app.isSaving ? "Adding…" : "Add to collection") {
                             var details = found
                             details.purchaseDate = acquired.map(Format.day) ?? ""
                             Task {

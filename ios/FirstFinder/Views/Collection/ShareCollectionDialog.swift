@@ -52,11 +52,12 @@ struct ShareCollectionDialog: View {
             .navigationTitle("Share")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(.automatic) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(draft.visibility == "off" ? "Save" : "Save and publish") {
+                    Button(app.isSaving ? "Saving…" : draft.visibility == "off" ? "Save" : "Save and publish") {
                         Task { if await app.saveShare(draft) { dismiss() } }
                     }
+                    .buttonStyle(.automatic)
                     .disabled(!dirty || app.isSaving)
                 }
                 ToolbarItem(placement: .bottomBar) {
@@ -96,6 +97,7 @@ struct ShareCollectionDialog: View {
                     .disabled(dirty || draft.visibility == "off")
                 Button("Reset link") { confirmingReset = true }
                     .buttonStyle(.ffSecondary)
+                    .disabled(app.isSaving)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text("Resetting gives you a new address and breaks every link you've already sent — the way to take back a page you shared with the wrong person.")
@@ -124,7 +126,7 @@ struct ShareCollectionDialog: View {
                     .background(draft.visibility == choice.value ? Theme.tint : Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))
                     .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(draft.visibility == choice.value ? Theme.green : Theme.borderSoft))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ffPress)
                 .accessibilityAddTraits(draft.visibility == choice.value ? .isSelected : [])
             }
         }
@@ -304,7 +306,7 @@ struct ExploreSettings: View {
                     .foregroundStyle(Theme.ink)
                     .opacity(blocked ? 0.5 : 1)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ffPress)
                 .disabled(blocked)
             }
             if full {

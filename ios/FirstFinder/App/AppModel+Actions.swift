@@ -26,6 +26,7 @@ extension AppModel {
     // on whether they failed to upload or failed to link.
     @discardableResult
     func addItem(_ item: Item, itemPhotos: [Photo], receiptPhotos: [Photo], announce: Bool = true) async -> Item? {
+        guard !isSaving else { return nil }
         guard let userId = profile?.id else {
             toasts.push("Please log in before saving to your collection.", tone: .error)
             return nil
@@ -149,6 +150,7 @@ extension AppModel {
     // the lists as the form left them: kept photos plus any just picked.
     @discardableResult
     func saveEdit(_ draft: Item, itemPhotos: [Photo], receiptPhotos: [Photo]) async -> Bool {
+        guard !isSaving else { return false }
         guard profile != nil, let current = row(for: draft.id).map({ Mapping.fromDbItem($0) }) else { return false }
         guard isOnline else {
             toasts.push(Self.offlineSaveMessage, tone: .error)
@@ -192,6 +194,7 @@ extension AppModel {
 
     @discardableResult
     func markSold(_ itemId: String, soldPrice: String, soldDate: String, condition: String) async -> Bool {
+        guard !isSaving else { return false }
         guard let current = row(for: itemId).map({ Mapping.fromDbItem($0) }) else { return false }
         let payload = Writes.markSold(current: current, soldPrice: soldPrice, soldDate: soldDate, condition: condition)
         guard await save(itemId, payload) else { return false }
@@ -203,6 +206,9 @@ extension AppModel {
     // not to "Owned".
     @discardableResult
     func restoreSold(_ itemId: String) async -> String? {
+        guard !isSaving else { return nil }
+        restoringItemId = itemId
+        defer { restoringItemId = nil }
         guard let current = row(for: itemId).map({ Mapping.fromDbItem($0) }) else { return nil }
         let (payload, restored) = Writes.restore(current: current)
         guard await save(itemId, payload) else { return nil }
@@ -296,6 +302,7 @@ extension AppModel {
     }
 
     private func upsertShare(_ settings: ShareSettings, slug: String) async -> Bool {
+        guard !isSaving else { return false }
         guard let userId = profile?.id else { return false }
         guard isOnline else {
             toasts.push(Self.offlineSaveMessage, tone: .error)

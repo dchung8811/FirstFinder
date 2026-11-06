@@ -133,8 +133,9 @@ struct AddItemsPage: View {
                 PhotoUploader(title: "Item photo", systemImage: "camera", photos: $quick.itemPhotos)
                 PhotoUploader(title: "Receipt proof", systemImage: "receipt", photos: $quick.receiptPhotos)
 
-                Button("Submit") { save(quick, onDone: resetQuick) }
+                Button(app.isSaving ? "Saving…" : "Submit") { save(quick, onDone: resetQuick) }
                     .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
+                    .disabled(app.isSaving)
             }
         }
     }
@@ -302,7 +303,7 @@ struct ScanNotesPanel: View {
                 Text(notes.filledCount > 0 ? "Filled \(notes.filledCount) field\(notes.filledCount == 1 ? "" : "s") from your photos" : "What the scan read")
                     .font(.headline).foregroundStyle(Theme.green)
                 Spacer()
-                Button(action: onDismiss) { Image(systemName: "xmark").font(.caption) }
+                Button(action: onDismiss) { Image(systemName: "xmark").font(.caption).foregroundStyle(Theme.green) }
                     .accessibilityLabel("Hide what the scan read")
             }
             ForEach(read, id: \.0) { label, value in
