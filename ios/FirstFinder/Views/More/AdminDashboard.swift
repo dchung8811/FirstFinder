@@ -11,6 +11,8 @@ struct AdminDashboard: View {
     @State private var stats: [String: Any] = [:]
     @State private var error = ""
     @State private var loading = true
+    // Only for a tap on Refresh: the timer's refreshes run quietly on their own.
+    @State private var refreshing = false
     @State private var fetchedAt: Date?
 
     var body: some View {
@@ -62,7 +64,15 @@ struct AdminDashboard: View {
                 }
                 Spacer()
                 StatusChip(status: value("status") as? String ?? "ok")
-                Button("Refresh") { Task { await load() } }.buttonStyle(.ffPrimary)
+                Button(refreshing ? "Refreshing…" : "Refresh") {
+                    refreshing = true
+                    Task {
+                        await load()
+                        refreshing = false
+                    }
+                }
+                .buttonStyle(.ffPrimary)
+                .disabled(refreshing)
             }
             .padding(14)
             .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))

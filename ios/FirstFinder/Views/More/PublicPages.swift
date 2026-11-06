@@ -209,7 +209,7 @@ struct ContributePage: View {
             if loading {
                 dashed("Checking GitHub…")
             } else if failed {
-                Button { openURL(Self.labelSearch(label)) } label: { dashed("Couldn't reach GitHub just now. See the list on GitHub.") }.buttonStyle(.plain)
+                Button { openURL(Self.labelSearch(label)) } label: { dashed("Couldn't reach GitHub just now. See the list on GitHub.") }.buttonStyle(.ffPress)
             } else if issues.isEmpty {
                 dashed("Nothing open under this label right now. That's a good sign, not a closed door — pick anything from the roadmap, or open an issue with what you'd like to build.")
             } else {
@@ -231,7 +231,7 @@ struct ContributePage: View {
                         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))
                         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.borderSoft))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.ffPress)
                 }
                 Button("ALL ON GITHUB →") { openURL(Self.labelSearch(label)) }
                     .font(.ledger(12, relativeTo: .caption)).tracking(1.8).foregroundStyle(Theme.adaptive(0x655644, dark: 0xd8c7ad))

@@ -171,6 +171,7 @@ extension AppModel {
     // draft has an id yet.
     @discardableResult
     func saveWant(_ want: Want) async -> Bool {
+        guard !isSaving else { return false }
         guard let userId = profile?.id, WishlistLogic.isSaveable(want) else { return false }
         guard isOnline else {
             toasts.push(Self.offlineSaveMessage, tone: .error)
@@ -194,6 +195,7 @@ extension AppModel {
 
     @discardableResult
     func removeWant(_ id: String) async -> Bool {
+        guard !isSaving else { return false }
         guard isOnline else {
             toasts.push(Self.offlineSaveMessage, tone: .error)
             return false
@@ -221,6 +223,10 @@ extension AppModel {
         guard let saved = await addItem(WishlistLogic.toItem(want, found: found), itemPhotos: itemPhotos, receiptPhotos: receiptPhotos) else {
             return false
         }
+        // addItem has finished by here, so keep the button down for this second
+        // write too: a tap now would add the same copy to the collection again.
+        isSaving = true
+        defer { isSaving = false }
         let now = Writes.timestamp(Date())
         do {
             took(want: try await store.updateWant(id: want.id, ["found_at": now, "found_item_id": .string(saved.id), "updated_at": now]))

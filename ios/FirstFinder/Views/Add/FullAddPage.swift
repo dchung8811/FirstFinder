@@ -80,8 +80,9 @@ struct FullAddPage: View {
                                 .font(.subheadline).foregroundStyle(Theme.warningInk).padding(12)
                                 .background(Theme.warningSurface, in: RoundedRectangle(cornerRadius: 12))
                         }
-                        Button("Save to collection") { onSaved(draft) { draft = ItemDraft() } }
+                        Button(app.isSaving ? "Saving…" : "Save to collection") { onSaved(draft) { draft = ItemDraft() } }
                             .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
+                            .disabled(app.isSaving)
                         Button("Reset form") {
                             app.pendingPhotos.forget((draft.itemPhotos + draft.receiptPhotos).map(\.path))
                             draft = ItemDraft()

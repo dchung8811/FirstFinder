@@ -100,8 +100,12 @@ final class AppModel {
     private(set) var lastSyncedAt: Date?
 
     // True while a save is on its way, so a screen can disable its Save
-    // button rather than let a second tap send the same write twice.
+    // button rather than let a second tap send the same write twice. The write
+    // paths refuse to start while it's set too, because a disabled button only
+    // arrives with the next render and a quick second tap can beat it.
     var isSaving = false
+    // Which sold item is on its way back, so only that one card says so.
+    var restoringItemId: String?
 
     // Developer switches.
     var forceOffline = false

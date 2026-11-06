@@ -92,7 +92,7 @@ struct CollectionCard: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.ffPress)
             .accessibilityLabel("View photos of \(title)")
         } else {
             // Not a button: nothing to open, and a control that does nothing
@@ -120,7 +120,7 @@ struct CollectionCard: View {
                     Chip(text: entry.receiptPhotoCount == 1 ? "Receipt on file" : "\(entry.receiptPhotoCount) receipts on file", tone: .tint, systemImage: "receipt")
                         .underline()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ffPress)
                 .accessibilityLabel("View the receipt for \(title)")
             }
             if entry.hiddenFromShare { Chip(text: "Hidden from your page", systemImage: "eye.slash") }
@@ -154,8 +154,8 @@ struct CollectionCard: View {
                 Divider().overlay(Theme.adaptive(0xeadfcd, dark: 0x665746)).padding(.top, 14)
                 HStack(spacing: 10) {
                     Text("Find similar copies:").foregroundStyle(Theme.brownSoft)
-                    Link("AbeBooks", destination: links.abebooks).fontWeight(.medium).underline()
-                    Link("eBay", destination: links.ebay).fontWeight(.medium).underline()
+                    Link("AbeBooks", destination: links.abebooks).fontWeight(.medium).underline().foregroundStyle(Theme.green)
+                    Link("eBay", destination: links.ebay).fontWeight(.medium).underline().foregroundStyle(Theme.green)
                 }
                 .font(.caption)
                 .foregroundStyle(Theme.green)
@@ -168,7 +168,9 @@ struct CollectionCard: View {
         HStack(spacing: 8) {
             Button("Edit") { actions.edit(entry) }.buttonStyle(.ffSecondary)
             if entry.status == "Sold" {
-                Button("Restore") { actions.restore(entry) }.buttonStyle(.ffSecondary)
+                Button(app.restoringItemId == entry.id ? "Restoring…" : "Restore") { actions.restore(entry) }
+                    .buttonStyle(.ffSecondary)
+                    .disabled(app.isSaving)
             } else {
                 Button("Mark sold") { actions.markSold(entry) }.buttonStyle(.ffSecondary)
             }

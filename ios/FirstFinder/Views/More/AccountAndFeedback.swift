@@ -100,7 +100,7 @@ struct MyAccountPage: View {
                         }
                         Divider().overlay(Theme.borderSoft)
                         Field(label: "Name", text: $name)
-                        Button("Save name") { Task { await app.saveName(name) } }
+                        Button(app.isSaving ? "Saving…" : "Save name") { Task { await app.saveName(name) } }
                             .buttonStyle(.ffPrimary)
                             .disabled(app.isSaving)
                         Divider().overlay(Theme.borderSoft)

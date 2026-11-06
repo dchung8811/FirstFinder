@@ -49,7 +49,7 @@ struct PhotoViewerModal: View {
                                 .frame(height: 288)
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.ffPress)
                             .accessibilityLabel("\(label), \(photo.name)")
                             .accessibilityHint("Opens the photo full screen to zoom in.")
                             VStack(alignment: .leading, spacing: 2) {
@@ -68,7 +68,7 @@ struct PhotoViewerModal: View {
             .background(Theme.page)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }.accessibilityLabel("Close photo viewer")
+                    Button("Close") { dismiss() }.buttonStyle(.automatic).accessibilityLabel("Close photo viewer")
                 }
             }
         }
@@ -103,7 +103,7 @@ struct MarkSoldDialog: View {
                     HStack {
                         Button("Cancel") { dismiss() }.buttonStyle(.ffSecondary)
                         Spacer()
-                        Button("Mark sold") {
+                        Button(app.isSaving ? "Saving…" : "Mark sold") {
                             Task {
                                 if await app.markSold(entry.id, soldPrice: soldPrice, soldDate: Format.day(soldDate), condition: condition) { dismiss() }
                             }
@@ -276,7 +276,7 @@ struct EditPhotoSection: View {
                     .background(Theme.adaptive(0xf7ecdc, dark: 0x0f332d), in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.adaptive(0xcbb894, dark: 0x7d6c5a), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.ffPress)
             if !photos.isEmpty {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                     ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
@@ -289,7 +289,7 @@ struct EditPhotoSection: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.ffPress)
                             .accessibilityLabel("View \(photo.name) full screen")
                             Button {
                                 photos.removeAll { $0.path == photo.path }

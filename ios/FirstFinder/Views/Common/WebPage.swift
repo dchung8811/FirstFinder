@@ -60,6 +60,7 @@ struct WebPage: View {
             if let url {
                 ToolbarItem(placement: .topBarTrailing) {
                     ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
+                        .buttonStyle(.automatic)
                         .accessibilityLabel("Share link")
                 }
             }

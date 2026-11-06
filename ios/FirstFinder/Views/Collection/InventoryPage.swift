@@ -349,7 +349,7 @@ struct InventoryPage: View {
                         Button { openTile = entry } label: {
                             CollectionTile(entry: entry, highlighted: highlighted == entry.id)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.ffPress)
                         .id(entry.id)
                     }
                 }
@@ -425,12 +425,14 @@ struct InventoryPage: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.page)
+            .buttonStyle(.automatic)
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     // Filters apply as they're chosen; this is the way back.
                     Button("Show \(displayed.count) \(displayed.count == 1 ? "item" : "items")") { filtersOpen = false }
+                        .buttonStyle(.automatic)
                 }
             }
         }

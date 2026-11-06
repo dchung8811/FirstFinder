@@ -39,7 +39,7 @@ struct FeaturedShelvesView: View {
                                 Button { onOpen(.sharedItem(slug: cover.shelfSlug, itemId: cover.cover.id)) } label: {
                                     ShelfCover(cover: cover)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.ffPress)
                             }
                         }
                         .padding(.horizontal, 24)
@@ -335,7 +335,7 @@ private struct ShelfChips: View {
                     .background(Theme.surfaceRaised, in: Capsule())
                     .overlay(Capsule().strokeBorder(Theme.adaptive(0xd3c1a4, dark: 0x665746)))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ffPress)
                 .accessibilityLabel("\(shelf.title), \(shelf.itemCount) \(shelf.itemCount == 1 ? "item" : "items")")
             }
         }

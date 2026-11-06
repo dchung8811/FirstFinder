@@ -84,7 +84,9 @@ struct RecordsList: View {
                 Spacer()
                 Button("Edit") { actions.edit(entry) }.buttonStyle(.ffSecondary)
                 if sold {
-                    Button("Restore") { actions.restore(entry) }.buttonStyle(.ffSecondary)
+                    Button(app.restoringItemId == entry.id ? "Restoring…" : "Restore") { actions.restore(entry) }
+                        .buttonStyle(.ffSecondary)
+                        .disabled(app.isSaving)
                 } else {
                     Button("Sold") { actions.markSold(entry) }.buttonStyle(.ffSecondary)
                 }
@@ -140,7 +142,7 @@ struct InlineCell: View {
             } label: {
                 shown
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.ffPress)
             .accessibilityLabel("Edit \(label): \(display ?? value)")
             .alert("Edit \(label)", isPresented: $editing) {
                 TextField(label, text: $draft)

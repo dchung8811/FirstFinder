@@ -112,7 +112,7 @@ struct IdentifyReviewPage: View {
                             Button {
                                 draft.photos.removeAll { $0.path == photo.path }
                             } label: {
-                                Image(systemName: "xmark").font(.caption2).padding(5).background(Theme.chip, in: Circle())
+                                Image(systemName: "xmark").font(.caption2).foregroundStyle(Theme.green).padding(5).background(Theme.chip, in: Circle())
                             }
                             .offset(x: 6, y: -6)
                             .accessibilityLabel("Remove this photo")
@@ -254,8 +254,9 @@ struct IdentifyReviewPage: View {
                         var form = draft.form
                         form.itemPhotos = draft.photos
                         onSaved(form) {}
-                    } label: { Label("Add to my collection", systemImage: "square.and.arrow.down") }
+                    } label: { Label(app.isSaving ? "Saving…" : "Add to my collection", systemImage: "square.and.arrow.down") }
                         .buttonStyle(.ffPrimary)
+                        .disabled(app.isSaving)
                 }
             }
         }
@@ -300,6 +301,7 @@ struct ValueRangeBlock: View {
                     }
                 }
                 .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.green)
                 .foregroundStyle(Theme.green)
                 .underline()
                 if let caveat { Text(caveat).font(.subheadline).foregroundStyle(Theme.brown) }

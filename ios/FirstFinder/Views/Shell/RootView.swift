@@ -18,6 +18,13 @@ struct RootView: View {
             ToastStack().padding(.bottom, 56)
         }
         .tint(Theme.green)
+        .buttonStyle(.ffPress)
+        // A light tap when a save, add, delete or the like sets off, wherever it
+        // was asked for: delete is confirmed in a system alert, which a button
+        // style never sees. Not on every button, or it stops meaning anything.
+        .sensoryFeedback(.impact(weight: .light), trigger: app.isSaving) { wasSaving, isSaving in
+            isSaving && !wasSaving
+        }
         // A reset link signs in first, then asks for the new password.
         .sheet(isPresented: Binding(get: { app.choosingNewPassword }, set: { app.choosingNewPassword = $0 })) {
             NavigationStack { ResetPasswordPage().solidNavigationBar() }
@@ -191,6 +198,6 @@ struct NavRow: View {
             .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ffPress)
     }
 }
