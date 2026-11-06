@@ -6,7 +6,7 @@ import { isPrivateView, pathForView, viewTitle } from "../src/utils/appNav";
 // there is nothing on them for a stranger, and a search result that opens on
 // a login form is a bad first impression.
 
-const INDEXED = new Set(["about", "roadmap", "features", "contribute", "privacy", "terms"]);
+const INDEXED = new Set(["about", "roadmap", "features", "contribute", "privacy", "terms", "support"]);
 
 export function viewMetadata(view) {
   const metadata = {

@@ -5,7 +5,7 @@ import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../src/lib/supabaseClient";
 import SiteNav from "./SiteNav";
-import { appNavItems, documentTitle, landingView, pathForView, viewForPath } from "../src/utils/appNav";
+import { appNavItems, documentTitle, landingView, pathForView, viewForPath, viewTitle } from "../src/utils/appNav";
 import { forgetAccountOnDevice } from "../src/lib/forgetAccountOnDevice";
 import {
   REPO_URL,
@@ -3207,6 +3207,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
       {activeView === "contribute" && <ContributePage onGoToFeedback={() => setActiveView(isLoggedIn ? "feedback" : "login")} />}
       {activeView === "terms" && <TermsPage onViewPrivacy={() => setActiveView("privacy")} />}
       {activeView === "privacy" && <PrivacyPage onViewTerms={() => setActiveView("terms")} />}
+      {activeView === "support" && <SupportPage onNavigate={setActiveView} isLoggedIn={isLoggedIn} />}
       {/* One page, two doors: "Get Started" is someone new, so it opens on
           the sign-up form; the header's "Log in" opens on log-in. Keyed on
           the view so going from one door to the other resets the form. */}
@@ -4461,6 +4462,107 @@ const privacySections = [
     ]
   }
 ];
+
+// Support: where to go with a question or a problem. Its address is the
+// Support URL on the App Store listing, so it has to answer someone who has
+// never signed in -- every answer below works without an account, or says
+// where in the app or on the site to find it. Facts only: if a route here
+// moves (account deletion, the feedback form), this page moves with it.
+const supportEmail = "thebookbarterer@gmail.com";
+
+function SupportPage({ onNavigate, isLoggedIn }) {
+  const link = "underline decoration-[#cdbb9d] underline-offset-4 transition hover:text-[#123f38]";
+  const go = (view) => (
+    <button type="button" onClick={() => onNavigate(view)} className={link}>
+      {viewTitle(view)}
+    </button>
+  );
+  const topics = [
+    {
+      id: "support-contact",
+      heading: "Write to us",
+      body: (
+        <>
+          Questions, problems, and anything about your data go to{" "}
+          <a href={`mailto:${supportEmail}`} className={link}>{supportEmail}</a>. FirstFinder is run by one
+          person in their spare time, so a reply can take a few days.
+        </>
+      )
+    },
+    {
+      id: "support-bugs",
+      heading: "Report a bug or ask for a feature",
+      body: (
+        <>
+          Signed in, use {isLoggedIn ? go("feedback") : "Feedback"} on the website or More → Feedback in the
+          iPhone app. Each report is filed as a public issue on GitHub, with obvious personal details masked —
+          so leave out anything you wouldn't want published.
+        </>
+      )
+    },
+    {
+      id: "support-password",
+      heading: "Forgotten password",
+      body: (
+        <>
+          On {go("login")}, choose &ldquo;Forgot your password?&rdquo; and we&rsquo;ll email you a link to set a new
+          one. On the iPhone, the link opens the app.
+        </>
+      )
+    },
+    {
+      id: "support-delete",
+      heading: "Deleting your account",
+      body: (
+        <>
+          On the website, My Account → Delete my account; in the iPhone app, More → My Account → Delete my
+          account. It erases your records and your photos for good, and can&rsquo;t be undone.
+        </>
+      )
+    },
+    {
+      id: "support-ai",
+      heading: "Photo identification limits",
+      body: (
+        <>
+          Identifying a book from a photo is limited to a few a day per account, because each one is a paid call
+          to an AI service. The count resets at midnight UTC. Typing an item in yourself is never limited.
+        </>
+      )
+    },
+    {
+      id: "support-privacy",
+      heading: "Privacy",
+      body: (
+        <>
+          What we collect and who else sees it is in the {go("privacy")}; the rules for using FirstFinder are in
+          the {go("terms")}.
+        </>
+      )
+    }
+  ];
+
+  return (
+    <section className="mx-auto max-w-3xl px-6 py-16 md:py-20">
+      <div className="font-ledger inline-flex items-center gap-2 rounded-full border border-[#d9c9b0] bg-[#fff8ee] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#655644]">
+        Support
+      </div>
+      <h1 className="font-display mt-5 text-4xl font-semibold tracking-tight md:text-5xl">Getting help.</h1>
+      <p className="mt-5 leading-8 text-[#665746]">
+        For the FirstFinder website and iPhone app. The quickest answers are below; for anything else, write to us.
+      </p>
+
+      <div className="mt-12 space-y-10">
+        {topics.map((topic) => (
+          <div key={topic.id} id={topic.id} className="scroll-mt-8">
+            <h2 className="font-display text-2xl font-semibold tracking-tight">{topic.heading}</h2>
+            <p className="mt-3 leading-8 text-[#665746]">{topic.body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function PrivacyPage({ onViewTerms }) {
   return (
@@ -8107,6 +8209,7 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
             {/* The Features page's only way in. Public, like Roadmap. */}
             <FooterLink onClick={() => onNavigate("features")}>Features</FooterLink>
             <FooterLink onClick={() => onNavigate("roadmap")}>Roadmap</FooterLink>
+            <FooterLink onClick={() => onNavigate("support")}>Help</FooterLink>
             {isLoggedIn
               ? <FooterLink onClick={() => onNavigate("feedback")}>Contact Support</FooterLink>
               : <FooterLink href="mailto:thebookbarterer@gmail.com">Contact Support</FooterLink>}
