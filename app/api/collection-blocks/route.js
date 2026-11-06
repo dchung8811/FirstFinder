@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../src/lib/supabaseAdmin";
 import { requireUser } from "../../../src/lib/requireUser";
-import { BLOCK_REASON, buildBlockList, isUuid } from "../../../src/utils/contentReports";
+import { BLOCK_REASON, buildBlockList, isUuid, shouldFileBlockReport } from "../../../src/utils/contentReports";
 import { isValidShareSlug } from "../../../src/utils/publicCollection";
 
 // A collector's blocks. A block is stored against the owner, so it survives the
@@ -41,6 +41,42 @@ async function listBlocks(supabaseAdmin, userId) {
   if (sharesError) throw sharesError;
 
   return buildBlockList(blocks, shares);
+}
+
+// Blocking tells the maintainer too, as App Review expects. Unblocking deletes
+// the block, so without these checks blocking and unblocking in a loop would file
+// a report each time and push other people's reports out of the queue.
+//
+// Never throws: the block itself worked, and it's what the collector asked for.
+async function fileBlockReport(supabaseAdmin, userId, share) {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [today, open] = await Promise.all([
+    supabaseAdmin
+      .from("content_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("reporter_id", userId)
+      .gte("created_at", since),
+    supabaseAdmin
+      .from("content_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("reporter_id", userId)
+      .eq("owner_id", share.user_id)
+      .eq("reason", BLOCK_REASON)
+      .eq("status", "open")
+  ]);
+  if (today.error || open.error) {
+    console.error("Block report check error:", (today.error || open.error).message);
+    return;
+  }
+  if (!shouldFileBlockReport({ reportsToday: today.count, openBlockReports: open.count })) return;
+
+  const { error } = await supabaseAdmin.from("content_reports").insert({
+    owner_id: share.user_id,
+    reporter_id: userId,
+    slug: share.slug,
+    reason: BLOCK_REASON
+  });
+  if (error) console.error("Block report error:", error.message);
 }
 
 export async function GET(request) {
@@ -90,18 +126,7 @@ export async function POST(request) {
         .select("id");
       if (blockError) throw blockError;
 
-      // Blocking tells the maintainer too, as App Review expects, once per block
-      // so that blocking and unblocking can't flood the queue.
-      if (created?.length) {
-        const { error: reportError } = await supabaseAdmin.from("content_reports").insert({
-          owner_id: share.user_id,
-          reporter_id: userId,
-          slug: share.slug,
-          reason: BLOCK_REASON
-        });
-        // The block itself worked, and it's what the collector asked for.
-        if (reportError) console.error("Block report error:", reportError.message);
-      }
+      if (created?.length) await fileBlockReport(supabaseAdmin, userId, share);
     } else {
       return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     }

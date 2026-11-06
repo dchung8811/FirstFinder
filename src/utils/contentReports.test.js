@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { AUTO_HIDE_REPORTERS, buildBlockList, groupReportsByOwner, isUuid, shouldAutoHide, validateReport } from "./contentReports";
+import { AUTO_HIDE_REPORTERS, REPORT_DAILY_LIMIT, buildBlockList, groupReportsByOwner, isUuid, shouldAutoHide, shouldFileBlockReport, validateReport } from "./contentReports";
 import { generateShareSlug } from "./publicCollection";
 
 const slug = generateShareSlug();
@@ -60,6 +60,25 @@ describe("shouldAutoHide", () => {
   it("doesn't count blocks or reporters whose accounts are gone", () => {
     expect(shouldAutoHide(reports(["a", "b", "c"], "blocked"))).toBe(false);
     expect(shouldAutoHide(reports([null, null, null]))).toBe(false);
+  });
+});
+
+describe("shouldFileBlockReport", () => {
+  it("files the first block of a page", () => {
+    expect(shouldFileBlockReport({ reportsToday: 0, openBlockReports: 0 })).toBe(true);
+  });
+
+  it("doesn't file again while this person's last one is still open, however often they re-block", () => {
+    expect(shouldFileBlockReport({ reportsToday: 1, openBlockReports: 1 })).toBe(false);
+  });
+
+  it("stops at the daily limit, so re-blocking after a dismissal can't fill the queue", () => {
+    expect(shouldFileBlockReport({ reportsToday: REPORT_DAILY_LIMIT - 1, openBlockReports: 0 })).toBe(true);
+    expect(shouldFileBlockReport({ reportsToday: REPORT_DAILY_LIMIT, openBlockReports: 0 })).toBe(false);
+  });
+
+  it("treats a missing count as none", () => {
+    expect(shouldFileBlockReport({ reportsToday: null, openBlockReports: null })).toBe(true);
   });
 });
 

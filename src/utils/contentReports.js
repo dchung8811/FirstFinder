@@ -57,6 +57,12 @@ export function shouldAutoHide(reports) {
   return reporters.size >= AUTO_HIDE_REPORTERS;
 }
 
+// One open report per person per page, and blocks share the daily limit with
+// reports, so a person can't fill the queue by blocking and unblocking.
+export function shouldFileBlockReport({ reportsToday, openBlockReports }) {
+  return (openBlockReports || 0) === 0 && (reportsToday || 0) < REPORT_DAILY_LIMIT;
+}
+
 // What a blocker sees, and what the app hides for them. A slug is only returned
 // if it is public anyway or the one they already had. Someone who resets an
 // unlisted link is usually cutting a person off, and handing that person the new
