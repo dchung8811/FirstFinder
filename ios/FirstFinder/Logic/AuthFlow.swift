@@ -29,6 +29,54 @@ enum AuthFlow {
         return age >= -60 && age <= linkLifetime
     }
 
+    // The sign-in card's steps, as on the web: the email first, then log in
+    // or create an account, with a reset link one tap from the password.
+    //
+    // Nothing looks the email up to choose between .password and .create.
+    // That lookup would tell anyone whether an address has a FirstFinder
+    // account, so the email always leads to .password, which offers account
+    // creation in plain view, and the collector -- who knows -- picks.
+    enum Step: Equatable { case email, password, create, forgot }
+
+    // Only the shape is checked here. Whether an account exists is
+    // deliberately never asked.
+    static func emailProblem(_ email: String) -> String? {
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "Enter your email address first." }
+        let parts = trimmed.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, parts[1].contains("."), !parts[1].hasPrefix("."), !parts[1].hasSuffix("."),
+              !trimmed.contains(where: \.isWhitespace)
+        else { return "Enter a full email address, like name@example.com." }
+        return nil
+    }
+
+    // Google and Apple sit on the first step only: they need no email, and
+    // the later steps are about the one already typed. iOS has no way to
+    // carry the email-updates box through them, so they don't sit beside it.
+    static func showsSocialButtons(_ step: Step) -> Bool { step == .email }
+
+    // Back from a reset goes to the password if there's an email to use it with.
+    static func stepBackFromReset(email: String) -> Step {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .email : .password
+    }
+
+    // Every sign-up outcome that isn't a live session continues at the
+    // password: a confirmed account logs in there, and so does an email that
+    // turned out to have one already.
+    static func stepAfterSignUp(_ outcome: SignUpOutcome) -> Step? {
+        switch outcome {
+        case .signedIn: nil
+        case .confirmEmail, .alreadyRegistered: .password
+        }
+    }
+
+    // LiveStore's words for a wrong password or an unknown email -- Supabase
+    // can't tell the two apart, on purpose -- so the card can offer the
+    // create-account step beside it.
+    static let wrongPasswordMessage = "That email and password don't match an account."
+
+    static let alreadyRegisteredMessage = "You already have an account with this email. Enter your password to log in."
+
     // The web's checks and words, before anything is sent.
     static func passwordProblem(_ password: String, confirm: String) -> String? {
         if password.count < 8 { return "Password must be at least 8 characters." }

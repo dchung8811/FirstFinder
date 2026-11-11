@@ -489,7 +489,7 @@ final class LiveStore: CollectionStore, @unchecked Sendable {
         if case .offline = translate(error) { return "You're offline. Connect to sign in." }
         let text = error.localizedDescription
         if text.localizedCaseInsensitiveContains("invalid login credentials") {
-            return "That email and password don't match an account."
+            return AuthFlow.wrongPasswordMessage
         }
         if text.localizedCaseInsensitiveContains("email not confirmed") {
             return "Confirm your email first. The link is in your inbox."
