@@ -124,6 +124,7 @@ import {
 import { buildCsvTemplate, buildCsvExport, parseCsvBatch } from "../src/utils/csv";
 import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters, recentFinds } from "../src/utils/dashboard";
 import { emailUpdatesMetadata, isSubscribedToEmailUpdates } from "../src/utils/emailUpdates";
+import { readLookupAnswer } from "../src/utils/emailLookup";
 import { setPendingEmailUpdates, takePendingEmailUpdates } from "../src/lib/pendingEmailUpdates";
 import { isOAuthProviderReady } from "../src/lib/oauthReadiness";
 import { bannerDestination, bannerDismissalId, fromDbBanner, shouldShowBanner } from "../src/utils/siteBanner";
@@ -3242,13 +3243,12 @@ export default function FirstFinderApp({ initialView = "home" }) {
       {activeView === "terms" && <TermsPage onViewPrivacy={() => setActiveView("privacy")} />}
       {activeView === "privacy" && <PrivacyPage onViewTerms={() => setActiveView("terms")} />}
       {activeView === "support" && <SupportPage onNavigate={setActiveView} isLoggedIn={isLoggedIn} />}
-      {/* One page, two doors: "Get Started" is someone new, so it opens on
-          the sign-up form; the header's "Log in" opens on log-in. Keyed on
-          the view so going from one door to the other resets the form. */}
+      {/* "Get Started" and the header's "Log in" both open the same
+          email-first card, which asks only for an email before it branches.
+          Keyed on the view so going from one door to the other starts it over. */}
       {(activeView === "login" || activeView === "signup") && (
         <LoginPage
           key={activeView}
-          initialMode={activeView === "signup" ? "signup" : "signin"}
           onViewTerms={() => setActiveView("terms")}
           onViewPrivacy={() => setActiveView("privacy")}
         />
@@ -5285,46 +5285,55 @@ function HomePage({ onGetStarted }) {
   );
 }
 
-const authModeCopy = {
-  signin: {
-    heading: "Log in to your collection.",
-    // A function because Apple only appears once its web sign-in is set up;
-    // see src/lib/oauthReadiness.js.
-    sub: (providers) => `Use your email and password, or continue with ${providers}, to get back to your collection.`,
-    formTitle: "Log in",
-    formSub: "Enter the email and password you signed up with.",
+// One card for everyone, email first, after byob-book-club's sign-in. The
+// email is looked up (/api/email-lookup; the trade-off is in
+// src/utils/emailLookup.js) and the card goes on to the password, to creating
+// an account, or to the Google or Apple button the account was made with.
+// When the lookup can't tell, it asks for a password and offers both next steps.
+const providerLabels = { google: "Google", apple: "Apple" };
+
+const authStepCopy = {
+  email: {
+    title: "Log in or sign up",
+    sub: "Enter your email to get back to your collection, or to start a free one.",
+    submit: "Continue",
+    submitting: "Continuing..."
+  },
+  password: {
+    title: "Welcome back",
+    sub: "Enter your password to get back to your collection.",
     submit: "Log in",
     submitting: "Logging in..."
   },
-  signup: {
-    heading: "Start your collection.",
-    sub: "Create a free account to track item photos, receipts, what you paid, and what it's worth now.",
-    formTitle: "Create your account",
-    formSub: "Sign up with your email and a password of at least 8 characters.",
+  create: {
+    title: "Create your account",
+    sub: "Choose a password of at least 8 characters. Then track item photos, receipts, what you paid, and what it's worth now.",
     submit: "Create account",
     submitting: "Creating account..."
   },
   forgot: {
-    heading: "Reset your password.",
+    title: "Reset your password",
     sub: "Enter your account email and we'll send you a link to choose a new password.",
-    formTitle: "Forgot your password?",
-    formSub: "We'll email you a secure link to reset it.",
     submit: "Send reset link",
     submitting: "Sending..."
   }
 };
 
 // A message can carry one next step as a button -- "create an account",
-// "log in instead" -- for the errors where the likely fix is the other form.
+// "reset it", "continue with Google" -- where the likely fix is elsewhere.
+// An action names either a step or a sign-in provider.
 function AuthMessage({ message, onAction }) {
   if (!message) return null;
   return (
-    <div className={`mt-5 rounded-2xl p-4 text-sm leading-6 ${message.type === "error" ? "bg-[#fbe9e2] text-[#8a3b22]" : "bg-[#edf4f2] text-[#123f38]"}`}>
+    <div
+      role={message.type === "error" ? "alert" : "status"}
+      className={`mt-5 rounded-2xl p-4 text-sm leading-6 ${message.type === "error" ? "bg-[#fbe9e2] text-[#8a3b22]" : "bg-[#edf4f2] text-[#123f38]"}`}
+    >
       {message.text}
       {message.action && (
         <button
           type="button"
-          onClick={() => onAction(message.action.mode)}
+          onClick={() => onAction(message.action)}
           className="mt-2 block font-semibold text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]"
         >
           {message.action.label} →
@@ -5334,29 +5343,27 @@ function AuthMessage({ message, onAction }) {
   );
 }
 
-// Log in and Create account as two tabs on one card, so someone new sees the
-// way in without hunting for a link under the form.
-function AuthModeTabs({ mode, onChange }) {
-  const tabs = [
-    { mode: "signin", label: "Log in" },
-    { mode: "signup", label: "Create account" }
-  ];
+// The sign-in fields need what the app-wide Field doesn't take: autocomplete
+// hints, so password managers fill the right box and offer to save a new
+// password, and focus on arrival at each step.
+function AuthField({ id, label, type, value, onChange, autoComplete, autoFocus = false, aside = null, hint = null }) {
   return (
-    <div role="tablist" aria-label="Log in or create an account" className="mb-6 grid grid-cols-2 gap-1 rounded-full border border-[#e0d2bc] bg-[#f3ece1] p-1">
-      {tabs.map((tab) => (
-        <button
-          key={tab.mode}
-          type="button"
-          role="tab"
-          aria-selected={mode === tab.mode}
-          onClick={() => onChange(tab.mode)}
-          className={`h-10 rounded-full text-sm font-semibold transition ${
-            mode === tab.mode ? "bg-[#123f38] text-[#fff7ea] shadow-sm" : "text-[#665746] hover:bg-[#fffdf8]"
-          }`}
-        >
-          {tab.label}
-        </button>
-      ))}
+    <div>
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <label htmlFor={id} className="text-sm font-medium text-[#665746]">{label}</label>
+        {aside}
+      </div>
+      <input
+        id={id}
+        type={type}
+        required
+        autoComplete={autoComplete}
+        autoFocus={autoFocus}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-2xl border border-[#d8c7ad] bg-[#fffdf8] px-4 py-3 outline-none transition focus:border-[#123f38] focus:ring-2 focus:ring-[#123f38]/15"
+      />
+      {hint && <p className="mt-2 text-xs text-[#7d6c5a]">{hint}</p>}
     </div>
   );
 }
@@ -5389,8 +5396,8 @@ function AuthLink({ children, onClick }) {
 // sign-up submit and the Google and Apple buttons, each of which signs up and
 // signs in through the same click. One notice sits at the foot of the card rather than one per
 // button, so sign-up doesn't stack the same sentence twice. Deliberately absent
-// from the forgot-password form, where no account is being created and no
-// social buttons are shown.
+// from the password and forgot-password steps, where no account is being
+// created and no social buttons are shown.
 function AuthTermsNotice({ onViewTerms, onViewPrivacy, action }) {
   return (
     <p className="mt-4 text-xs leading-5 text-[#7d6c5a]">
@@ -5408,14 +5415,19 @@ function AuthTermsNotice({ onViewTerms, onViewPrivacy, action }) {
   );
 }
 
-function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
-  const [mode, setMode] = useState(initialMode);
+function LoginPage({ onViewTerms, onViewPrivacy }) {
+  // "email" -> "password" (log in) or "create" (new account); "forgot" sends a
+  // reset link. Every step after the first keeps the email it was given.
+  const [step, setStep] = useState("email");
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "" });
   // Unticked by default, and never pre-ticked: consent to marketing email has
   // to be an action the collector takes, not one they forget to undo.
   const [emailUpdates, setEmailUpdates] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  // What the lookup said about the email: "new", "password", "social" or
+  // "unknown". Null until it has been asked, and again after Change.
+  const [lookup, setLookup] = useState(null);
   // Which provider the browser is on its way to. Left set on success, since the
   // page is about to be replaced by the provider's.
   const [oauthProvider, setOauthProvider] = useState(null);
@@ -5431,7 +5443,11 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
-  const copy = authModeCopy[mode];
+  // The lookup couldn't tell, so the password step can't say "Welcome back".
+  const copy = step === "password" && lookup !== "password"
+    ? { ...authStepCopy.password, title: "Enter your password", sub: "Log in with the password you chose for this email." }
+    : authStepCopy[step];
+  const email = form.email.trim();
 
   // Hidden until Supabase confirms the web redirect works, so the button never
   // leads to a raw error page. Every sentence that names the sign-in options
@@ -5470,12 +5486,11 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
-  // Keeps the email across the switch -- the point of offering it after an
-  // error is not making someone type it again -- but drops the passwords,
-  // which belong to one form or the other.
-  function switchMode(nextMode) {
-    if (nextMode === mode) return;
-    setMode(nextMode);
+  // Keeps the email -- the point of offering another step after an error is
+  // not making someone type it again -- but drops the passwords, which belong
+  // to one step or the other.
+  function goTo(nextStep) {
+    setStep(nextStep);
     setMessage(null);
     setForm((current) => ({ ...current, password: "", confirmPassword: "" }));
   }
@@ -5485,9 +5500,10 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
   async function handleOAuthLogin(provider, label) {
     setOauthProvider(provider);
     trackEvent(`${provider}_login_clicked`, { source_page: "login" });
-    // The box is only on the sign-up form, so only a click from there carries
-    // it. Anything else clears a flag a cancelled earlier attempt left behind.
-    setPendingEmailUpdates(mode === "signup" && emailUpdates);
+    // The box is only on the create-account step, so only a click from there
+    // carries it. Anything else clears a flag a cancelled earlier attempt left
+    // behind.
+    setPendingEmailUpdates(step === "create" && emailUpdates);
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
@@ -5508,13 +5524,66 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     }
   }
 
+  function changeEmail() {
+    setLookup(null);
+    goTo("email");
+  }
+
+  function handleMessageAction(action) {
+    if (action.provider) handleOAuthLogin(action.provider, providerLabels[action.provider]);
+    else goTo(action.step);
+  }
+
+  // The browser has already checked the address's shape (the field is
+  // type="email" and required). Any failure reads as "unknown", which leads
+  // to the password step with both next steps on offer.
+  async function handleContinue(event) {
+    event.preventDefault();
+    setMessage(null);
+    setLoading(true);
+
+    let result = { status: "unknown" };
+    try {
+      const response = await fetch("/api/email-lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      if (response.ok) result = readLookupAnswer(await response.json());
+    } catch (error) {
+      console.error("Email lookup error:", error.message);
+    }
+
+    setLoading(false);
+    setLookup(result.status);
+    trackEvent("login_email_continued", { lookup: result.status });
+
+    if (result.status === "new") {
+      goTo("create");
+      return;
+    }
+    if (result.status === "social") {
+      // Apple's button only shows once its web sign-in works; until then an
+      // Apple-only account is pointed at the phone app, where it does.
+      const offered = result.providers.filter((provider) => provider !== "apple" || appleReady);
+      const names = result.providers.map((provider) => providerLabels[provider]).join(" or ");
+      setMessage(
+        offered.length > 0
+          ? { type: "success", text: `${email} signs in with ${names}.`, action: { provider: offered[0], label: `Continue with ${providerLabels[offered[0]]}` } }
+          : { type: "success", text: `${email} signs in with ${names}. Use the FirstFinder app on an iPhone to sign in.` }
+      );
+      return;
+    }
+    goTo("password");
+  }
+
   async function handleSignIn(event) {
     event.preventDefault();
     setMessage(null);
     setLoading(true);
 
     const { error } = await supabase.auth.signInWithPassword({
-      email: form.email.trim(),
+      email,
       password: form.password
     });
 
@@ -5522,15 +5591,23 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
 
     if (error) {
       // Supabase answers a wrong password and an unknown email with the same
-      // error, on purpose: telling them apart would let anyone check whether
-      // an address has a FirstFinder account. So this can't know which one
-      // happened -- it offers sign-up as a next step and leaves the call to
-      // the collector, who does know.
+      // error, on purpose. The lookup on the first step already said which
+      // this is when it could (src/utils/emailLookup.js has why the card asks
+      // at all); when it couldn't, this offers sign-up as a next step and
+      // leaves the call to the collector, who does know.
+      if (/invalid login credentials/i.test(error.message) && lookup === "password") {
+        setMessage({
+          type: "error",
+          text: "That password isn't right.",
+          action: { label: "Forgot your password? Reset it", step: "forgot" }
+        });
+        return;
+      }
       if (/invalid login credentials/i.test(error.message)) {
         setMessage({
           type: "error",
           text: "Incorrect email or password. If you just signed up, confirm your email first.",
-          action: { label: "New to FirstFinder? Create an account with this email", mode: "signup" }
+          action: { label: "New to FirstFinder? Create an account with this email", step: "create" }
         });
         return;
       }
@@ -5558,7 +5635,7 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     setLoading(true);
 
     const { data, error } = await supabase.auth.signUp({
-      email: form.email.trim(),
+      email,
       password: form.password,
       options: {
         emailRedirectTo: window.location.origin,
@@ -5579,19 +5656,18 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
 
     // Supabase returns a user with no identities when the email is already registered.
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      setMessage({
-        type: "error",
-        text: "An account with this email already exists.",
-        action: { label: "Log in instead", mode: "signin" }
-      });
+      setLookup("password");
+      goTo("password");
+      setMessage({ type: "success", text: "You already have an account with this email. Enter your password to log in." });
       return;
     }
 
     // With email confirmation disabled Supabase returns a live session and the
     // auth listener takes over; otherwise the user needs to confirm first.
     if (!data.session) {
-      setMessage({ type: "success", text: `Almost there — we sent a confirmation link to ${form.email.trim()}. Open it to activate your account, then log in here.` });
-      setMode("signin");
+      setLookup("password");
+      goTo("password");
+      setMessage({ type: "success", text: `Almost there — we sent a confirmation link to ${email}. Open it to activate your account, then log in here.` });
     }
   }
 
@@ -5599,7 +5675,6 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     event.preventDefault();
     setMessage(null);
 
-    const email = form.email.trim();
     if (!email) {
       setMessage({ type: "error", text: "Enter your email address first." });
       return;
@@ -5622,35 +5697,79 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
     setMessage({ type: "success", text: `If an account exists for ${email}, a reset link is on its way. Open it to choose a new password.` });
   }
 
-  const submitHandler = mode === "signup" ? handleSignUp : mode === "forgot" ? handleForgotPassword : handleSignIn;
+  const submitHandler = { email: handleContinue, password: handleSignIn, create: handleSignUp, forgot: handleForgotPassword }[step];
+  // The email is settled on these steps, so it shows as a line with a way
+  // back rather than as a field to edit mid-password.
+  const emailSettled = step === "password" || step === "create";
+  // Social buttons appear where an account can start: the first step, and
+  // creating one, where the email-updates box above them covers them too.
+  const showSocial = step === "email" || step === "create";
 
   return (
-    <section className="mx-auto grid max-w-6xl gap-8 px-6 py-12 md:grid-cols-[0.9fr_1.1fr] md:items-start">
-      <div>
-        <h1 className="text-5xl font-semibold tracking-tight">{copy.heading}</h1>
-        <p className="mt-5 max-w-xl text-lg leading-8 text-[#665746]">{typeof copy.sub === "function" ? copy.sub(socialProviders) : copy.sub}</p>
-      </div>
+    <section className="mx-auto flex max-w-6xl justify-center px-4 py-10 sm:px-6 sm:py-14">
+      <Card className="w-full max-w-md rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
+        <CardContent className="p-6 sm:p-8">
+          <h1 className="text-3xl font-semibold tracking-tight">{copy.title}</h1>
+          <p className="mt-3 leading-7 text-[#665746]">{copy.sub}</p>
+          <AuthMessage message={message} onAction={handleMessageAction} />
 
-      <Card className="rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
-        <CardContent className="p-7">
-          {mode !== "forgot" && <AuthModeTabs mode={mode} onChange={switchMode} />}
-          <form onSubmit={submitHandler}>
-            <h2 className="text-2xl font-semibold">{copy.formTitle}</h2>
-            <p className="mt-3 leading-7 text-[#665746]">{copy.formSub}</p>
-            <AuthMessage message={message} onAction={switchMode} />
-            <div className="mt-6 grid gap-4">
-              <Field label="Email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
-              {mode !== "forgot" && (
-                <Field label="Password" type="password" value={form.password} onChange={(value) => setForm({ ...form, password: value })} />
-              )}
-              {mode === "signup" && (
-                <Field label="Confirm password" type="password" value={form.confirmPassword} onChange={(value) => setForm({ ...form, confirmPassword: value })} />
-              )}
-              {/* Covers the Google and Apple buttons below as well as this
-                  form: the choice rides through their redirect in browser
-                  storage (src/lib/pendingEmailUpdates.js). Everyone can change
-                  it later in My account. */}
-              {mode === "signup" && (
+          <form onSubmit={submitHandler} className="mt-6 grid gap-4">
+            {emailSettled ? (
+              <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-[#e0d2bc] bg-[#f3ece1] px-4 py-3">
+                <span className="min-w-0 truncate font-semibold text-[#123f38]">{email}</span>
+                <AuthLink onClick={changeEmail}>Change</AuthLink>
+                {/* Lets password managers pair the password with this email. */}
+                <input type="email" name="email" autoComplete="username" value={email} readOnly hidden />
+              </div>
+            ) : (
+              <AuthField
+                id="auth-email"
+                label="Email"
+                type="email"
+                autoComplete="email"
+                autoFocus={step === "email"}
+                value={form.email}
+                onChange={(value) => setForm((current) => ({ ...current, email: value }))}
+              />
+            )}
+
+            {step === "password" && (
+              <AuthField
+                id="auth-password"
+                label="Password"
+                type="password"
+                autoComplete="current-password"
+                autoFocus
+                value={form.password}
+                onChange={(password) => setForm((current) => ({ ...current, password }))}
+                aside={<span className="text-sm"><AuthLink onClick={() => goTo("forgot")}>Forgot your password?</AuthLink></span>}
+              />
+            )}
+
+            {step === "create" && (
+              <>
+                <AuthField
+                  id="auth-new-password"
+                  label="Password"
+                  type="password"
+                  autoComplete="new-password"
+                  autoFocus
+                  hint="At least 8 characters."
+                  value={form.password}
+                  onChange={(password) => setForm((current) => ({ ...current, password }))}
+                />
+                <AuthField
+                  id="auth-confirm-password"
+                  label="Confirm password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.confirmPassword}
+                  onChange={(confirmPassword) => setForm((current) => ({ ...current, confirmPassword }))}
+                />
+                {/* Covers the Google and Apple buttons below as well as this
+                    form: the choice rides through their redirect in browser
+                    storage (src/lib/pendingEmailUpdates.js). Everyone can change
+                    it later in My account. */}
                 <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-[#665746]">
                   <input
                     type="checkbox"
@@ -5660,18 +5779,33 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
                   />
                   <span>Email me now and then about new FirstFinder features. Optional, and you can turn it off anytime in My account.</span>
                 </label>
-              )}
-            </div>
-            <Button type="submit" disabled={loading} className="mt-6 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+              </>
+            )}
+
+            <Button type="submit" disabled={loading} className="mt-2 h-12 w-full rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
               {loading ? copy.submitting : copy.submit}
             </Button>
           </form>
 
-          {/* The social routes sit under the email module as always-visible
-              alternatives rather than behind a tab -- one click, no choice to
-              make first. Hidden only while resetting a password, where OAuth
-              does nothing for someone who came here for a reset link. */}
-          {mode !== "forgot" && (
+          {/* Each says how to reach the other unless the lookup has already
+              settled it. */}
+          {step === "password" && lookup !== "password" && (
+            <p className="mt-5 text-sm text-[#665746]">
+              New to FirstFinder? <AuthLink onClick={() => goTo("create")}>Create an account</AuthLink>
+            </p>
+          )}
+          {step === "create" && lookup !== "new" && (
+            <p className="mt-5 text-sm text-[#665746]">
+              Already have an account? <AuthLink onClick={() => goTo("password")}>Log in</AuthLink>
+            </p>
+          )}
+          {step === "forgot" && (
+            <p className="mt-5 text-sm text-[#665746]">
+              Remembered it? <AuthLink onClick={() => goTo(email ? "password" : "email")}>Back to log in</AuthLink>
+            </p>
+          )}
+
+          {showSocial && (
             <div className="mt-6">
               <div className="flex items-center gap-3 text-xs uppercase tracking-widest text-[#a4917a]">
                 <span className="h-px flex-1 bg-[#e6d8bf]" />
@@ -5691,20 +5825,11 @@ function LoginPage({ initialMode = "signin", onViewTerms, onViewPrivacy }) {
             </div>
           )}
 
-          <div className="mt-6 flex flex-col gap-2 text-sm text-[#665746]">
-            {mode === "signin" && (
-              <div><AuthLink onClick={() => switchMode("forgot")}>Forgot your password?</AuthLink></div>
-            )}
-            {mode === "forgot" && (
-              <div>Remembered it? <AuthLink onClick={() => switchMode("signin")}>Back to log in</AuthLink></div>
-            )}
-          </div>
-
-          {mode !== "forgot" && (
+          {showSocial && (
             <AuthTermsNotice
               onViewTerms={onViewTerms}
               onViewPrivacy={onViewPrivacy}
-              action={mode === "signup" ? `Creating an account, or continuing with ${socialProviders},` : `Continuing with ${socialProviders}`}
+              action={step === "create" ? `Creating an account, or continuing with ${socialProviders},` : `Continuing with ${socialProviders}`}
             />
           )}
         </CardContent>
