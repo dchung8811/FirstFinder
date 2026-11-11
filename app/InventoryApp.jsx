@@ -124,6 +124,7 @@ import {
 import { buildCsvTemplate, buildCsvExport, parseCsvBatch } from "../src/utils/csv";
 import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters, recentFinds } from "../src/utils/dashboard";
 import { emailUpdatesMetadata, isSubscribedToEmailUpdates } from "../src/utils/emailUpdates";
+import { readLookupAnswer } from "../src/utils/emailLookup";
 import { setPendingEmailUpdates, takePendingEmailUpdates } from "../src/lib/pendingEmailUpdates";
 import { isOAuthProviderReady } from "../src/lib/oauthReadiness";
 import { bannerDestination, bannerDismissalId, fromDbBanner, shouldShowBanner } from "../src/utils/siteBanner";
@@ -5284,12 +5285,13 @@ function HomePage({ onGetStarted }) {
   );
 }
 
-// One card for everyone, email first, after byob-book-club's sign-in. There is
-// deliberately no step that looks the email up to decide between "log in" and
-// "create account": that lookup would tell anyone whether an address has a
-// FirstFinder account (see handleSignIn). So the email always leads to the
-// password step, which offers account creation in plain sight, and the
-// collector -- who knows whether they have an account -- picks.
+// One card for everyone, email first, after byob-book-club's sign-in. The
+// email is looked up (/api/email-lookup; the trade-off is in
+// src/utils/emailLookup.js) and the card goes on to the password, to creating
+// an account, or to the Google or Apple button the account was made with.
+// When the lookup can't tell, it asks for a password and offers both next steps.
+const providerLabels = { google: "Google", apple: "Apple" };
+
 const authStepCopy = {
   email: {
     title: "Log in or sign up",
@@ -5298,8 +5300,8 @@ const authStepCopy = {
     submitting: "Continuing..."
   },
   password: {
-    title: "Enter your password",
-    sub: "Log in with the password you chose for this email.",
+    title: "Welcome back",
+    sub: "Enter your password to get back to your collection.",
     submit: "Log in",
     submitting: "Logging in..."
   },
@@ -5318,7 +5320,8 @@ const authStepCopy = {
 };
 
 // A message can carry one next step as a button -- "create an account",
-// "reset it" -- for the errors where the likely fix is a different step.
+// "reset it", "continue with Google" -- where the likely fix is elsewhere.
+// An action names either a step or a sign-in provider.
 function AuthMessage({ message, onAction }) {
   if (!message) return null;
   return (
@@ -5330,7 +5333,7 @@ function AuthMessage({ message, onAction }) {
       {message.action && (
         <button
           type="button"
-          onClick={() => onAction(message.action.step)}
+          onClick={() => onAction(message.action)}
           className="mt-2 block font-semibold text-[#123f38] underline underline-offset-4 hover:text-[#0f332d]"
         >
           {message.action.label} →
@@ -5422,6 +5425,9 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
   const [emailUpdates, setEmailUpdates] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  // What the lookup said about the email: "new", "password", "social" or
+  // "unknown". Null until it has been asked, and again after Change.
+  const [lookup, setLookup] = useState(null);
   // Which provider the browser is on its way to. Left set on success, since the
   // page is about to be replaced by the provider's.
   const [oauthProvider, setOauthProvider] = useState(null);
@@ -5437,7 +5443,10 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
-  const copy = authStepCopy[step];
+  // The lookup couldn't tell, so the password step can't say "Welcome back".
+  const copy = step === "password" && lookup !== "password"
+    ? { ...authStepCopy.password, title: "Enter your password", sub: "Log in with the password you chose for this email." }
+    : authStepCopy[step];
   const email = form.email.trim();
 
   // Hidden until Supabase confirms the web redirect works, so the button never
@@ -5515,10 +5524,56 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
     }
   }
 
-  // Nothing is sent here. The browser has already checked the address's shape
-  // (the field is type="email" and required).
-  function handleContinue(event) {
+  function changeEmail() {
+    setLookup(null);
+    goTo("email");
+  }
+
+  function handleMessageAction(action) {
+    if (action.provider) handleOAuthLogin(action.provider, providerLabels[action.provider]);
+    else goTo(action.step);
+  }
+
+  // The browser has already checked the address's shape (the field is
+  // type="email" and required). Any failure reads as "unknown", which leads
+  // to the password step with both next steps on offer.
+  async function handleContinue(event) {
     event.preventDefault();
+    setMessage(null);
+    setLoading(true);
+
+    let result = { status: "unknown" };
+    try {
+      const response = await fetch("/api/email-lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      if (response.ok) result = readLookupAnswer(await response.json());
+    } catch (error) {
+      console.error("Email lookup error:", error.message);
+    }
+
+    setLoading(false);
+    setLookup(result.status);
+    trackEvent("login_email_continued", { lookup: result.status });
+
+    if (result.status === "new") {
+      goTo("create");
+      return;
+    }
+    if (result.status === "social") {
+      // Apple's button only shows once its web sign-in works; until then an
+      // Apple-only account is pointed at the phone app, where it does.
+      const offered = result.providers.filter((provider) => provider !== "apple" || appleReady);
+      const names = result.providers.map((provider) => providerLabels[provider]).join(" or ");
+      setMessage(
+        offered.length > 0
+          ? { type: "success", text: `${email} signs in with ${names}.`, action: { provider: offered[0], label: `Continue with ${providerLabels[offered[0]]}` } }
+          : { type: "success", text: `${email} signs in with ${names}. Use the FirstFinder app on an iPhone to sign in.` }
+      );
+      return;
+    }
     goTo("password");
   }
 
@@ -5536,10 +5591,18 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
 
     if (error) {
       // Supabase answers a wrong password and an unknown email with the same
-      // error, on purpose: telling them apart would let anyone check whether
-      // an address has a FirstFinder account. So this can't know which one
-      // happened -- it offers sign-up as a next step and leaves the call to
-      // the collector, who does know.
+      // error, on purpose. The lookup on the first step already said which
+      // this is when it could (src/utils/emailLookup.js has why the card asks
+      // at all); when it couldn't, this offers sign-up as a next step and
+      // leaves the call to the collector, who does know.
+      if (/invalid login credentials/i.test(error.message) && lookup === "password") {
+        setMessage({
+          type: "error",
+          text: "That password isn't right.",
+          action: { label: "Forgot your password? Reset it", step: "forgot" }
+        });
+        return;
+      }
       if (/invalid login credentials/i.test(error.message)) {
         setMessage({
           type: "error",
@@ -5593,6 +5656,7 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
 
     // Supabase returns a user with no identities when the email is already registered.
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setLookup("password");
       goTo("password");
       setMessage({ type: "success", text: "You already have an account with this email. Enter your password to log in." });
       return;
@@ -5601,6 +5665,7 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
     // With email confirmation disabled Supabase returns a live session and the
     // auth listener takes over; otherwise the user needs to confirm first.
     if (!data.session) {
+      setLookup("password");
       goTo("password");
       setMessage({ type: "success", text: `Almost there — we sent a confirmation link to ${email}. Open it to activate your account, then log in here.` });
     }
@@ -5646,13 +5711,13 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
         <CardContent className="p-6 sm:p-8">
           <h1 className="text-3xl font-semibold tracking-tight">{copy.title}</h1>
           <p className="mt-3 leading-7 text-[#665746]">{copy.sub}</p>
-          <AuthMessage message={message} onAction={goTo} />
+          <AuthMessage message={message} onAction={handleMessageAction} />
 
           <form onSubmit={submitHandler} className="mt-6 grid gap-4">
             {emailSettled ? (
               <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-[#e0d2bc] bg-[#f3ece1] px-4 py-3">
                 <span className="min-w-0 truncate font-semibold text-[#123f38]">{email}</span>
-                <AuthLink onClick={() => goTo("email")}>Change</AuthLink>
+                <AuthLink onClick={changeEmail}>Change</AuthLink>
                 {/* Lets password managers pair the password with this email. */}
                 <input type="email" name="email" autoComplete="username" value={email} readOnly hidden />
               </div>
@@ -5722,14 +5787,14 @@ function LoginPage({ onViewTerms, onViewPrivacy }) {
             </Button>
           </form>
 
-          {/* No lookup decides between these two, so each says plainly how to
-              reach the other. */}
-          {step === "password" && (
+          {/* Each says how to reach the other unless the lookup has already
+              settled it. */}
+          {step === "password" && lookup !== "password" && (
             <p className="mt-5 text-sm text-[#665746]">
               New to FirstFinder? <AuthLink onClick={() => goTo("create")}>Create an account</AuthLink>
             </p>
           )}
-          {step === "create" && (
+          {step === "create" && lookup !== "new" && (
             <p className="mt-5 text-sm text-[#665746]">
               Already have an account? <AuthLink onClick={() => goTo("password")}>Log in</AuthLink>
             </p>
