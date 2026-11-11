@@ -39,6 +39,36 @@ final class AuthFlowTests: XCTestCase {
         XCTAssertNil(AuthFlow.passwordProblem("longenough", confirm: "longenough"))
     }
 
+    // Only the address's shape is checked before the password step.
+    func testTheEmailStepChecksOnlyTheShape() {
+        XCTAssertEqual(AuthFlow.emailProblem("   "), "Enter your email address first.")
+        XCTAssertEqual(AuthFlow.emailProblem("collector"), "Enter a full email address, like name@example.com.")
+        XCTAssertEqual(AuthFlow.emailProblem("collector@example"), "Enter a full email address, like name@example.com.")
+        XCTAssertEqual(AuthFlow.emailProblem("@example.com"), "Enter a full email address, like name@example.com.")
+        XCTAssertEqual(AuthFlow.emailProblem("a b@example.com"), "Enter a full email address, like name@example.com.")
+        XCTAssertNil(AuthFlow.emailProblem("  collector@example.com "))
+    }
+
+    func testGoogleAndAppleSitOnTheFirstStepOnly() {
+        XCTAssertTrue(AuthFlow.showsSocialButtons(.email))
+        XCTAssertFalse(AuthFlow.showsSocialButtons(.password))
+        XCTAssertFalse(AuthFlow.showsSocialButtons(.create))
+        XCTAssertFalse(AuthFlow.showsSocialButtons(.forgot))
+    }
+
+    func testBackFromAResetReturnsToThePasswordWhenThereIsAnEmail() {
+        XCTAssertEqual(AuthFlow.stepBackFromReset(email: "collector@example.com"), .password)
+        XCTAssertEqual(AuthFlow.stepBackFromReset(email: " "), .email)
+    }
+
+    // A pending confirmation and an existing account both continue at the
+    // password; a live session leaves the card.
+    func testSignUpOutcomesContinueAtThePassword() {
+        XCTAssertEqual(AuthFlow.stepAfterSignUp(.confirmEmail), .password)
+        XCTAssertEqual(AuthFlow.stepAfterSignUp(.alreadyRegistered), .password)
+        XCTAssertNil(AuthFlow.stepAfterSignUp(.signedIn(SampleData.profile)))
+    }
+
     func testTheAppleNonceHashIsSHA256Hex() {
         XCTAssertEqual(AppleNonce.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         XCTAssertEqual(AppleNonce.make().count, 32)

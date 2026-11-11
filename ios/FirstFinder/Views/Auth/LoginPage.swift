@@ -1,18 +1,18 @@
 import AuthenticationServices
 import SwiftUI
 
-// LoginPage from app/InventoryApp.jsx: one page with three modes (log in,
-// create account, forgot password), the same copy as authModeCopy on the web.
+// LoginPage from app/InventoryApp.jsx: one card, email first, then log in or
+// create an account, with a reset link one tap from the password. The steps
+// and their rules live in AuthFlow.Step; the copy matches authStepCopy on the
+// web.
 //
 // Email, Google, sign-up and the reset email all work as they do on the web.
 // The confirmation and reset links come back to the app (AuthFlow), so a
 // collector who opens them on this phone lands signed in. Sign in with Apple
 // waits on its switch in Base.xcconfig; see AppConfig.appleSignInEnabled.
 struct LoginPage: View {
-    enum Mode: String { case signin, signup, forgot }
-
-    @State var mode: Mode = .signin
     @Environment(AppModel.self) private var app
+    @State private var step: AuthFlow.Step = .email
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
@@ -23,118 +23,164 @@ struct LoginPage: View {
     var onViewPrivacy: () -> Void = {}
 
     private struct Copy {
-        let heading, sub, formTitle, formSub, submit, submitting: String
+        let title, sub, submit, submitting: String
     }
 
     private var copy: Copy {
-        switch mode {
-        case .signin:
-            Copy(heading: "Log in to your collection.", sub: "Use your email and password, or continue with Google or Apple, to get back to your collection.", formTitle: "Log in", formSub: "Enter the email and password you signed up with.", submit: "Log in", submitting: "Logging in...")
-        case .signup:
-            Copy(heading: "Start your collection.", sub: "Create a free account to track item photos, receipts, what you paid, and what it's worth now.", formTitle: "Create your account", formSub: "Sign up with your email and a password of at least 8 characters.", submit: "Create account", submitting: "Creating account...")
+        switch step {
+        case .email:
+            Copy(title: "Log in or sign up", sub: "Enter your email to get back to your collection, or to start a free one.", submit: "Continue", submitting: "Continuing...")
+        case .password:
+            Copy(title: "Enter your password", sub: "Log in with the password you chose for this email.", submit: "Log in", submitting: "Logging in...")
+        case .create:
+            Copy(title: "Create your account", sub: "Choose a password of at least 8 characters. Then track item photos, receipts, what you paid, and what it's worth now.", submit: "Create account", submitting: "Creating account...")
         case .forgot:
-            Copy(heading: "Reset your password.", sub: "Enter your account email and we'll send you a link to choose a new password.", formTitle: "Forgot your password?", formSub: "We'll email you a secure link to reset it.", submit: "Send reset link", submitting: "Sending...")
+            Copy(title: "Reset your password", sub: "Enter your account email and we'll send you a link to choose a new password.", submit: "Send reset link", submitting: "Sending...")
         }
     }
 
+    private var trimmedEmail: String { email.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(copy.heading)
-                        .font(.display(36, relativeTo: .largeTitle).weight(.semibold))
+            Card(padding: 22) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(copy.title)
+                        .font(.display(30, relativeTo: .largeTitle).weight(.semibold))
                         .foregroundStyle(Theme.ink)
                         .accessibilityAddTraits(.isHeader)
-                    Text(copy.sub).font(.body).foregroundStyle(Theme.brown)
-                }
+                    Text(copy.sub).foregroundStyle(Theme.brown).padding(.top, 8)
+                    if let message {
+                        AuthMessage(message: message) { goTo($0) }.padding(.top, 16)
+                    }
 
-                Card(padding: 22) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if mode != .forgot {
-                            AuthModeTabs(mode: mode) { switchMode($0) }
-                                .padding(.bottom, 22)
-                        }
-                        Text(copy.formTitle).font(.display(24, relativeTo: .title2).weight(.semibold)).foregroundStyle(Theme.ink)
-                        Text(copy.formSub).foregroundStyle(Theme.brown).padding(.top, 8)
-                        if let message {
-                            AuthMessage(message: message) { switchMode($0) }.padding(.top, 16)
-                        }
-                        VStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if step == .password || step == .create {
+                            settledEmail
+                        } else {
                             Field(label: "Email", text: $email, kind: .email)
-                            if mode != .forgot {
-                                Field(label: "Password", text: $password, kind: mode == .signup ? .newPassword : .password)
+                        }
+
+                        if step == .password {
+                            Field(label: "Password", text: $password, kind: .password)
+                            AuthLink("Forgot your password?") { goTo(.forgot) }.font(.subheadline)
+                        }
+
+                        if step == .create {
+                            Field(label: "Password", text: $password, kind: .newPassword)
+                            Field(label: "Confirm password", text: $confirmPassword, kind: .newPassword)
+                            Toggle(isOn: $emailUpdates) {
+                                Text("Email me now and then about new FirstFinder features. Optional, and you can turn it off anytime in My account.")
+                                    .font(.subheadline).foregroundStyle(Theme.brown)
                             }
-                            if mode == .signup {
-                                Field(label: "Confirm password", text: $confirmPassword, kind: .newPassword)
-                                Toggle(isOn: $emailUpdates) {
-                                    Text("Email me now and then about new FirstFinder features. Optional, and you can turn it off anytime in My account.")
-                                        .font(.subheadline).foregroundStyle(Theme.brown)
+                            .toggleStyle(CheckboxToggleStyle())
+                        }
+                    }
+                    .padding(.top, 20)
+
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        Text(loading ? copy.submitting : copy.submit)
+                    }
+                    .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
+                    .disabled(loading)
+                    .padding(.top, 22)
+
+                    // No lookup decides between these two, so each says
+                    // plainly how to reach the other.
+                    Group {
+                        switch step {
+                        case .password:
+                            HStack(spacing: 4) {
+                                Text("New to FirstFinder?")
+                                AuthLink("Create an account") { goTo(.create) }
+                            }
+                        case .create:
+                            HStack(spacing: 4) {
+                                Text("Already have an account?")
+                                AuthLink("Log in") { goTo(.password) }
+                            }
+                        case .forgot:
+                            HStack(spacing: 4) {
+                                Text("Remembered it?")
+                                AuthLink("Back to log in") { goTo(AuthFlow.stepBackFromReset(email: email)) }
+                            }
+                        case .email:
+                            EmptyView()
+                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.brown)
+                    .padding(.top, 18)
+
+                    if AuthFlow.showsSocialButtons(step) {
+                        OrDivider().padding(.vertical, 22)
+                        VStack(spacing: 12) {
+                            SocialAuthButton(systemImage: "g.circle", title: "Continue with Google") { Task { await google() } }
+                                .disabled(loading)
+                            if AppConfig.appleSignInEnabled() {
+                                AppleSignInButton { message = .init(kind: .error, text: $0) }
+                            } else {
+                                SocialAuthButton(systemImage: "apple.logo", title: "Continue with Apple") {
+                                    message = .init(kind: .error, text: "Sign in with Apple isn't available yet. Use Google or your email.")
                                 }
-                                .toggleStyle(CheckboxToggleStyle())
                             }
                         }
-                        .padding(.top, 20)
+                    }
 
-                        Button {
-                            Task { await submit() }
-                        } label: {
-                            Text(loading ? copy.submitting : copy.submit)
-                        }
-                        .buttonStyle(FFButtonStyle(variant: .primary, fullWidth: true))
-                        .disabled(loading)
-                        .padding(.top, 22)
-
-                        if mode != .forgot {
-                            OrDivider().padding(.vertical, 22)
-                            VStack(spacing: 12) {
-                                SocialAuthButton(systemImage: "g.circle", title: "Continue with Google") { Task { await google() } }
-                                    .disabled(loading)
-                                if AppConfig.appleSignInEnabled() {
-                                    AppleSignInButton { message = .init(kind: .error, text: $0) }
-                                } else {
-                                    SocialAuthButton(systemImage: "apple.logo", title: "Continue with Apple") {
-                                        message = .init(kind: .error, text: "Sign in with Apple isn't available yet. Use Google or your email.")
-                                    }
-                                }
-                            }
-                        }
-
-                        Group {
-                            if mode == .signin {
-                                AuthLink("Forgot your password?") { switchMode(.forgot) }
-                            } else if mode == .forgot {
-                                HStack(spacing: 4) {
-                                    Text("Remembered it?")
-                                    AuthLink("Back to log in") { switchMode(.signin) }
-                                }
-                            }
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.brown)
-                        .padding(.top, 20)
-
-                        if mode != .forgot {
-                            AuthTermsNotice(
-                                action: mode == .signup ? "Creating an account, or continuing with Google or Apple," : "Continuing with Google or Apple",
-                                onViewTerms: onViewTerms,
-                                onViewPrivacy: onViewPrivacy
-                            )
-                            .padding(.top, 14)
-                        }
+                    // Shown where an account can start: the social buttons on
+                    // the first step, the email sign-up on the create step.
+                    if step == .email || step == .create {
+                        AuthTermsNotice(
+                            action: step == .create ? "Creating an account" : "Continuing with Google or Apple",
+                            onViewTerms: onViewTerms,
+                            onViewPrivacy: onViewPrivacy
+                        )
+                        .padding(.top, 14)
                     }
                 }
             }
             .padding(16)
         }
         .background(Theme.page)
-        .navigationTitle(mode == .signup ? AppView.signup.title : mode == .forgot ? AppView.resetPassword.title : AppView.login.title)
+        .navigationTitle(step == .create ? AppView.signup.title : step == .forgot ? AppView.resetPassword.title : AppView.login.title)
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    // Keeps the email across the switch but drops the passwords, as the web does.
-    private func switchMode(_ next: Mode) {
-        guard next != mode else { return }
-        mode = next
+    // The email, settled, with a way back to change it.
+    private var settledEmail: some View {
+        HStack(spacing: 12) {
+            Text(trimmedEmail)
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.green)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            AuthLink("Change") { goTo(.email) }.font(.subheadline)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Theme.adaptive(0xf3ece1, dark: 0x0f332d), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.borderSoft))
+        .accessibilityElement(children: .combine)
+        // So Password AutoFill pairs the password with this account, as the
+        // hidden username input does on the web.
+        .background {
+            TextField("", text: .constant(trimmedEmail))
+                .textContentType(.username)
+                .frame(width: 1, height: 1)
+                .opacity(0)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+        }
+    }
+
+    // Keeps the email -- the point of offering another step after an error is
+    // not making someone type it again -- but drops the passwords, which
+    // belong to one step or the other.
+    private func goTo(_ next: AuthFlow.Step) {
+        step = next
         message = nil
         password = ""
         confirmPassword = ""
@@ -151,11 +197,18 @@ struct LoginPage: View {
     }
 
     private func submit() async {
-        let trimmed = email.trimmingCharacters(in: .whitespaces)
-        switch mode {
-        case .signin:
-            guard !trimmed.isEmpty, !password.isEmpty else {
-                message = .init(kind: .error, text: "Enter your email and password.")
+        let trimmed = trimmedEmail
+        switch step {
+        case .email:
+            // Nothing is sent: see AuthFlow.Step for why the email isn't looked up.
+            if let problem = AuthFlow.emailProblem(trimmed) {
+                message = .init(kind: .error, text: problem)
+                return
+            }
+            goTo(.password)
+        case .password:
+            guard !password.isEmpty else {
+                message = .init(kind: .error, text: "Enter your password.")
                 return
             }
             loading = true
@@ -163,13 +216,12 @@ struct LoginPage: View {
             do {
                 try await app.signIn(email: trimmed, password: password)
             } catch {
-                message = .init(kind: .error, text: error.localizedDescription)
+                let text = error.localizedDescription
+                message = text == AuthFlow.wrongPasswordMessage
+                    ? .init(kind: .error, text: "\(text) If you just signed up, confirm your email first.", action: (.create, "New to FirstFinder? Create an account with this email"))
+                    : .init(kind: .error, text: text)
             }
-        case .signup:
-            guard !trimmed.isEmpty else {
-                message = .init(kind: .error, text: "Enter your email address first.")
-                return
-            }
+        case .create:
             if let problem = AuthFlow.passwordProblem(password, confirm: confirmPassword) {
                 message = .init(kind: .error, text: problem)
                 return
@@ -177,21 +229,22 @@ struct LoginPage: View {
             loading = true
             defer { loading = false }
             do {
-                switch try await app.createAccount(email: trimmed, password: password, emailUpdates: emailUpdates) {
+                let outcome = try await app.createAccount(email: trimmed, password: password, emailUpdates: emailUpdates)
+                if let next = AuthFlow.stepAfterSignUp(outcome) { goTo(next) }
+                switch outcome {
                 case .signedIn:
                     break
                 case .alreadyRegistered:
-                    message = .init(kind: .error, text: "An account with this email already exists.", action: (.signin, "Log in instead"))
+                    message = .init(kind: .info, text: AuthFlow.alreadyRegisteredMessage)
                 case .confirmEmail:
-                    switchMode(.signin)
                     message = .init(kind: .info, text: AuthFlow.confirmationMessage(trimmed))
                 }
             } catch {
                 message = .init(kind: .error, text: error.localizedDescription)
             }
         case .forgot:
-            guard !trimmed.isEmpty else {
-                message = .init(kind: .error, text: "Enter your email address first.")
+            if let problem = AuthFlow.emailProblem(trimmed) {
+                message = .init(kind: .error, text: problem)
                 return
             }
             loading = true
@@ -206,51 +259,18 @@ struct LoginPage: View {
     }
 }
 
-struct AuthModeTabs: View {
-    let mode: LoginPage.Mode
-    let onChange: (LoginPage.Mode) -> Void
-
-    var body: some View {
-        HStack(spacing: 4) {
-            tab(.signin, "Log in")
-            tab(.signup, "Create account")
-        }
-        .padding(4)
-        .background(Theme.adaptive(0xf3ece1, dark: 0x0f332d), in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.borderSoft))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Log in or create an account")
-    }
-
-    private func tab(_ value: LoginPage.Mode, _ label: String) -> some View {
-        Button {
-            onChange(value)
-        } label: {
-            Text(label)
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 40)
-                .foregroundStyle(mode == value ? Theme.onAction : Theme.brown)
-                .background(mode == value ? Theme.action : .clear, in: Capsule())
-                // The whole half takes the tap, not just the word.
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.ffPress)
-        .accessibilityAddTraits(mode == value ? [.isSelected] : [])
-    }
-}
-
 struct AuthMessage: View {
     struct Message: Equatable {
         enum Kind { case error, info }
         let kind: Kind
         let text: String
-        var action: (LoginPage.Mode, String)?
+        var action: (AuthFlow.Step, String)?
 
         static func == (lhs: Message, rhs: Message) -> Bool { lhs.kind == rhs.kind && lhs.text == rhs.text }
     }
 
     let message: Message
-    let onAction: (LoginPage.Mode) -> Void
+    let onAction: (AuthFlow.Step) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

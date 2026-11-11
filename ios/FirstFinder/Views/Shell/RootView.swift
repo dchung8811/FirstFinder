@@ -165,10 +165,10 @@ struct SignedOutDestination: View {
     var body: some View {
         switch view {
         case .login:
-            LoginPage(mode: .signin, onViewTerms: { path.append(AppView.terms) }, onViewPrivacy: { path.append(AppView.privacy) })
+            LoginPage(onViewTerms: { path.append(AppView.terms) }, onViewPrivacy: { path.append(AppView.privacy) })
                 .solidNavigationBar()
         case .signup:
-            LoginPage(mode: .signup, onViewTerms: { path.append(AppView.terms) }, onViewPrivacy: { path.append(AppView.privacy) })
+            LoginPage(onViewTerms: { path.append(AppView.terms) }, onViewPrivacy: { path.append(AppView.privacy) })
                 .solidNavigationBar()
         case .resetPassword:
             ResetPasswordPage().solidNavigationBar()
