@@ -324,6 +324,35 @@ Settings -> API -> service_role ("secret"), and set it in `.env.local` for
 local dev and in Vercel's environment variables for production. It must
 never be prefixed with `NEXT_PUBLIC_` and is never sent to the browser.
 
+### Email (Gmail SMTP)
+
+FirstFinder sends its own email through a Gmail account over SMTP: the one-time
+"You added your first book!" note (`app/api/first-item-email`), and, through
+Supabase's custom SMTP setting, the Auth emails (confirm signup, reset
+password, magic link, change email). It needs three variables, in `.env.local`
+for local dev and in Vercel for production (redeploy after adding them):
+
+- `GMAIL_USER` -- the Gmail address that sends.
+- `GMAIL_APP_PASSWORD` -- an [app password](https://myaccount.google.com/apppasswords)
+  for that account, which needs 2-Step Verification on. Spaces are stripped, so
+  it can be pasted the way Google shows it.
+- `EMAIL_FROM` -- optional display name, default `FirstFinder`. Gmail always
+  sends from `GMAIL_USER`, so this is only the name in front of it.
+
+Without them nothing is sent: the server logs
+`[email not sent: GMAIL_USER or GMAIL_APP_PASSWORD is unset]` and the
+first-item email stays unsent, so it goes out once they are set. Adding an item
+never waits on or fails because of email. "Once" is enforced by
+`first_item_emails` (`supabase/first-item-email.sql`). The sending code is
+`src/lib/email.js`; the templates and the pure helpers are in
+`src/utils/email.js`.
+
+The Supabase side -- custom SMTP, the rate limit, and the branded Auth
+templates -- is set in the dashboard; the steps and the templates are in
+[`supabase/email-templates/`](supabase/email-templates/README.md). A personal
+Gmail account sends about 500 messages a day in total, shared between the Auth
+emails and the app's own.
+
 ### Feedback to GitHub issues
 
 The in-app feedback form writes to the `feedback` table, and
