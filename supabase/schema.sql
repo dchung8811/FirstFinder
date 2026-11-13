@@ -1263,3 +1263,47 @@ revoke all on function public.email_sign_in_methods(text) from public;
 revoke all on function public.email_sign_in_methods(text) from anon;
 revoke all on function public.email_sign_in_methods(text) from authenticated;
 grant execute on function public.email_sign_in_methods(text) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- First-item email claim (patch: first-item-email.sql)
+-- ---------------------------------------------------------------------------
+-- One row per collector, claimed by app/api/first-item-email before the "you
+-- added your first book" email goes out, so it is sent once and only once.
+-- See first-item-email.sql for the statuses and why it is a table rather than
+-- a column. RLS on with no policies: a collector able to delete their own row
+-- could have the email resent as often as they liked.
+create table if not exists public.first_item_emails (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  status text not null check (status in ('sending', 'sent', 'existing')),
+  claimed_at timestamptz not null default now(),
+  sent_at timestamptz
+);
+
+alter table public.first_item_emails enable row level security;
+revoke all on public.first_item_emails from anon, authenticated;
+grant select, insert, update, delete on public.first_item_emails to service_role;
+
+-- True means this caller won the claim and must send. The conditional update
+-- takes back a claim abandoned mid-send (a timeout, a deploy) after fifteen
+-- minutes, far longer than any real send.
+create or replace function public.claim_first_item_email(p_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = ''
+as $$
+  with claimed as (
+    insert into public.first_item_emails as f (user_id, status, claimed_at)
+    values (p_user_id, 'sending', now())
+    on conflict (user_id) do update
+      set status = 'sending', claimed_at = now()
+      where f.status = 'sending' and f.claimed_at < now() - interval '15 minutes'
+    returning 1
+  )
+  select exists (select 1 from claimed);
+$$;
+
+revoke all on function public.claim_first_item_email(uuid) from public;
+revoke all on function public.claim_first_item_email(uuid) from anon;
+revoke all on function public.claim_first_item_email(uuid) from authenticated;
+grant execute on function public.claim_first_item_email(uuid) to service_role;

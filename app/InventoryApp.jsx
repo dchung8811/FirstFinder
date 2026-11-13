@@ -126,6 +126,7 @@ import { monthLabel, monthlyBuckets, dashboardRanges, applyDashboardFilters, rec
 import { emailUpdatesMetadata, isSubscribedToEmailUpdates } from "../src/utils/emailUpdates";
 import { readLookupAnswer } from "../src/utils/emailLookup";
 import { setPendingEmailUpdates, takePendingEmailUpdates } from "../src/lib/pendingEmailUpdates";
+import { requestFirstItemEmail } from "../src/lib/firstItemEmail";
 import { isOAuthProviderReady } from "../src/lib/oauthReadiness";
 import { bannerDestination, bannerDismissalId, fromDbBanner, shouldShowBanner } from "../src/utils/siteBanner";
 import { readDismissedBanner, writeDismissedBanner } from "../src/lib/bannerDismissal";
@@ -1562,6 +1563,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
       .single();
 
     if (error) throw new Error(error.message);
+    requestFirstItemEmail(userId);
 
     if (itemPhotoList.length === 0 && receiptPhotoList.length === 0) return;
 
@@ -1873,6 +1875,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
         pushToast(describeWriteError(error), "error");
         return null;
       }
+      requestFirstItemEmail(currentUser.id);
 
       let finalRow = data;
       // Two different failures, kept apart because they call for opposite
@@ -3081,6 +3084,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
           return;
         }
         created = (data || []).map(fromDbItem);
+        requestFirstItemEmail(currentUser.id);
       }
 
       let updated = [];
