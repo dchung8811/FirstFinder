@@ -132,7 +132,8 @@ ones you can skip — is in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup).
 - Review shipped, planned, and longer-term work on the **Now / Next / Later Roadmap**.
 - Open the **Contribute** page to read the source, run it locally, and pick up the `good first issue` and `help wanted` lists, read live from GitHub.
 - Send feedback from inside the app when logged in, with optional photo attachments.
-- Measure key product interactions with Google Analytics events.
+- Measure key product interactions with Google Analytics events. When a collector is signed in, GA4 also gets their Supabase user UUID as `user_id` — the UUID only, never an email or a name (`app/AnalyticsUser.jsx`).
+- To find one collector's visits, look up their id by email in Supabase (Authentication → Users), then search it in GA4's User explorer or filter the BigQuery export on `user_id`.
 
 ## Tech stack
 
