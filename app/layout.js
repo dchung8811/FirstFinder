@@ -1,5 +1,6 @@
 import { GoogleAnalytics } from "@next/third-parties/google";
 import ServiceWorkerRegistrar from "./ServiceWorkerRegistrar";
+import AnalyticsUser from "./AnalyticsUser";
 import { Fraunces, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { HOME_TITLE } from "../src/utils/appNav";
@@ -64,6 +65,10 @@ export default function RootLayout({ children }) {
       <body className={`${fraunces.variable} ${plexMono.variable}`}>
         {children}
         <ServiceWorkerRegistrar />
+        {/* Before GoogleAnalytics on purpose: effects run in tree order, so
+            AnalyticsUser's user_id reaches the dataLayer ahead of GA's config
+            and the first page_view of a signed-in visit carries it. */}
+        {gaId && <AnalyticsUser />}
         {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
