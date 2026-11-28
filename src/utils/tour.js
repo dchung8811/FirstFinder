@@ -47,7 +47,9 @@ export const TOUR_STEPS = [
     title: "Bring a spreadsheet",
     body: "Already keep a list? Download the template, fill it in, and import the whole thing at once. You'll see a preview before anything is saved.",
     view: "addItems",
-    targets: ["add-bulk"]
+    targets: ["add-bulk"],
+    // The import is hidden on phones (see AddItemsPage), so the step is too.
+    wideScreenOnly: true
   },
   {
     id: "collection-tools",
@@ -89,11 +91,30 @@ export const TOUR_STEPS = [
   }
 ];
 
-// The index of the next (or, going back, previous) step, or null past either
-// end.
-export function nearbyStep(from, direction) {
-  const index = from + direction;
-  return index >= 0 && index < TOUR_STEPS.length ? index : null;
+// Wider than a phone: Tailwind's md breakpoint, the same one AddItemsPage
+// hides the CSV import below. The two have to agree, or the tour points at
+// something that isn't there.
+export const WIDE_SCREEN_QUERY = "(min-width: 768px)";
+
+// Whether a step is shown on this screen: wide-screen-only ones are skipped
+// on phones.
+export function stepFits(step, wideScreen) {
+  return wideScreen || !step.wideScreenOnly;
+}
+
+// The steps shown on this screen, for counting where the collector is.
+export function tourStepsFor(wideScreen) {
+  return TOUR_STEPS.filter((step) => stepFits(step, wideScreen));
+}
+
+// The index in TOUR_STEPS of the next (or, going back, previous) step shown on
+// this screen, or null past either end. Progress keeps indexes into the full
+// list, so it stays valid when the screen changes size mid-tour.
+export function nearbyStep(from, direction, wideScreen = true) {
+  for (let index = from + direction; index >= 0 && index < TOUR_STEPS.length; index += direction) {
+    if (stepFits(TOUR_STEPS[index], wideScreen)) return index;
+  }
+  return null;
 }
 
 // Views the tour may start over by itself. Not the identify review, the full

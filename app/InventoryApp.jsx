@@ -6502,7 +6502,7 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-5xl font-semibold tracking-tight">Add something quickly.</h1>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">Snap a picture to fill in quick add, or type it in. Use CSV for bulk import, or open the tutorial for the guided flow.</p>
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-[#665746]">Snap a picture to fill in quick add, or type it in. <span className="hidden md:inline">Use CSV for bulk import, or open</span><span className="md:hidden">Or open</span> the tutorial for the guided flow.</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button
@@ -6608,7 +6608,13 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
         </Card>
       </div>
 
-      <div className="mt-8" data-tour="add-bulk">
+      {/* Not on a phone. Importing means filling in a spreadsheet template
+          and uploading it, which is a laptop job: on a phone the template
+          downloads into Files with nothing good to open it in, and the card
+          is a screen of scrolling between quick add and the rest of the page.
+          Hidden by width rather than by device, so the guided tour can skip
+          its step by the same rule (WIDE_SCREEN_QUERY in src/utils/tour.js). */}
+      <div className="mt-8 hidden md:block" data-tour="add-bulk">
         <BulkUploadCard onDownloadTemplate={onDownloadTemplate} onBulkUpload={onBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />
       </div>
 
@@ -7078,7 +7084,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
           <CardContent className="p-8 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#123f38] text-[#fff7ea]"><Icon name="receipt" size={26} /></div>
             <h2 className="mt-5 text-2xl font-semibold">Nothing in your collection yet</h2>
-            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">Add an item or import a CSV to start building your cost-basis record.</p>
+            <p className="mx-auto mt-3 max-w-md leading-7 text-[#665746]">Add an item<span className="hidden md:inline"> or import a CSV</span> to start building your cost-basis record.</p>
           </CardContent>
         </Card>
       ) : displayedInventory.length === 0 ? (
