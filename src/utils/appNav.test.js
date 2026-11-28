@@ -10,8 +10,15 @@ describe("appNavItems", () => {
 
   it("gives a collector the full list, with Explore as a real link", () => {
     const items = appNavItems({ isLoggedIn: true });
-    expect(views(items)).toEqual(["dashboard", "inventory", "wishlist", "addItems", "explore", "feedback", "about", "roadmap", "account"]);
+    expect(views(items)).toEqual(["dashboard", "inventory", "wishlist", "addItems", "explore", "feedback", "tour", "about", "roadmap", "account"]);
     expect(items.find((item) => item.view === "explore").href).toBe("/explore");
+  });
+
+  it("offers the tutorial to collectors, and sends pages outside the app into it to start", () => {
+    const tour = appNavItems({ isLoggedIn: true }).find((item) => item.view === "tour");
+    expect(tour.label).toBe("Tutorial");
+    expect(tour.href).toBe("/dashboard?tour=1");
+    expect(views(appNavItems({ isLoggedIn: false }))).not.toContain("tour");
   });
 
   it("shows counts only once they are known", () => {
