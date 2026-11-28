@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { START_TOUR_EVENT, TOUR_STEPS, nearbyStep, placeTooltip } from "../src/utils/tour";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { START_TOUR_EVENT, TOUR_STEPS, WIDE_SCREEN_QUERY, nearbyStep, placeTooltip, stepFits, tourStepsFor } from "../src/utils/tour";
 
 // The guided tour: dims the app and spotlights one feature at a time, moving
 // through its views. Steps, auto-start rule and card placement live in
@@ -51,6 +51,14 @@ function findTarget(targets) {
   return null;
 }
 
+function watchWideScreen(onChange) {
+  const query = window.matchMedia(WIDE_SCREEN_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+const isWideScreen = () => window.matchMedia(WIDE_SCREEN_QUERY).matches;
+
 function reducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -84,12 +92,26 @@ export default function GuidedTour({ activeView, onNavigate, autoStart, onFinish
     onFinishRef.current = onFinish;
   });
 
-  const step = progress ? (TOUR_STEPS[progress.index] ?? null) : null;
+  // Steps for features hidden on phones (the CSV import) are skipped there.
+  // The server answers "wide", but the tour never renders on the server: it
+  // only mounts once someone is signed in, after hydration.
+  const wideScreen = useSyncExternalStore(watchWideScreen, isWideScreen, () => true);
+  const steps = tourStepsFor(wideScreen);
+  // A saved step that doesn't fit this screen -- a window narrowed to phone
+  // width mid-tour, or a tour picked up after a reload on a phone -- shows as
+  // the nearest step that does, going forward first. Worked out here rather
+  // than corrected in an effect, so the hidden step is never drawn even once.
+  const index = !progress
+    ? null
+    : stepFits(TOUR_STEPS[progress.index], wideScreen)
+      ? progress.index
+      : (nearbyStep(progress.index, 1, wideScreen) ?? nearbyStep(progress.index, -1, wideScreen));
+  const step = index === null ? null : (TOUR_STEPS[index] ?? null);
   const searching = Boolean(step) && found.stepId !== step.id;
   const target = searching ? null : found.element;
-  const previous = progress ? nearbyStep(progress.index, -1) : null;
-  const next = progress ? nearbyStep(progress.index, 1) : null;
-  const isFirst = progress?.index === 0;
+  const previous = index === null ? null : nearbyStep(index, -1, wideScreen);
+  const next = index === null ? null : nearbyStep(index, 1, wideScreen);
+  const isFirst = index === 0;
   const isLast = next === null;
 
   const start = useCallback((from) => {
@@ -259,8 +281,10 @@ export default function GuidedTour({ activeView, onNavigate, autoStart, onFinish
   if (!progress || !step) return null;
 
   // The welcome card isn't counted: "1 of 9" starts at the first feature.
-  const count = TOUR_STEPS.length - 1;
-  const position = progress.index;
+  // Counted among the steps shown on this screen, so a phone reads "of 8"
+  // rather than skipping a number. The welcome card isn't counted.
+  const count = steps.length - 1;
+  const position = steps.indexOf(step);
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="tour-title" aria-describedby="tour-body" className="fixed inset-0 z-[100] print:hidden">
@@ -293,7 +317,7 @@ export default function GuidedTour({ activeView, onNavigate, autoStart, onFinish
           </div>
           {!isFirst && (
             <div className="flex gap-1" aria-hidden="true">
-              {TOUR_STEPS.slice(1).map((item, index) => (
+              {steps.slice(1).map((item, index) => (
                 <span key={item.id} className={`h-1 flex-1 rounded-full ${index < position ? "bg-[#123f38]" : "bg-[#e0d2bc]"}`} />
               ))}
             </div>

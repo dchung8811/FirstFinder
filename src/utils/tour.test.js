@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { EDGE, GAP, TOUR_STEPS, nearbyStep, placeTooltip, shouldAutoStartTour } from "./tour";
+import { EDGE, GAP, TOUR_STEPS, nearbyStep, placeTooltip, shouldAutoStartTour, stepFits, tourStepsFor } from "./tour";
 import { VIEW_PATHS } from "./appNav";
 
 describe("TOUR_STEPS", () => {
@@ -26,10 +26,29 @@ describe("TOUR_STEPS", () => {
 
 describe("nearbyStep", () => {
   it("moves one step either way and stops at the ends", () => {
-    expect(nearbyStep(0, 1)).toBe(1);
-    expect(nearbyStep(3, -1)).toBe(2);
-    expect(nearbyStep(0, -1)).toBeNull();
-    expect(nearbyStep(TOUR_STEPS.length - 1, 1)).toBeNull();
+    expect(nearbyStep(0, 1, true)).toBe(1);
+    expect(nearbyStep(3, -1, true)).toBe(2);
+    expect(nearbyStep(0, -1, true)).toBeNull();
+    expect(nearbyStep(TOUR_STEPS.length - 1, 1, true)).toBeNull();
+  });
+
+  it("steps over the CSV import on a phone, both ways", () => {
+    const bulk = TOUR_STEPS.findIndex((step) => step.id === "bulk");
+    expect(nearbyStep(bulk - 1, 1, false)).toBe(bulk + 1);
+    expect(nearbyStep(bulk + 1, -1, false)).toBe(bulk - 1);
+    expect(nearbyStep(bulk - 1, 1, true)).toBe(bulk);
+  });
+});
+
+describe("tourStepsFor", () => {
+  it("leaves the CSV import out on a phone and in on anything wider", () => {
+    expect(tourStepsFor(false).map((step) => step.id)).not.toContain("bulk");
+    expect(tourStepsFor(true)).toHaveLength(TOUR_STEPS.length);
+    expect(tourStepsFor(false)).toHaveLength(TOUR_STEPS.length - 1);
+  });
+
+  it("only ever skips steps marked wide-screen only", () => {
+    for (const step of TOUR_STEPS) expect(stepFits(step, false), step.id).toBe(!step.wideScreenOnly);
   });
 });
 
