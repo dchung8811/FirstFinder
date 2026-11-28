@@ -7,6 +7,8 @@
 // app's own Features page (app/features/page.js), nav bar and all, which every
 // guide links back to.
 
+import AppStoreBadge from "../../AppStoreBadge";
+
 export default function FeaturesLayout({ children }) {
   return (
     <div className="min-h-screen bg-[#f6efe3] text-[#201a14]">
@@ -36,6 +38,7 @@ export default function FeaturesLayout({ children }) {
           </a>
           .
         </p>
+        <AppStoreBadge className="mt-6" />
       </footer>
     </div>
   );

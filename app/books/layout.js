@@ -6,6 +6,8 @@
 // markup is the kind of whole-file surgery that has already cost this repo one
 // regression. Duplicating the header here is the cheaper mistake.
 
+import AppStoreBadge from "../AppStoreBadge";
+
 export default function BooksLayout({ children }) {
   return (
     <div className="min-h-screen bg-[#f6efe3] text-[#201a14]">
@@ -39,6 +41,7 @@ export default function BooksLayout({ children }) {
           Identification guides are compiled from published references and checked by hand. They are a starting point,
           not an appraisal — condition, jacket and provenance decide what a copy is actually worth.
         </p>
+        <AppStoreBadge className="mt-6" />
       </footer>
     </div>
   );
