@@ -125,3 +125,23 @@ select:not([multiple]) {
     display: none;
   }
 }
+
+/* The guided tour's spotlight (app/GuidedTour.jsx): a clear box over the
+   feature, with the rest of the page dimmed by a shadow too large to see the
+   edge of. One element does both, so the hole always lines up. */
+.tour-spotlight {
+  border-radius: 1.25rem;
+  box-shadow:
+    0 0 0 3px rgb(255 249 240 / 0.95),
+    0 0 0 9999px rgb(32 26 20 / 0.7);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tour-spotlight {
+    transition:
+      top 300ms ease,
+      left 300ms ease,
+      width 300ms ease,
+      height 300ms ease;
+  }
+}

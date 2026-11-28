@@ -117,6 +117,11 @@ export function appNavItems({ isLoggedIn, inventoryCount = null, wishlistCount =
         // menu first. Roadmap keeps its place, further down -- which on most
         // widths means inside the menu.
         { view: "feedback", label: "Feedback" },
+        // Not a page: it starts the guided tour (app/GuidedTour.jsx) over
+        // whatever is on screen. The href is for the nav on pages outside
+        // the app (/explore), which can't run the tour themselves and send
+        // the collector into the app to start it there.
+        { view: "tour", label: "Tutorial", href: "/dashboard?tour=1" },
         { view: "about", label: "About" },
         { view: "roadmap", label: "Roadmap" },
         { view: "account", label: "My Account" }

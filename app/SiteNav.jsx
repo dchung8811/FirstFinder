@@ -72,7 +72,7 @@ function NavTabs({ items, activeView, onSelect, containerRef, measureRef, visibl
       {visibleCount > 0 && (
         <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-hidden rounded-full border border-[#d8c7ad] bg-[#fff8ee] p-1">
           {items.slice(0, visibleCount).map((navItem) => (
-            <TabButton key={navItem.view} active={activeView === navItem.view} onClick={() => onSelect(navItem.view)}>{navItem.label}</TabButton>
+            <TabButton key={navItem.view} tourId={`nav-${navItem.view}`} active={activeView === navItem.view} onClick={() => onSelect(navItem.view)}>{navItem.label}</TabButton>
           ))}
         </div>
       )}
@@ -81,7 +81,9 @@ function NavTabs({ items, activeView, onSelect, containerRef, measureRef, visibl
 }
 
 
-export function TabButton({ active, children, onClick, className = "" }) { return <button onClick={onClick} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"} ${className}`}>{children}</button>; }
+// `tourId` is what the guided tour (src/utils/tour.js) spotlights it by. Only
+// the visible row sets one: the hidden measuring copy must not be found first.
+export function TabButton({ active, children, onClick, className = "", tourId }) { return <button data-tour={tourId} onClick={onClick} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"} ${className}`}>{children}</button>; }
 function MobileNavLink({ active, children, onClick }) { return <button onClick={onClick} className={`rounded-xl px-4 py-3 text-left text-sm font-medium transition ${active ? "bg-[#123f38] text-[#fff7ea]" : "text-[#665746] hover:bg-white"}`}>{children}</button>; }
 
 function MenuIcon({ open }) {
@@ -181,6 +183,7 @@ export default function SiteNav({ items, activeView, onSelect, onHome, account, 
           <div className="relative" ref={menuRef}>
             <button
               type="button"
+              data-tour="nav-menu"
               onClick={() => setMenuOpen((open) => !open)}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d8c7ad] bg-[#fff8ee] text-[#201a14] hover:bg-white"
               aria-label={menuOpen ? "Close menu" : "Open menu"}

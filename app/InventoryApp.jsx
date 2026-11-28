@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
 import AppStoreBadge from "./AppStoreBadge";
+import GuidedTour from "./GuidedTour";
+import { START_TOUR_EVENT, TOUR_DONE, shouldAutoStartTour } from "../src/utils/tour";
 import { supabase } from "../src/lib/supabaseClient";
 import SiteNav from "./SiteNav";
 import { appNavItems, documentTitle, landingView, pathForView, viewForPath, viewTitle } from "../src/utils/appNav";
@@ -844,6 +846,18 @@ export default function FirstFinderApp({ initialView = "home" }) {
   // collector their collection is empty while it is still loading is the
   // worst possible reading of that state.
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  // Whether a load has come back from the server for this collector. Not the
+  // same as !inventoryLoading: before the session lookup starts the first
+  // load, nothing is loading and the collection is an empty [] that means
+  // "not asked yet". The guided tour judges "new collector" by an empty
+  // collection, so it needs the difference.
+  const [collectionKnown, setCollectionKnown] = useState(false);
+  // The Tutorial tab on a page outside the app (/explore) links here with
+  // ?tour=1. Read once at first render; the tour itself only draws after
+  // mount, so the server rendering false can't cause a mismatch.
+  const [tourRequested, setTourRequested] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tour") === "1"
+  );
   // Offline state (issue #60). `online` starts true rather than reading
   // navigator.onLine during render: the server has no such property, and a
   // first paint that disagrees with the client's is a hydration error. The
@@ -979,6 +993,36 @@ export default function FirstFinderApp({ initialView = "home" }) {
 
   function go(view) {
     setActiveView(view);
+  }
+
+  // The guided tour starts by itself once, for a new collector (the rule is
+  // in src/utils/tour.js), or when asked for by the Tutorial tab.
+  const tourAutoStart =
+    tourRequested ||
+    shouldAutoStartTour({
+      isLoggedIn,
+      tourState: currentUser?.user_metadata?.tour,
+      collectionLoaded: collectionKnown,
+      collectionSize: inventory.length,
+      view: activeView
+    });
+
+  function startTour() {
+    trackEvent("tour_started", { location: activeView });
+    window.dispatchEvent(new Event(START_TOUR_EVENT));
+  }
+
+  // Taken or skipped, it is done: recorded on the account rather than in this
+  // browser, so a collector who skips it on their laptop isn't shown it again
+  // on their phone. If the write fails (offline), the tour may start once
+  // more on the next visit, which is the cheaper way to be wrong.
+  function finishTour() {
+    setTourRequested(false);
+    trackEvent("tour_finished");
+    if (!currentUser || currentUser.user_metadata?.tour === TOUR_DONE) return;
+    supabase.auth.updateUser({ data: { tour: TOUR_DONE } }).then(({ error }) => {
+      if (error) console.error("Couldn't record the tour as done:", error.message);
+    });
   }
 
   // The site banner, set from /admin. Read with the anon key: RLS only returns
@@ -1149,11 +1193,14 @@ export default function FirstFinderApp({ initialView = "home" }) {
     if (fromPath && fromPath !== "home") viewIntentRef.current = fromPath;
 
     const query = new URLSearchParams(window.location.search);
-    if (query.get("share") !== "explore" && !query.has("view")) return;
+    if (query.get("share") !== "explore" && !query.has("view") && !query.has("tour")) return;
     if (query.get("share") === "explore") shareIntentRef.current = "explore";
     if (query.has("view")) viewIntentRef.current = query.get("view");
     query.delete("share");
     query.delete("view");
+    // Already read into tourRequested. Dropped so a refresh doesn't start
+    // the tour a second time.
+    query.delete("tour");
     const rest = query.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
   }, []);
@@ -1688,6 +1735,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
       // twice.
       setInventory(applyQueueToCollection(loaded, queueRef.current));
       setFromSnapshot(false);
+      setCollectionKnown(true);
       // Written on every load, so the snapshot is never older than the last
       // time the app worked. A failed write leaves syncedAt blank, which the
       // banner reads as "at some point" rather than claiming a time.
@@ -1722,6 +1770,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
     setQueue([]);
     loadedUserIdRef.current = null;
     setCurrentUser(null);
+    setCollectionKnown(false);
     setInventory([]);
     setSyncedAt("");
     setFromSnapshot(false);
@@ -3163,7 +3212,7 @@ export default function FirstFinderApp({ initialView = "home" }) {
         items={navItems}
         menuExtras={navMenuExtras}
         activeView={activeView}
-        onSelect={(navItem) => (navItem.href ? goToHref(navItem.href) : go(navItem.view))}
+        onSelect={(navItem) => (navItem.view === "tour" ? startTour() : navItem.href ? goToHref(navItem.href) : go(navItem.view))}
         onHome={() => go(isLoggedIn ? "dashboard" : "home")}
         account={
           isLoggedIn ? (
@@ -3274,7 +3323,9 @@ export default function FirstFinderApp({ initialView = "home" }) {
       {identifying && <IdentifyLoadingOverlay photos={identifyingPhotos} />}
       {scanning && <IdentifyLoadingOverlay photos={scanningPhotos} steps={scanningSteps} note="This takes a second or two. Check what it fills in before you submit." />}
 
-      <SiteFooter isLoggedIn={isLoggedIn} onNavigate={go} />
+      <SiteFooter isLoggedIn={isLoggedIn} onNavigate={go} onStartTour={startTour} />
+
+      {isLoggedIn && <GuidedTour activeView={activeView} onNavigate={go} autoStart={tourAutoStart} onFinish={finishTour} />}
 
       {pendingImport && (
         <BulkImportPreviewDialog
@@ -6481,7 +6532,7 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
         <DashboardCard icon="dollar" label="Change in value" value={formatCurrency(totalGain)} />
       </div>
 
-      <div id="quick-add-form" className="scroll-mt-24">
+      <div id="quick-add-form" data-tour="add-quick" className="scroll-mt-24">
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-xl">
           <CardContent className="p-6 md:p-8">
             <form onSubmit={onSave}>
@@ -6496,7 +6547,9 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
                   Snap the cover and copyright page and we'll fill in the fields below, edition and printing included, or type them in yourself. Nothing is saved until you submit.
                 </p>
               </div>
-              <SnapPictureButton onScan={onScanPhotos} scanning={scanning} scanned={Boolean(scanNotes)} />
+              <div data-tour="add-scan" className="shrink-0">
+                <SnapPictureButton onScan={onScanPhotos} scanning={scanning} scanned={Boolean(scanNotes)} />
+              </div>
             </div>
 
             {scanNotes && <ScanNotesPanel notes={scanNotes} onDismiss={onDismissScanNotes} />}
@@ -6555,7 +6608,7 @@ function AddItemsPage({ quickItem, setQuickItem, quickItemPhotos, quickReceiptPh
         </Card>
       </div>
 
-      <div className="mt-8">
+      <div className="mt-8" data-tour="add-bulk">
         <BulkUploadCard onDownloadTemplate={onDownloadTemplate} onBulkUpload={onBulkUpload} bulkUploading={bulkUploading} bulkMessage={bulkMessage} />
       </div>
 
@@ -6801,7 +6854,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-tour="collection-actions">
           <Button onClick={onAdd} className="h-11 flex-1 rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d] sm:flex-none">Add to collection</Button>
           {/* Always the verb, never the status. This button used to read
               "Sharing on" once a page was live, which describes a state
@@ -6873,7 +6926,7 @@ function InventoryPage({ inventory, loading, filteredInventory, searchTerm, setS
           results they shape. On a phone the icons sit beside
           search and Filters and sort share the second line -- all four on one
           line left sort too narrow to read its own label. */}
-      <div className="mt-6 grid grid-cols-[1fr_auto] gap-2 sm:flex sm:items-center">
+      <div className="mt-6 grid grid-cols-[1fr_auto] gap-2 sm:flex sm:items-center" data-tour="collection-tools">
         <label className="block min-w-0 sm:flex-1">
           <span className="sr-only">Search your collection</span>
           <input
@@ -7753,6 +7806,7 @@ function DashboardPage({ inventory, loading, onAddItems, onCollection, onOpenIte
             with forty books that they have nothing catalogued, under a button
             inviting them to add their "first" find, reads as data loss rather
             than as a spinner. */}
+        <div data-tour="dashboard-summary">
         <Card className="mt-8 rounded-[2rem] border-[#d8c7ad] bg-[#fff9f0] shadow-sm">
           {loading ? (
             <CardContent className="p-8 text-center">
@@ -7769,13 +7823,14 @@ function DashboardPage({ inventory, loading, onAddItems, onCollection, onOpenIte
             </CardContent>
           )}
         </Card>
+        </div>
       </section>
     );
   }
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-12">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between" data-tour="dashboard-summary">
         <div>
           <h1 className="text-5xl font-semibold tracking-tight">Your collection.</h1>
           {/* Leads with the shelf, not the ledger: how much is here and how
@@ -8351,7 +8406,7 @@ function FooterLink({ children, onClick, href }) {
   return <button type="button" onClick={onClick} className={`${className} text-left`}>{children}</button>;
 }
 
-function SiteFooter({ isLoggedIn, onNavigate }) {
+function SiteFooter({ isLoggedIn, onNavigate, onStartTour }) {
   // Footer links to logged-in areas send signed-out visitors to log in rather
   // than to a page that would render nothing.
   const go = (view) => () => onNavigate(isLoggedIn ? view : "login");
@@ -8385,7 +8440,9 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
         <div>
           <div className="text-xs uppercase tracking-[0.18em] text-[#fff7ea]/50">Features</div>
           <div className="mt-4 flex flex-col gap-3">
-            <FooterLink onClick={go("tutorial")}>How to / Tutorial</FooterLink>
+            {/* The guided tour, the same as the Tutorial tab. The full add
+                form this used to open is still a button on Add Items. */}
+            <FooterLink onClick={isLoggedIn ? onStartTour : go("tour")}>Tutorial</FooterLink>
             <FooterLink onClick={go("inventory")}>My Collection</FooterLink>
             <FooterLink onClick={go("wishlist")}>Wishlist</FooterLink>
             <FooterLink onClick={go("account")}>My Account</FooterLink>
@@ -9781,9 +9838,11 @@ function WishlistPage({ wishlist, openList, summary, loading, inventory, onAdd, 
             collection is worth.
           </p>
         </div>
-        <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
-          Add a want
-        </Button>
+        <div data-tour="wishlist-add">
+          <Button onClick={onAdd} className="rounded-full bg-[#123f38] px-6 text-[#fff7ea] hover:bg-[#0f332d]">
+            Add a want
+          </Button>
+        </div>
       </div>
 
       {openList.length > 0 && (
