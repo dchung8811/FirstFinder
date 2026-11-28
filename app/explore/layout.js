@@ -1,4 +1,5 @@
 import ExploreNav from "./ExploreNav";
+import AppStoreBadge from "../AppStoreBadge";
 
 // The shell around /explore. Unlike /c/<slug> and the guides, it wears the
 // app's own nav bar: Explore is one of that bar's tabs, so arriving here from
@@ -17,6 +18,7 @@ export default function ExploreLayout({ children }) {
           Every shelf here was put on Explore by its owner, who can take it off again at any time. Editions and
           condition are their own record of their own collection — not an appraisal, and not verified by FirstFinder.
         </p>
+        <AppStoreBadge className="mt-6" />
       </footer>
     </div>
   );

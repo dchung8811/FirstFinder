@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AppStoreBadge from "../AppStoreBadge";
 
 // The shell around a public collection page.
 //
@@ -49,6 +50,7 @@ export default function SharedCollectionLayout({ children }) {
           Everything here was entered by its owner. Editions, condition, and any values shown are their record of their
           own collection — not an appraisal, and not verified by FirstFinder.
         </p>
+        <AppStoreBadge className="mt-6" />
       </footer>
     </div>
   );

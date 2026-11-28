@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import { useRouter } from "next/navigation";
 import { sendGAEvent } from "@next/third-parties/google";
 import { motion, AnimatePresence } from "framer-motion";
+import AppStoreBadge from "./AppStoreBadge";
 import { supabase } from "../src/lib/supabaseClient";
 import SiteNav from "./SiteNav";
 import { appNavItems, documentTitle, landingView, pathForView, viewForPath, viewTitle } from "../src/utils/appNav";
@@ -8366,6 +8367,7 @@ function SiteFooter({ isLoggedIn, onNavigate }) {
           <p className="mt-4 max-w-xs text-sm leading-6 text-[#fff7ea]/70">
             Item photos, receipt proof, purchase details, and value — one ledger for the collection you swore you'd keep track of this time.
           </p>
+          <AppStoreBadge className="mt-6" />
           <p className="mt-6 text-xs text-[#fff7ea]/50" suppressHydrationWarning>
             © {new Date().getFullYear()} FirstFinder. Free and open source under the{" "}
             <a
